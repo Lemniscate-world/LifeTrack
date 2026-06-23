@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { resetStore } from '../store';
 import App from '../App';
@@ -23,8 +23,14 @@ describe('App component', () => {
     expect(screen.getByText(`${currentMonth}, ${currentYear}`)).toBeInTheDocument();
   });
 
-  it('renders day headers with letters and numbers', () => {
+  it('renders day headers with letters and numbers', async () => {
+    const user = userEvent.setup();
     render(<App />);
+    // Need a habit for the grid to render instead of empty state
+    await user.click(screen.getByText('+ New Habit'));
+    await user.type(screen.getByPlaceholderText('Habit name...'), 'Test');
+    await user.click(screen.getByText('Add'));
+
     // First day should be "1" and a letter
     expect(screen.getByText('1')).toBeInTheDocument();
     // Day letters should be present
@@ -61,11 +67,7 @@ describe('App component', () => {
     await user.type(screen.getByPlaceholderText('Habit name...'), 'Read');
     await user.click(screen.getByText('Add'));
 
-    // Find day 1 cell and click it
-    const dayCells = screen.getAllByRole('cell');
-    // The first day cell after the habit name column
-    const day1Cell = screen.getByText('1').closest('th');
-    // We need the td with day 1, not the th
+    // Find the first day cell td and click it
     const allTds = document.querySelectorAll('td.col-day');
     expect(allTds.length).toBeGreaterThan(0);
 
@@ -77,21 +79,20 @@ describe('App component', () => {
     expect(checkIcons.length).toBeGreaterThan(0);
   });
 
-  it('shows the notes section', () => {
+  it('shows the notes toggle button', () => {
     render(<App />);
     expect(screen.getByText('Notes')).toBeInTheDocument();
-    expect(screen.getByText('+ New Note')).toBeInTheDocument();
   });
 
-  it('adds a note', async () => {
+  it('adds a note via the notes panel', async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    // Click "+ New Note"
-    await user.click(screen.getByText('+ New Note'));
+    // Click "Notes" toggle to open panel
+    await user.click(screen.getByText('Notes'));
 
     // Type note content
-    const textarea = screen.getByPlaceholderText('Write your note...');
+    const textarea = screen.getByPlaceholderText('Write a note...');
     await user.type(textarea, 'Test note content');
 
     // Click Save
@@ -106,13 +107,14 @@ describe('App component', () => {
     render(<App />);
 
     // Add a note first
-    await user.click(screen.getByText('+ New Note'));
-    await user.type(screen.getByPlaceholderText('Write your note...'), 'Delete me');
+    await user.click(screen.getByText('Notes'));
+    await user.type(screen.getByPlaceholderText('Write a note...'), 'Delete me');
     await user.click(screen.getByText('Save'));
 
-    // Delete it
-    const deleteButton = screen.getByTitle('Delete note');
-    await user.click(deleteButton);
+    // Delete it - find the X button in the notes list
+    const deleteBtn = document.querySelector('.notes-delete') as HTMLElement;
+    expect(deleteBtn).not.toBeNull();
+    await user.click(deleteBtn);
 
     // Note should be gone
     expect(screen.queryByText('Delete me')).not.toBeInTheDocument();
@@ -148,8 +150,8 @@ describe('App component', () => {
     await user.type(screen.getByPlaceholderText('Habit name...'), 'Gym');
     await user.click(screen.getByText('Add'));
 
-    // Find the goal cell - it should show "0/30" or similar
-    const goalElement = document.querySelector('.goal-clickable');
+    // Find the goal cell - it should show the goal number
+    const goalElement = document.querySelector('.goal-number');
     expect(goalElement).not.toBeNull();
 
     // Click on goal to edit
@@ -160,5 +162,74 @@ describe('App component', () => {
     // An input should appear
     const goalInput = document.querySelector('.goal-input');
     expect(goalInput).not.toBeNull();
+  });
+
+  it('switches to Statistics view and shows empty state', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const statsTab = screen.getByText('Statistics');
+    await user.click(statsTab);
+
+    // Should show empty state since no habits exist
+    expect(screen.getByText('Add habits to see statistics.')).toBeInTheDocument();
+  });
+
+  it('shows statistics with data after adding a habit and check-in', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    // Add a habit
+    await user.click(screen.getByText('+ New Habit'));
+    await user.type(screen.getByPlaceholderText('Habit name...'), 'Gym');
+    await user.click(screen.getByText('Add'));
+
+    // Toggle today's cell
+    const allTds = document.querySelectorAll('td.col-day');
+    if (allTds.length > 0) {
+      await user.click(allTds[0]);
+    }
+
+    // Switch to stats
+    await user.click(screen.getByText('Statistics'));
+
+    // Should show the habit name
+    expect(screen.getByText('Gym')).toBeInTheDocument();
+    // Should show streak headers
+    expect(screen.getByText('Streak')).toBeInTheDocument();
+    expect(screen.getByText('Best')).toBeInTheDocument();
+  });
+
+  it('can switch back to Grid view from Statistics', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    // Add a habit so grid has content
+    await user.click(screen.getByText('+ New Habit'));
+    await user.type(screen.getByPlaceholderText('Habit name...'), 'Test');
+    await user.click(screen.getByText('Add'));
+
+    await user.click(screen.getByText('Statistics'));
+    await user.click(screen.getByText('Grid'));
+
+    // Grid should be visible again (day numbers present)
+    expect(screen.getByText('1')).toBeInTheDocument();
+  });
+
+  it('shows empty state when no habits exist', () => {
+    render(<App />);
+    expect(screen.getByText('No habits yet')).toBeInTheDocument();
+  });
+
+  it('hides empty state after adding a habit', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    expect(screen.getByText('No habits yet')).toBeInTheDocument();
+
+    await user.click(screen.getByText('+ New Habit'));
+    await user.type(screen.getByPlaceholderText('Habit name...'), 'Gym');
+    await user.click(screen.getByText('Add'));
+
+    expect(screen.queryByText('No habits yet')).not.toBeInTheDocument();
   });
 });

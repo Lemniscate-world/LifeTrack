@@ -1,7 +1,31 @@
 import type { AppData, Habit, CheckIn, Note } from './types';
 
-const STORAGE_KEY = 'lifetrack-data';
+// --- Storage envelope ---
+// Wraps app data with versioning and an integrity checksum.
+// On load: hash mismatch → try backup → backup also bad → start fresh.
+// On save: primary → backup, with debouncing to avoid thrashing.
 
+interface StorageEnvelope {
+  v: 1;          // schema version (for future migrations)
+  d: AppData;    // payload
+  h: string;     // FNV-1a 32-bit hex checksum of JSON.stringify(d)
+}
+
+const STORAGE_KEY = 'lifetrack-data';
+const BACKUP_KEY = 'lifetrack-data-backup';
+const SAVE_DEBOUNCE_MS = 300;
+
+// --- FNV-1a hash (32-bit) for data integrity, not security ---
+function fnv1a(str: string): string {
+  let hash = 2166136261 >>> 0; // offset basis
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0; // prime
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+// --- localStorage availability guard ---
 function isLocalStorageAvailable(): boolean {
   try {
     const testKey = '__lifetrack_test__';
@@ -13,26 +37,181 @@ function isLocalStorageAvailable(): boolean {
   }
 }
 
+// --- Sanitize: filter out malformed entries from parsed data ---
+function sanitizeData(raw: unknown): AppData {
+  const empty: AppData = { habits: [], checkIns: [], notes: [] };
+  if (!raw || typeof raw !== 'object') return empty;
+  const obj = raw as Record<string, unknown>;
+  function isValidHabit(x: unknown): x is Habit {
+    return !!(x && typeof x === 'object' && 'id' in (x as object) && 'name' in (x as object));
+  }
+  function isValidCheckIn(x: unknown): x is CheckIn {
+    return !!(x && typeof x === 'object' && 'habitId' in (x as object) && 'date' in (x as object));
+  }
+  function isValidNote(x: unknown): x is Note {
+    return !!(x && typeof x === 'object' && 'id' in (x as object) && 'content' in (x as object));
+  }
+  return {
+    habits: Array.isArray(obj.habits) ? obj.habits.filter(isValidHabit) : [],
+    checkIns: Array.isArray(obj.checkIns) ? obj.checkIns.filter(isValidCheckIn) : [],
+    notes: Array.isArray(obj.notes) ? obj.notes.filter(isValidNote) : [],
+  };
+}
+
+// --- Read envelope from a key, verifying checksum ---
+function readEnvelope(key: string): AppData | null {
+  if (!isLocalStorageAvailable()) return null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const envelope: StorageEnvelope = JSON.parse(raw);
+    if (!envelope || envelope.v !== 1 || !envelope.d || !envelope.h) return null;
+    // Verify checksum
+    const expectedHash = fnv1a(JSON.stringify(envelope.d));
+    if (expectedHash !== envelope.h) {
+      console.warn(`Checksum mismatch on key "${key}" — data may be corrupted`);
+      return null;
+    }
+    return sanitizeData(envelope.d);
+  } catch {
+    return null;
+  }
+}
+
+// --- Load: try primary, then backup, then empty ---
 function loadData(): AppData {
   if (!isLocalStorageAvailable()) {
     return { habits: [], checkIns: [], notes: [] };
   }
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch (e) {
-    console.warn('Failed to load data', e);
+  const primary = readEnvelope(STORAGE_KEY);
+  if (primary) return primary;
+  const backup = readEnvelope(BACKUP_KEY);
+  if (backup) {
+    console.warn('Primary storage corrupted or missing — recovered from backup');
+    return backup;
   }
   return { habits: [], checkIns: [], notes: [] };
 }
 
-function saveData(data: AppData): void {
-  if (!isLocalStorageAvailable()) return;
+// --- Write envelope to a key ---
+function writeEnvelope(key: string, data: AppData): boolean {
+  if (!isLocalStorageAvailable()) return false;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    const json = JSON.stringify(data);
+    const envelope: StorageEnvelope = {
+      v: 1,
+      d: data,
+      h: fnv1a(json),
+    };
+    localStorage.setItem(key, JSON.stringify(envelope));
+    return true;
   } catch (e) {
-    console.warn('Failed to save data', e);
+    console.warn(`Failed to write to "${key}"`, e);
+    return false;
   }
+}
+
+// --- Debounced save ---
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingSave = false;
+
+function scheduleSave(data: AppData): void {
+  pendingSave = true;
+  if (saveTimer !== null) return; // already scheduled
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    if (!pendingSave) return;
+    pendingSave = false;
+    const primaryOk = writeEnvelope(STORAGE_KEY, data);
+    if (primaryOk) {
+      writeEnvelope(BACKUP_KEY, data); // best-effort backup
+    } else {
+      // Primary failed — try backup as last resort
+      const backupOk = writeEnvelope(BACKUP_KEY, data);
+      if (!backupOk) {
+        console.error('Critical: both primary and backup storage failed. Data may be lost on reload.');
+      }
+    }
+  }, SAVE_DEBOUNCE_MS);
+}
+
+// Force immediate flush (useful before export, app close, or page unload)
+export function flushSave(): void {
+  if (saveTimer !== null) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  if (pendingSave) {
+    pendingSave = false;
+    writeEnvelope(STORAGE_KEY, data);
+    writeEnvelope(BACKUP_KEY, data);
+  }
+}
+
+// Auto-flush on page unload to prevent data loss
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => flushSave());
+  // Periodic save every 30s as safety net for long sessions
+  setInterval(() => { if (pendingSave) flushSave(); }, 30000);
+}
+
+// --- Undo / Redo ---
+interface UndoEntry {
+  habitId: string;
+  date: string;
+  previousState: boolean; // was it checked before the toggle?
+}
+const undoStack: UndoEntry[] = [];
+const redoStack: UndoEntry[] = [];
+const MAX_UNDO = 50;
+
+export function pushUndo(habitId: string, date: string, previousState: boolean): void {
+  undoStack.push({ habitId, date, previousState });
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+  redoStack.length = 0; // clear redo on new action
+}
+
+export function undoLastToggle(): UndoEntry | null {
+  const entry = undoStack.pop();
+  if (!entry) return null;
+  redoStack.push({ ...entry, previousState: !entry.previousState });
+  // Reverse the toggle
+  const existing = getCheckIn(entry.habitId, entry.date);
+  if (existing) {
+    existing.completed = entry.previousState;
+  } else if (entry.previousState) {
+    data.checkIns.push({ habitId: entry.habitId, date: entry.date, completed: true });
+  }
+  notify();
+  return entry;
+}
+
+export function redoLastUndo(): UndoEntry | null {
+  const entry = redoStack.pop();
+  if (!entry) return null;
+  undoStack.push({ ...entry, previousState: !entry.previousState });
+  const existing = getCheckIn(entry.habitId, entry.date);
+  if (existing) {
+    existing.completed = entry.previousState;
+  } else if (entry.previousState) {
+    data.checkIns.push({ habitId: entry.habitId, date: entry.date, completed: true });
+  }
+  notify();
+  return entry;
+}
+
+// --- Storage health ---
+export type StorageStatus = 'ok' | 'degraded' | 'unavailable';
+
+export function getStorageStatus(): StorageStatus {
+  if (!isLocalStorageAvailable()) return 'unavailable';
+  // Check if both keys are readable
+  const primary = readEnvelope(STORAGE_KEY);
+  const backup = readEnvelope(BACKUP_KEY);
+  if (primary && backup) return 'ok';
+  if (primary || backup) return 'degraded';
+  // Both missing but localStorage works — this is normal for first run
+  return 'ok';
 }
 
 let data: AppData = loadData();
@@ -41,11 +220,20 @@ const listeners = new Set<() => void>();
 // Reset in-memory state and re-read from storage.
 // Exported for test isolation; not needed in production.
 export function resetStore(): void {
+  // Flush any pending debounced save before resetting
+  if (saveTimer !== null) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  pendingSave = false;
+  // Clear undo/redo stacks
+  undoStack.length = 0;
+  redoStack.length = 0;
   data = loadData();
 }
 
 function notify() {
-  saveData(data);
+  scheduleSave(data);
   listeners.forEach((fn) => fn());
 }
 
@@ -112,10 +300,12 @@ export function getCheckIn(habitId: string, date: string): CheckIn | undefined {
 export function toggleCheckIn(habitId: string, date: string): CheckIn {
   const existing = getCheckIn(habitId, date);
   if (existing) {
+    pushUndo(habitId, date, existing.completed);
     existing.completed = !existing.completed;
     notify();
     return existing;
   }
+  pushUndo(habitId, date, false);
   const checkIn: CheckIn = { habitId, date, completed: true };
   data.checkIns.push(checkIn);
   notify();
@@ -174,4 +364,10 @@ export function addNote(content: string): Note {
 export function deleteNote(id: string): void {
   data.notes = data.notes.filter((n) => n.id !== id);
   notify();
+}
+
+// --- Export ---
+export function exportAllData(): AppData {
+  // Return a deep clone so callers cannot mutate internal state
+  return JSON.parse(JSON.stringify(data));
 }

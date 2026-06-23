@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   resetStore,
+  flushSave,
   addHabit,
   updateHabit,
   archiveHabit,
@@ -13,6 +14,9 @@ import {
   addNote,
   deleteNote,
   getNotes,
+  exportAllData,
+  undoLastToggle,
+  redoLastUndo,
 } from '../store';
 
 // Reset store state between tests for full isolation
@@ -129,5 +133,175 @@ describe('Notes CRUD', () => {
     const notes = getNotes();
     expect(notes[0].content).toBe('New note');
     expect(notes[1].content).toBe('Old note');
+  });
+});
+
+describe('Export', () => {
+  it('exportAllData returns all habits, check-ins, and notes', () => {
+    const habit = addHabit('Gym');
+    toggleCheckIn(habit.id, '2026-06-15');
+    addNote('Test note');
+
+    const exported = exportAllData();
+    expect(exported.habits).toHaveLength(1);
+    expect(exported.habits[0].name).toBe('Gym');
+    expect(exported.checkIns).toHaveLength(1);
+    expect(exported.checkIns[0].date).toBe('2026-06-15');
+    expect(exported.notes).toHaveLength(1);
+    expect(exported.notes[0].content).toBe('Test note');
+  });
+
+  it('exportAllData returns a deep clone (mutations do not affect store)', () => {
+    addHabit('Read');
+    const exported = exportAllData();
+    exported.habits[0].name = 'HACKED';
+    exported.habits.push({} as never);
+
+    const habits = getHabits();
+    expect(habits).toHaveLength(1);
+    expect(habits[0].name).toBe('Read');
+  });
+});
+
+describe('Persistence and fallbacks', () => {
+  // Helper: build a valid envelope for test manipulation
+  function makeEnvelope(d: unknown, hash?: string): string {
+    const json = JSON.stringify(d);
+    return JSON.stringify({ v: 1, d, h: hash ?? fnv1a(json) });
+  }
+  // Import the hash function for test use (same algorithm)
+  function fnv1a(str: string): string {
+    let hash = 2166136261 >>> 0;
+    for (let i = 0; i < str.length; i++) {
+      hash ^= str.charCodeAt(i);
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    return hash.toString(16).padStart(8, '0');
+  }
+
+  it('survives page reload simulation (data written to localStorage)', () => {
+    addHabit('Gym');
+    const habitId = getHabits()[0].id;
+    toggleCheckIn(habitId, '2026-06-23');
+    addNote('Persistent note');
+
+    // Flush debounced save before simulating reload
+    flushSave();
+    resetStore();
+
+    const habits = getHabits();
+    expect(habits).toHaveLength(1);
+    expect(habits[0].name).toBe('Gym');
+
+    const checks = getMonthCheckIns(habits[0].id, 2026, 5); // June
+    expect(checks.get(23)).toBe(true);
+
+    const notes = getNotes();
+    expect(notes).toHaveLength(1);
+    expect(notes[0].content).toBe('Persistent note');
+  });
+
+  it('recovers from backup when primary checksum is wrong', () => {
+    addHabit('Read');
+    flushSave();
+
+    // Write a corrupted primary (valid JSON but wrong checksum)
+    const primaryRaw = localStorage.getItem('lifetrack-data');
+    if (primaryRaw) {
+      const env = JSON.parse(primaryRaw);
+      env.h = 'deadbeef'; // wrong hash
+      localStorage.setItem('lifetrack-data', JSON.stringify(env));
+    }
+
+    resetStore();
+
+    // Should recover from backup (which has correct checksum)
+    const habits = getHabits();
+    expect(habits).toHaveLength(1);
+    expect(habits[0].name).toBe('Read');
+  });
+
+  it('returns empty state when both primary and backup are missing', () => {
+    localStorage.removeItem('lifetrack-data');
+    localStorage.removeItem('lifetrack-data-backup');
+    resetStore();
+
+    expect(getHabits()).toHaveLength(0);
+    expect(getNotes()).toHaveLength(0);
+  });
+
+  it('handles malformed JSON gracefully', () => {
+    localStorage.setItem('lifetrack-data', '{broken!!!');
+    localStorage.removeItem('lifetrack-data-backup');
+    resetStore();
+
+    expect(getHabits()).toHaveLength(0);
+  });
+
+  it('filters out invalid entries but keeps valid ones (with valid checksum)', () => {
+    const goodData = {
+      habits: [
+        { id: '1', name: 'Valid', color: '#FFF', goal: 0, createdAt: '', archived: false, order: 0 },
+      ],
+      checkIns: [],
+      notes: [],
+    };
+    const badData = {
+      habits: [
+        { id: '1', name: 'Valid', color: '#FFF', goal: 0, createdAt: '', archived: false, order: 0 },
+        { notAHabit: true },
+        null,
+        'garbage',
+      ],
+      checkIns: [{ notACheckIn: true }],
+      notes: [{ notANote: true }],
+    };
+    localStorage.setItem('lifetrack-data', makeEnvelope(goodData));
+    // Write bad backup — should not be used since primary is valid
+    localStorage.setItem('lifetrack-data-backup', makeEnvelope(badData));
+    resetStore();
+
+    const habits = getHabits();
+    expect(habits).toHaveLength(1);
+    expect(habits[0].name).toBe('Valid');
+  });
+});
+
+describe('Undo / Redo', () => {
+  it('undo reverses the last toggle', () => {
+    const habit = addHabit('Read');
+    toggleCheckIn(habit.id, '2026-06-23');
+    expect(getMonthCheckIns(habit.id, 2026, 5).get(23)).toBe(true);
+
+    const result = undoLastToggle();
+    expect(result).not.toBeNull();
+    expect(getMonthCheckIns(habit.id, 2026, 5).get(23)).toBeFalsy();
+  });
+
+  it('redo restores an undone toggle', () => {
+    const habit = addHabit('Read');
+    toggleCheckIn(habit.id, '2026-06-23');
+    undoLastToggle();
+    // Now redo
+    const result = redoLastUndo();
+    expect(result).not.toBeNull();
+    expect(getMonthCheckIns(habit.id, 2026, 5).get(23)).toBe(true);
+  });
+
+  it('redo stack is cleared when a new toggle happens', () => {
+    const habit = addHabit('Read');
+    toggleCheckIn(habit.id, '2026-06-23');
+    undoLastToggle();
+    // Now redo stack has 1 entry. New action should clear it.
+    toggleCheckIn(habit.id, '2026-06-24');
+    expect(redoLastUndo()).toBeNull();
+  });
+
+  it('undo returns null when stack is empty', () => {
+    expect(undoLastToggle()).toBeNull();
+  });
+
+  it('redo returns null when stack is empty', () => {
+    expect(redoLastUndo()).toBeNull();
   });
 });

@@ -38,3 +38,9 @@ PRD.md
 secrets/
 architecture_notes.md
 concept/
+
+# Kuro Rules - File Integrity Guard (R101)
+SESSION_SUMMARY.md
+
+# Tauri
+src-tauri/target

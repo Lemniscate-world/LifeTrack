@@ -1,3 +1,101 @@
+# Session Summary - 2026-06-23 (update 3 — Desktop)
+**Editor**: VS Code
+
+## Resume compact / Compact Summary
+Converted LifeTrack from web app to native Windows desktop app via Tauri v2 (Rust + WebView2). Installed @tauri-apps/cli + @tauri-apps/api. Initialized src-tauri/ with Cargo.toml, tauri.conf.json (1100x720 window, min 800x500, centered). Added npm scripts: `npm run desktop` (dev), `npm run package` (build .exe). Fixed 5 TypeScript unused-variable errors blocking build. First `tauri build` is currently compiling ~440 Rust crates.
+
+## Francais
+**Ce qui a ete fait**:
+- Tauri v2 integre (Rust 1.93 + WebView2 natif Windows)
+- src-tauri/ initialise (Cargo.toml, lib.rs, main.rs, tauri.conf.json)
+- Fenetre configuree: 1100x720, min 800x500, centree
+- Scripts npm: `npm run desktop` (dev), `npm run package` (build .exe)
+- 5 erreurs TypeScript corrigees (imports/variables inutilises)
+- .gitignore mis a jour (src-tauri/target)
+
+**Fichiers crees**:
+- `src-tauri/` (Cargo.toml, build.rs, src/lib.rs, src/main.rs, tauri.conf.json, capabilities/default.json, icons/)
+- `.gitignore` (+src-tauri/target)
+
+**Fichiers modifies**:
+- `package.json` (+tauri scripts, @tauri-apps/cli, @tauri-apps/api)
+- `src/App.tsx` (retrait import inutilise)
+- `src/test/App.test.tsx` (retrait imports/variables inutilises)
+- `PLAN.md` (Phase 4 mise a jour)
+
+**Build status**: Premier `tauri build` en cours (compilation Rust)
+**Tests**: 26 passing
+**Progress**: 70% (pessimistic)
+
+## English
+**What was done**:
+- Tauri v2 integrated (Rust 1.93 + native Windows WebView2)
+- src-tauri/ initialized (Cargo.toml, lib.rs, main.rs, tauri.conf.json)
+- Window configured: 1100x720, min 800x500, centered
+- npm scripts: `npm run desktop` (dev), `npm run package` (build .exe)
+- 5 TypeScript errors fixed (unused imports/variables)
+- .gitignore updated (src-tauri/target)
+
+**Files created**:
+- `src-tauri/` (Cargo.toml, build.rs, src/lib.rs, src/main.rs, tauri.conf.json, capabilities/default.json, icons/)
+
+**Files changed**:
+- `package.json` (+tauri scripts, @tauri-apps/cli, @tauri-apps/api)
+- `src/App.tsx` (removed unused import)
+- `src/test/App.test.tsx` (removed unused imports/variables)
+- `PLAN.md` (Phase 4 updated)
+
+**Build status**: First `tauri build` compiling (Rust crates)
+**Tests**: 26 passing
+**Progress**: 70% (pessimistic)
+
+---
+# Session Summary - 2026-06-23 (update 2)
+**Editor**: VS Code
+
+## Resume compact / Compact Summary
+Phase 3 completed: PLAN.md (R12/R13), data export (CSV/JSON via navbar dropdown), Statistics page with Grid/Stats tabs (streaks, completion rates 7d/30d/90d/365d, total checks, Loop-style weighted EMA score), habit scoring using 90-day window and 0.95 frequency decay. 26 tests passing.
+
+## Francais
+**Ce qui a ete fait**:
+- PLAN.md cree (MVP Scope, Anti-goals, Build Order, 5 phases, 2 semaines)
+- Bouton Export dans la navbar (dropdown CSV/JSON, telechargement Blob)
+- Onglets Grid/Statistics avec table de stats (streak actuel, record, completion 7/30/90/365j, score pondere)
+- Habit scoring: moyenne mobile exponentielle (fenetre 90 jours, facteur 0.95)
+
+**Fichiers modifies**:
+- `PLAN.md` (cree — R12/R13)
+- `src/store.ts` (+exportAllData)
+- `src/App.tsx` (+export handlers, view tabs, StatsView, streak fns, EMA scoring)
+- `src/App.css` (+export-dropdown, view-tabs, stats-table styles)
+- `src/test/store.test.ts` (+export tests, 2 nouveaux)
+- `src/test/App.test.tsx` (+stats tests, 3 nouveaux)
+
+**Etapes suivantes**: Phase 4 — PWA, keyboard shortcuts, undo/redo, 90% coverage, packaging
+**Cry Test**: 75%
+
+## English
+**What was done**:
+- PLAN.md created (MVP Scope, Anti-goals, Build Order, 5 phases, 2 weeks)
+- Export button in navbar (CSV/JSON dropdown, Blob download)
+- Grid/Stats tabs with statistics table (current streak, best streak, 7/30/90/365d rates, weighted score)
+- Habit scoring: exponential moving average (90-day window, 0.95 frequency factor)
+
+**Files changed**:
+- `PLAN.md` (created — R12/R13)
+- `src/store.ts` (+exportAllData)
+- `src/App.tsx` (+export handlers, view tabs, StatsView, streak fns, EMA scoring)
+- `src/App.css` (+export-dropdown, view-tabs, stats-table styles)
+- `src/test/store.test.ts` (+2 export tests)
+- `src/test/App.test.tsx` (+3 stats tests)
+
+**Next steps**: Phase 4 — PWA, keyboard shortcuts, undo/redo, 90% coverage, packaging
+**Tests**: 26 passing
+**Blockers**: None
+**Progress**: 60% (pessimistic)
+**Cry Test**: 75%
+
+---
 # Session Summary - 2026-06-23
 **Editor**: VS Code
 
@@ -56,6 +154,11 @@ Kuro-rules compliance applied to LifeTrack. Added R10 protected files to .gitign
 - `src/test/setup.ts` (localStorage polyfill)
 - `src/test/store.test.ts` (12 tests)
 - `src/test/App.test.tsx` (9 tests)
+- `AGENTS.md` (kuro rule index, 46 entries — synced via sync-rules.ps1)
+- `.cursorrules` (kuro redirector — synced)
+- `.windsurfrules` (kuro redirector — synced)
+- `AI_GUIDELINES.md` (kuro redirector — synced)
+- `.github/copilot-instructions.md` (kuro redirector — synced)
 
 **Next steps**: Export data, Statistics page, Habit scoring (weighted streaks)
 **Tests**: 21 passing
