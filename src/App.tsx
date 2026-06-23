@@ -67,14 +67,14 @@ export default function App() {
 
   // Apply theme class to <html> for CSS variable overrides
   useEffect(() => {
-    const classes = ['theme-ocean', 'theme-forest', 'theme-sunset', 'theme-rose', 'theme-mono'];
+    const classes = ['theme-ocean', 'theme-forest', 'theme-sunset', 'theme-rose', 'theme-mono', 'theme-midnight', 'theme-emerald'];
     document.documentElement.classList.remove(...classes);
     if (theme) document.documentElement.classList.add(theme);
     try { localStorage.setItem('lifetrack-theme', theme); } catch { /* nop */ }
   }, [theme]);
 
-  const themes = ['', 'theme-ocean', 'theme-forest', 'theme-sunset', 'theme-rose', 'theme-mono'];
-  const themeLabels = ['Default', 'Ocean', 'Forest', 'Sunset', 'Rose', 'Mono'];
+  const themes = ['', 'theme-ocean', 'theme-forest', 'theme-sunset', 'theme-rose', 'theme-mono', 'theme-midnight', 'theme-emerald'];
+  const themeLabels = ['Default', 'Ocean', 'Forest', 'Sunset', 'Rose', 'Mono', 'Midnight', 'Emerald'];
   function cycleTheme() {
     const idx = themes.indexOf(theme);
     setTheme(themes[(idx + 1) % themes.length]);

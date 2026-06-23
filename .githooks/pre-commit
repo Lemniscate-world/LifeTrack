@@ -1,0 +1,38 @@
+#!/bin/bash
+# Pre-commit hook — blocks commits containing protected files (R101)
+# Install: git config core.hooksPath .githooks
+
+PROTECTED_FILES=(
+  "SESSION_SUMMARY.md"
+  "PLAN.md"
+  "ROADMAP.md"
+  "PRD.md"
+  "decision.md"
+  "ideas.md"
+  "mom_test_results.md"
+  "mom_test_script.md"
+  "moat.md"
+  "architecture_notes.md"
+  ".env"
+)
+
+for file in "${PROTECTED_FILES[@]}"; do
+  if git diff --cached --name-only | grep -q "^$file$"; then
+    echo "BLOCKED: $file is a protected file (R101). Remove it from the commit."
+    exit 1
+  fi
+done
+
+# Also block .env.* patterns
+if git diff --cached --name-only | grep -qE '\.env\.'; then
+  echo "BLOCKED: .env.* files are protected (R10). Remove them from the commit."
+  exit 1
+fi
+
+# Block *.key and *.pem
+if git diff --cached --name-only | grep -qE '\.(key|pem)$'; then
+  echo "BLOCKED: Key/pem files are protected (R10). Remove them from the commit."
+  exit 1
+fi
+
+exit 0

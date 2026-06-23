@@ -12,34 +12,111 @@
   --font: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
-/* Theme: Ocean */
+/* Theme: Ocean — Deep blue, calm, focused */
 .theme-ocean {
-  --primary: #0ea5e9;
+  --primary: #0284c7;
   --primary-light: #38bdf8;
+  --bg: #f8fafc;
 }
 
-/* Theme: Forest */
+.dark.theme-ocean {
+  --primary: #38bdf8;
+  --primary-light: #7dd3fc;
+  --bg: #0f2744;
+  --bg-alt: #1a3650;
+}
+
+/* Theme: Forest — Natural green, grounded */
 .theme-forest {
-  --primary: #10b981;
+  --primary: #059669;
   --primary-light: #34d399;
+  --bg: #f0fdf4;
 }
 
-/* Theme: Sunset */
+.dark.theme-forest {
+  --primary: #34d399;
+  --primary-light: #6ee7b7;
+  --bg: #0a2e1a;
+  --bg-alt: #144d2a;
+}
+
+/* Theme: Sunset — Warm amber, energetic */
 .theme-sunset {
-  --primary: #f97316;
+  --primary: #ea580c;
   --primary-light: #fb923c;
+  --bg: #fff7ed;
 }
 
-/* Theme: Rose */
+.dark.theme-sunset {
+  --primary: #fb923c;
+  --primary-light: #fdba74;
+  --bg: #2d1a0c;
+  --bg-alt: #452710;
+}
+
+/* Theme: Rose — Soft pink, gentle */
 .theme-rose {
-  --primary: #ec4899;
+  --primary: #db2777;
   --primary-light: #f472b6;
+  --bg: #fdf2f8;
 }
 
-/* Theme: Monochrome */
+.dark.theme-rose {
+  --primary: #f472b6;
+  --primary-light: #f9a8d4;
+  --bg: #2d0e1e;
+  --bg-alt: #451830;
+}
+
+/* Theme: Mono — Grayscale, minimal */
 .theme-mono {
-  --primary: #6b7280;
-  --primary-light: #9ca3af;
+  --primary: #52525b;
+  --primary-light: #a1a1aa;
+  --bg: #fafafa;
+}
+
+.dark.theme-mono {
+  --primary: #a1a1aa;
+  --primary-light: #d4d4d8;
+  --bg: #18181b;
+  --bg-alt: #27272a;
+}
+
+/* Theme: Midnight — Deep indigo, sleek */
+.theme-midnight {
+  --primary: #6366f1;
+  --primary-light: #818cf8;
+  --bg: #eef2ff;
+}
+
+.dark.theme-midnight {
+  --primary: #818cf8;
+  --primary-light: #a5b4fc;
+  --bg: #0f114a;
+  --bg-alt: #1a1d6a;
+}
+
+/* Theme: Emerald — Teal-green, fresh */
+.theme-emerald {
+  --primary: #0d9488;
+  --primary-light: #2dd4bf;
+  --bg: #f0fdfa;
+}
+
+.dark.theme-emerald {
+  --primary: #2dd4bf;
+  --primary-light: #5eead4;
+  --bg: #042f2e;
+  --bg-alt: #134e4a;
+}
+
+/* Smooth theme transition */
+html {
+  transition: background-color 0.4s ease;
+}
+
+.dark .col-day.today {
+  transition: background-color 0.4s ease;
 }
 
 .dark {
