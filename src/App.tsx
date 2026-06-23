@@ -389,7 +389,19 @@ export default function App() {
     <div className="app">
       {/* Navbar — minimal */}
       <nav className="navbar">
-        <span className="logo">LifeTrack</span>
+        <span className="logo">
+          <svg className="logo-icon" width="22" height="22" viewBox="0 0 64 64" fill="none">
+            <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#logoGrad)"/>
+            <defs>
+              <linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#a78bfa"/>
+                <stop offset="100%" stopColor="#7c3aed"/>
+              </linearGradient>
+            </defs>
+            <polyline points="18,33 27,42 46,22" stroke="white" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+          </svg>
+          LifeTrack
+        </span>
         <div className="nav-actions">
           <button className="btn-icon" onClick={cycleTheme} title={`Theme: ${themeLabels[themes.indexOf(theme)]}`}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
