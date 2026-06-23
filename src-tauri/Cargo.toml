@@ -1,10 +1,10 @@
 [package]
-name = "app"
+name = "lifetrack"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
+description = "LifeTrack — A native Windows desktop habit tracker"
+authors = ["Lemniscate"]
+license = "MIT"
+repository = "https://github.com/Lemniscate-world/LifeTrack"
 edition = "2021"
 rust-version = "1.77.2"
 
