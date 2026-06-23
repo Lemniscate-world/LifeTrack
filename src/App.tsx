@@ -84,11 +84,8 @@ export default function App() {
   const [focusDay, setFocusDay] = useState(1);
   const [focusHabitIdx, setFocusHabitIdx] = useState(0);
 
-  // Reset focus when month changes or habits change
-  useEffect(() => {
-    setFocusDay(1);
-    setFocusHabitIdx(0);
-  }, [year, month]);
+  // Key that changes when month changes — used to reset focus via remount
+  const gridKey = `${year}-${month}`;
 
   const daysInMonth = getDaysInMonth(year, month);
   const today = new Date();
@@ -445,7 +442,7 @@ export default function App() {
       </div>
 
       {view === 'grid' ? (
-        <div className="grid-area">
+        <div className="grid-area" key={gridKey}>
           {habits.length === 0 ? (
             <div className="empty-state">
               <p className="empty-title">No habits yet</p>

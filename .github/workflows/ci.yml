@@ -1,11 +1,10 @@
-name: Build & Test
+name: CI
 
 on:
   push:
-    branches: [master, main]
-    tags: ['v*']
+    branches: [master]
   pull_request:
-    branches: [master, main]
+    branches: [master]
 
 jobs:
   test:
@@ -15,60 +14,25 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
       - run: npm ci
-      - run: npm test
-      - run: npm run lint
+      - run: npx vitest run
+      - run: npx eslint .
 
-  build-windows:
+  build:
     needs: test
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
+      - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
-
-      - name: Build Tauri
-        run: npx tauri build
-
-      - name: Upload installer artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: lifetrack-installers
-          path: |
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/nsis/*-setup.exe
-            src-tauri/target/release/lifetrack.exe
-
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build-windows
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: lifetrack-installers
+      - run: npx tauri build
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            *.msi
-            *-setup.exe
-            lifetrack.exe
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/lifetrack.exe
