@@ -1,0 +1,40 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Kuro Rules - Protected Files (R10)
+mom_test_results.md
+mom_test_script.md
+decision.md
+ideas.md
+PLAN.md
+ROADMAP.md
+PRD.md
+.env
+.env.*
+*.key
+*.pem
+secrets/
+architecture_notes.md
+concept/
