@@ -63,11 +63,38 @@ export default function App() {
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editingGoalValue, setEditingGoalValue] = useState('');
   const [view, setView] = useState<'grid' | 'stats'>('grid');
-  const [lastSaved, setLastSaved] = useState(Date.now());
+  const [savedMsg, setSavedMsg] = useState('');
 
   // Periodically refresh the "last saved" display
   useEffect(() => {
-    const id = setInterval(() => setLastSaved(getLastSaved()), 5000);
+    const updateMsg = () => {
+      const ts = getLastSaved();
+      if (ts === 0) {
+        setSavedMsg('Not saved yet');
+      } else {
+        setSavedMsg(`Saved ${Math.round((Date.now() - ts) / 1000)}s ago`);
+      }
+    };
+    updateMsg();
+    const id = setInterval(updateMsg, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Auto-backup to app data directory every 30 minutes (desktop only)
+  useEffect(() => {
+    const runBackup = async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const allData = exportAllData();
+        const path = await invoke<string>('auto_backup', { jsonData: JSON.stringify(allData, null, 2) });
+        console.log('Auto-backup saved to', path);
+      } catch {
+        // Not running in Tauri (dev browser) — skip silently
+      }
+    };
+    // Run once on mount, then every 30 min
+    runBackup();
+    const id = setInterval(runBackup, 30 * 60 * 1000);
     return () => clearInterval(id);
   }, []);
   const [theme, setTheme] = useState(() => {
@@ -92,6 +119,7 @@ export default function App() {
   // Keyboard navigation state
   const [focusDay, setFocusDay] = useState(1);
   const [focusHabitIdx, setFocusHabitIdx] = useState(0);
+  const [keyboardUsed, setKeyboardUsed] = useState(false);
 
   // Key that changes when month changes — used to reset focus via remount
   const gridKey = `${year}-${month}`;
@@ -126,13 +154,14 @@ export default function App() {
       const habit = habits[Math.min(focusHabitIdx, habits.length - 1)];
       if (!habit) return;
 
-      if (e.key === 'ArrowLeft') { e.preventDefault(); setFocusDay(Math.max(1, focusDay - 1)); }
-      if (e.key === 'ArrowRight') { e.preventDefault(); setFocusDay(Math.min(daysInMonth, focusDay + 1)); }
-      if (e.key === 'ArrowUp') { e.preventDefault(); setFocusHabitIdx(Math.max(0, focusHabitIdx - 1)); }
-      if (e.key === 'ArrowDown') { e.preventDefault(); setFocusHabitIdx(Math.min(habits.length - 1, focusHabitIdx + 1)); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); setKeyboardUsed(true); setFocusDay(Math.max(1, focusDay - 1)); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); setKeyboardUsed(true); setFocusDay(Math.min(daysInMonth, focusDay + 1)); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setKeyboardUsed(true); setFocusHabitIdx(Math.max(0, focusHabitIdx - 1)); }
+      if (e.key === 'ArrowDown') { e.preventDefault(); setKeyboardUsed(true); setFocusHabitIdx(Math.min(habits.length - 1, focusHabitIdx + 1)); }
 
       if (e.key === ' ') {
         e.preventDefault();
+        setKeyboardUsed(true);
         const dateStr = parseDateStr(year, month, focusDay);
         toggleCheckIn(habit.id, dateStr);
       }
@@ -451,7 +480,7 @@ export default function App() {
       </div>
 
       {view === 'grid' ? (
-        <div className="grid-area" key={gridKey}>
+        <div className="grid-area" key={gridKey} onClick={() => setKeyboardUsed(false)}>
           {habits.length === 0 ? (
             <div className="empty-state">
               <p className="empty-title">No habits yet</p>
@@ -523,7 +552,7 @@ export default function App() {
                       {dayHeaders.map((h, dayIdx) => {
                         const checked = habitChecks.get(h.day) || false;
                         const isToday = isCurrentMonth && h.day === todayDay;
-                        const isFocused = focusDay === h.day && focusHabitIdx === dayIdx;
+                        const isFocused = keyboardUsed && focusDay === h.day && focusHabitIdx === dayIdx;
                         return (
                           <td
                             key={h.day}
@@ -673,9 +702,9 @@ export default function App() {
           <span
             className="saved-info"
             title="Click to save now"
-            onClick={() => { flushSave(); setLastSaved(getLastSaved()); }}
+            onClick={() => { flushSave(); }}
           >
-            {lastSaved === 0 ? 'Not saved yet' : `Saved ${Math.round((Date.now() - lastSaved) / 1000)}s ago`}
+            {savedMsg || 'Not saved yet'}
           </span>
         </div>
       </div>
