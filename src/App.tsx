@@ -13,7 +13,9 @@ import {
   addNote,
   deleteNote,
   exportAllData,
+  flushSave,
   getStorageStatus,
+  getLastSaved,
   undoLastToggle,
   redoLastUndo,
 } from './store';
@@ -61,6 +63,13 @@ export default function App() {
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editingGoalValue, setEditingGoalValue] = useState('');
   const [view, setView] = useState<'grid' | 'stats'>('grid');
+  const [lastSaved, setLastSaved] = useState(Date.now());
+
+  // Periodically refresh the "last saved" display
+  useEffect(() => {
+    const id = setInterval(() => setLastSaved(getLastSaved()), 5000);
+    return () => clearInterval(id);
+  }, []);
   const [theme, setTheme] = useState(() => {
     try { return localStorage.getItem('lifetrack-theme') || ''; } catch { return ''; }
   });
@@ -660,6 +669,13 @@ export default function App() {
           </button>
           <span className={`storage-indicator storage-${getStorageStatus()}`} title={`Storage: ${getStorageStatus()}`}>
             <svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4" fill="currentColor"/></svg>
+          </span>
+          <span
+            className="saved-info"
+            title="Click to save now"
+            onClick={() => { flushSave(); setLastSaved(getLastSaved()); }}
+          >
+            {lastSaved === 0 ? 'Not saved yet' : `Saved ${Math.round((Date.now() - lastSaved) / 1000)}s ago`}
           </span>
         </div>
       </div>

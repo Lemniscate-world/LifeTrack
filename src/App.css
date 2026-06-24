@@ -676,6 +676,18 @@ body {
   color: #ef4444;
 }
 
+/* Saved info */
+.saved-info {
+  font-size: 10px;
+  color: var(--text-muted);
+  user-select: none;
+  cursor: pointer;
+}
+
+.saved-info:hover {
+  color: var(--text-secondary);
+}
+
 /* ============ EMPTY STATE ============ */
 .empty-state {
   flex: 1;

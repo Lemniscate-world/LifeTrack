@@ -13,7 +13,6 @@ interface StorageEnvelope {
 
 const STORAGE_KEY = 'lifetrack-data';
 const BACKUP_KEY = 'lifetrack-data-backup';
-const SAVE_DEBOUNCE_MS = 300;
 
 // --- FNV-1a hash (32-bit) for data integrity, not security ---
 function fnv1a(str: string): string {
@@ -112,26 +111,42 @@ function writeEnvelope(key: string, data: AppData): boolean {
 }
 
 // --- Debounced save ---
+const SAVE_DEBOUNCE_MS = 100; // fast save to minimize data loss window
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingSave = false;
+let lastSavedAt: number = 0; // 0 = no save yet; set on first successful write
+let saveInFlight = false; // prevent concurrent writes
 
-function scheduleSave(data: AppData): void {
+function doSave(d: AppData): void {
+  if (saveInFlight) return; // skip if a save is already writing
+  saveInFlight = true;
+  try {
+    const primaryOk = writeEnvelope(STORAGE_KEY, d);
+    if (primaryOk) {
+      writeEnvelope(BACKUP_KEY, d); // best-effort backup
+      lastSavedAt = Date.now();
+    } else {
+      // Primary failed — try backup as last resort
+      const backupOk = writeEnvelope(BACKUP_KEY, d);
+      if (backupOk) {
+        lastSavedAt = Date.now();
+      } else {
+        console.error('Critical: both primary and backup storage failed. Data may be lost on reload.');
+      }
+    }
+  } finally {
+    saveInFlight = false;
+  }
+}
+
+function scheduleSave(d: AppData): void {
   pendingSave = true;
   if (saveTimer !== null) return; // already scheduled
   saveTimer = setTimeout(() => {
     saveTimer = null;
     if (!pendingSave) return;
     pendingSave = false;
-    const primaryOk = writeEnvelope(STORAGE_KEY, data);
-    if (primaryOk) {
-      writeEnvelope(BACKUP_KEY, data); // best-effort backup
-    } else {
-      // Primary failed — try backup as last resort
-      const backupOk = writeEnvelope(BACKUP_KEY, data);
-      if (!backupOk) {
-        console.error('Critical: both primary and backup storage failed. Data may be lost on reload.');
-      }
-    }
+    doSave(d);
   }, SAVE_DEBOUNCE_MS);
 }
 
@@ -143,16 +158,20 @@ export function flushSave(): void {
   }
   if (pendingSave) {
     pendingSave = false;
-    writeEnvelope(STORAGE_KEY, data);
-    writeEnvelope(BACKUP_KEY, data);
+    doSave(data);
   }
 }
 
 // Auto-flush on page unload to prevent data loss
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', () => flushSave());
-  // Periodic save every 30s as safety net for long sessions
-  setInterval(() => { if (pendingSave) flushSave(); }, 30000);
+  // Periodic save every 15s as safety net for long sessions
+  setInterval(() => { if (pendingSave) flushSave(); }, 15000);
+}
+
+// --- Last saved timestamp (for UI feedback) ---
+export function getLastSaved(): number {
+  return lastSavedAt;
 }
 
 // --- Undo / Redo ---
