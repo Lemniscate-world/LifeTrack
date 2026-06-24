@@ -578,16 +578,18 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.1s, transform 0.1s;
+  transition: background 0.1s, transform 0.1s, border-color 0.1s;
   border: 1px solid var(--border);
+  background: transparent;
 }
 
 .day-cell:hover {
   transform: scale(1.1);
+  border-color: var(--text-muted);
 }
 
 .day-cell.checked {
-  border-color: transparent;
+  background: transparent;
 }
 
 /* Keyboard focus indicator */

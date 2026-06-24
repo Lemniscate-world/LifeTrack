@@ -524,10 +524,10 @@ export default function App() {
                           >
                             <div
                               className={`day-cell ${checked ? 'checked' : ''}`}
-                              style={checked ? { backgroundColor: bgColor } : {}}
+                              style={checked ? { borderColor: bgColor, backgroundColor: bgColor + '26' } : {}}
                             >
                               {checked && (
-                                <svg className="check-icon" viewBox="0 0 24 24" width="12" height="12" fill="white">
+                                <svg className="check-icon" viewBox="0 0 24 24" width="12" height="12" fill={bgColor}>
                                   <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
                                 </svg>
                               )}
