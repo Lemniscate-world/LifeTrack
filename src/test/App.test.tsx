@@ -232,4 +232,100 @@ describe('App component', () => {
 
     expect(screen.queryByText('No habits yet')).not.toBeInTheDocument();
   });
+
+  it('renames a habit by clicking the name', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByText('+ New Habit'));
+    await user.type(screen.getByPlaceholderText('Habit name...'), 'Old');
+    await user.click(screen.getByText('Add'));
+
+    // Click the habit name to edit
+    await user.click(screen.getByText('Old'));
+    const input = document.querySelector('.habit-name-input') as HTMLInputElement;
+    expect(input).not.toBeNull();
+    await user.clear(input);
+    await user.type(input, 'New');
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByText('New')).toBeInTheDocument();
+    expect(screen.queryByText('Old')).not.toBeInTheDocument();
+  });
+
+  it('archives a habit on hover and click', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByText('+ New Habit'));
+    await user.type(screen.getByPlaceholderText('Habit name...'), 'Remove');
+    await user.click(screen.getByText('Add'));
+
+    // Archive button appears on hover; click it
+    const archiveBtn = document.querySelector('.habit-archive') as HTMLElement;
+    expect(archiveBtn).not.toBeNull();
+    await user.click(archiveBtn);
+
+    // Habit should be gone (archived)
+    expect(screen.queryByText('Remove')).not.toBeInTheDocument();
+  });
+
+  it('edits goal by clicking the goal number', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByText('+ New Habit'));
+    await user.type(screen.getByPlaceholderText('Habit name...'), 'Gym');
+    await user.click(screen.getByText('Add'));
+
+    const goalEl = document.querySelector('.goal-number') as HTMLElement;
+    expect(goalEl).not.toBeNull();
+    await user.click(goalEl);
+
+    const goalInput = document.querySelector('.goal-input') as HTMLInputElement;
+    expect(goalInput).not.toBeNull();
+    await user.clear(goalInput);
+    await user.type(goalInput, '15');
+    await user.keyboard('{Enter}');
+
+    // Goal should now show 15 in the goal column
+    const goalNumbers = document.querySelectorAll('.goal-number');
+    expect(goalNumbers.length).toBeGreaterThan(0);
+    expect(goalNumbers[0].textContent).toBe('15');
+  });
+
+  it('exports JSON via dropdown', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByText('+ New Habit'));
+    await user.type(screen.getByPlaceholderText('Habit name...'), 'ExportTest');
+    await user.click(screen.getByText('Add'));
+
+    // Open export dropdown
+    const exportBtns = document.querySelectorAll('.btn-icon');
+    const exportBtn = exportBtns[1]; // Second icon button = export
+    await user.click(exportBtn);
+
+    // Click Export JSON
+    const jsonBtn = screen.getByText('Export JSON');
+    expect(jsonBtn).toBeInTheDocument();
+  });
+
+  it('cycles through themes', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const themeBtn = document.querySelectorAll('.btn-icon')[0];
+    await user.click(themeBtn);
+    // Theme should have changed (class added to html)
+    const html = document.documentElement;
+    const hasTheme = html.classList.contains('theme-ocean');
+    expect(hasTheme).toBe(true);
+  });
+
+  it('toggles dark mode', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const darkBtn = document.querySelectorAll('.btn-icon')[2];
+    await user.click(darkBtn);
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    await user.click(darkBtn);
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
+  });
 });

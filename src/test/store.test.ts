@@ -17,6 +17,7 @@ import {
   exportAllData,
   undoLastToggle,
   redoLastUndo,
+  getStorageStatus,
 } from '../store';
 
 // Reset store state between tests for full isolation
@@ -303,5 +304,9 @@ describe('Undo / Redo', () => {
 
   it('redo returns null when stack is empty', () => {
     expect(redoLastUndo()).toBeNull();
+  });
+
+  it('getStorageStatus returns ok for fresh data', () => {
+    expect(getStorageStatus()).toBe('ok');
   });
 });
