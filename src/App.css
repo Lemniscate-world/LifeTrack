@@ -244,6 +244,12 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.export-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 2px 0;
+}
+
 /* ============ TOOLBAR ============ */
 .toolbar {
   display: flex;
@@ -560,6 +566,74 @@ body {
 .habit-archive:hover {
   color: #ef4444;
   background: #fee2e2;
+}
+
+.habit-chaos-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.1s, color 0.1s;
+  display: flex;
+  align-items: center;
+}
+
+.habit-grid tbody tr:hover .habit-chaos-btn {
+  opacity: 1;
+}
+
+.habit-chaos-btn.linked {
+  opacity: 0.6;
+  color: var(--primary);
+}
+
+.habit-chaos-btn:hover {
+  color: var(--primary);
+  background: var(--bg-alt);
+}
+
+.habit-chaos-edit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+  flex-wrap: wrap;
+}
+
+.chaos-select-sm {
+  font-size: 11px;
+  font-family: var(--font);
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.chaos-input-sm {
+  width: 36px;
+  font-size: 11px;
+  font-family: var(--font);
+  padding: 2px 3px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text);
+  text-align: center;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.chaos-input-sm::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+}
+
+.chaos-edit-label {
+  font-size: 10px;
+  color: var(--text-muted);
 }
 
 .dark .habit-archive:hover {
@@ -938,5 +1012,217 @@ body {
   font-size: 16px;
   font-weight: 700;
   color: var(--primary);
+}
+
+/* ============ CHAOS ============ */
+.chaos-container {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+}
+
+.chaos-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.chaos-header h2 {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.chaos-overall {
+  display: flex;
+  align-items: center;
+}
+
+.chaos-gauge {
+  position: relative;
+  width: 80px;
+  height: 80px;
+}
+
+.chaos-ring {
+  width: 100%;
+  height: 100%;
+}
+
+.chaos-gauge-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.chaos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.chaos-card {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.chaos-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.chaos-card-header h3 {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chaos-badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.chaos-badge.low { background: #dcfce7; color: #166534; }
+.chaos-badge.mid { background: #fef3c7; color: #92400e; }
+.chaos-badge.high { background: #fee2e2; color: #991b1b; }
+
+.dark .chaos-badge.low { background: #14532d; color: #86efac; }
+.dark .chaos-badge.mid { background: #78350f; color: #fde68a; }
+.dark .chaos-badge.high { background: #7f1d1d; color: #fca5a5; }
+
+.chaos-bar {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.chaos-bar-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+.chaos-triggers {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chaos-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 3px 0;
+}
+
+.chaos-trigger:hover {
+  color: var(--text);
+}
+
+.chaos-trigger input {
+  accent-color: var(--primary);
+  width: 14px;
+  height: 14px;
+}
+
+.chaos-trigger span:first-of-type {
+  flex: 1;
+}
+
+.chaos-weight {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-left: auto;
+}
+
+/* New habit chaos config (inline form below "Add habit") */
+.add-habit-form-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  max-width: 380px;
+}
+.new-habit-chaos {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.chaos-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+.chaos-config {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  align-items: end;
+}
+.chaos-select {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+.chaos-field {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  color: var(--text-muted);
+  gap: 3px;
+}
+.chaos-field input {
+  width: 100%;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+.chaos-hint {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: 4px;
+}
+
+/* Auto chaos trigger (distinct from manual) */
+.chaos-trigger.auto {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  border-left: 3px solid var(--primary);
+  padding-left: 8px;
+}
+.chaos-trigger.auto input[type='checkbox'] {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 

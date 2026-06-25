@@ -1,4 +1,4 @@
-import type { AppData, Habit, CheckIn, Note } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger } from './types';
 
 // --- Storage envelope ---
 // Wraps app data with versioning and an integrity checksum.
@@ -13,6 +13,7 @@ interface StorageEnvelope {
 
 const STORAGE_KEY = 'lifetrack-data';
 const BACKUP_KEY = 'lifetrack-data-backup';
+const HABIT_COLORS = ['#FEF3C7', '#D1FAE5', '#DBEAFE', '#FCE7F3', '#E0E7FF', '#FEE2E2', '#EDE9FE', '#FEF9C3'];
 
 // --- FNV-1a hash (32-bit) for data integrity, not security ---
 function fnv1a(str: string): string {
@@ -38,7 +39,7 @@ function isLocalStorageAvailable(): boolean {
 
 // --- Sanitize: filter out malformed entries from parsed data ---
 function sanitizeData(raw: unknown): AppData {
-  const empty: AppData = { habits: [], checkIns: [], notes: [] };
+  const empty: AppData = { habits: [], checkIns: [], notes: [], chaosDimensions: [] };
   if (!raw || typeof raw !== 'object') return empty;
   const obj = raw as Record<string, unknown>;
   function isValidHabit(x: unknown): x is Habit {
@@ -54,6 +55,7 @@ function sanitizeData(raw: unknown): AppData {
     habits: Array.isArray(obj.habits) ? obj.habits.filter(isValidHabit) : [],
     checkIns: Array.isArray(obj.checkIns) ? obj.checkIns.filter(isValidCheckIn) : [],
     notes: Array.isArray(obj.notes) ? obj.notes.filter(isValidNote) : [],
+    chaosDimensions: Array.isArray(obj.chaosDimensions) ? obj.chaosDimensions as ChaosDimension[] : getDefaultChaosDimensions(),
   };
 }
 
@@ -63,24 +65,31 @@ function readEnvelope(key: string): AppData | null {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
-    const envelope: StorageEnvelope = JSON.parse(raw);
-    if (!envelope || envelope.v !== 1 || !envelope.d || !envelope.h) return null;
-    // Verify checksum
-    const expectedHash = fnv1a(JSON.stringify(envelope.d));
-    if (expectedHash !== envelope.h) {
-      console.warn(`Checksum mismatch on key "${key}" — data may be corrupted`);
-      return null;
+    const parsed = JSON.parse(raw);
+    // Handle storage envelope format {v, d, h}
+    if (parsed && typeof parsed === 'object' && 'v' in parsed && 'd' in parsed && 'h' in parsed) {
+      const envelope = parsed as StorageEnvelope;
+      if (envelope.v !== 1) return null;
+      const expectedHash = fnv1a(JSON.stringify(envelope.d));
+      if (expectedHash !== envelope.h) {
+        console.warn(`Checksum mismatch on key "${key}" — data may be corrupted`);
+        return null;
+      }
+      return sanitizeData(envelope.d);
     }
-    return sanitizeData(envelope.d);
+    // Legacy fallback: raw AppData without envelope (pre-v1 storage)
+    // Migrate it to envelope format on next save
+    console.info(`Migrating legacy data from key "${key}"`);
+    return sanitizeData(parsed);
   } catch {
     return null;
   }
 }
 
-// --- Load: try primary, then backup, then empty ---
+// --- Load: try primary, then backup, then legacy migration, then empty ---
 function loadData(): AppData {
   if (!isLocalStorageAvailable()) {
-    return { habits: [], checkIns: [], notes: [] };
+    return freshData();
   }
   const primary = readEnvelope(STORAGE_KEY);
   if (primary) return primary;
@@ -89,7 +98,14 @@ function loadData(): AppData {
     console.warn('Primary storage corrupted or missing — recovered from backup');
     return backup;
   }
-  return { habits: [], checkIns: [], notes: [] };
+  // Last resort: try to read raw legacy JSON and migrate it
+  const migrated = migrateLegacyPrimaryData();
+  if (migrated) return migrated;
+  return freshData();
+}
+
+function freshData(): AppData {
+  return { habits: [], checkIns: [], notes: [], chaosDimensions: [] };
 }
 
 // --- Write envelope to a key ---
@@ -118,7 +134,32 @@ let lastSavedAt: number = 0; // 0 = no save yet; set on first successful write
 let saveInFlight = false; // prevent concurrent writes
 
 function doSave(d: AppData): void {
-  if (saveInFlight) return; // skip if a save is already writing
+  if (saveInFlight) return;
+  // Safety net: never overwrite existing data with empty data silently.
+  // This protects against accidental data loss from migration bugs.
+  if (d.habits.length === 0 && d.checkIns.length === 0 && d.notes.length === 0) {
+    const existing = readEnvelope(STORAGE_KEY) || readEnvelope(BACKUP_KEY);
+    // Also try reading raw legacy format
+    if (!existing) {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(BACKUP_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          // Check if raw data has content (legacy format)
+          const hasContent = (Array.isArray(parsed.habits) && parsed.habits.length > 0) ||
+                            (Array.isArray(parsed) && parsed.length > 0);
+          if (hasContent) {
+            console.error('SAFETY: refusing to overwrite non-empty data with empty data. Run migration first.');
+            return;
+          }
+        }
+      } catch { /* can't parse, proceed with save */ }
+    }
+    if (existing && (existing.habits.length > 0 || existing.checkIns.length > 0)) {
+      console.error('SAFETY: refusing to overwrite existing data with empty data.');
+      return;
+    }
+  }
   saveInFlight = true;
   try {
     const primaryOk = writeEnvelope(STORAGE_KEY, d);
@@ -266,7 +307,10 @@ export function getHabits(): Habit[] {
 }
 
 // --- Habits ---
-export function addHabit(name: string): Habit {
+export function addHabit(
+  name: string,
+  chaosOpts?: { chaosDimension?: string; chaosImpact?: number; chaosThresholdDays?: number },
+): Habit {
   const maxOrder = data.habits.reduce((max, h) => Math.max(max, h.order), -1);
   const habit: Habit = {
     id: crypto.randomUUID(),
@@ -276,12 +320,14 @@ export function addHabit(name: string): Habit {
     createdAt: new Date().toISOString(),
     archived: false,
     order: maxOrder + 1,
+    ...(chaosOpts?.chaosDimension ? { chaosDimension: chaosOpts.chaosDimension } : {}),
+    ...(chaosOpts?.chaosImpact !== undefined ? { chaosImpact: chaosOpts.chaosImpact } : {}),
+    ...(chaosOpts?.chaosThresholdDays !== undefined ? { chaosThresholdDays: chaosOpts.chaosThresholdDays } : {}),
   };
   // assign pastel color
-  const pastels = ['#FEF3C7', '#D1FAE5', '#DBEAFE', '#FCE7F3', '#E0E7FF', '#FEE2E2', '#EDE9FE', '#FEF9C3'];
   const usedColors = data.habits.map((h) => h.color).filter(Boolean);
-  const available = pastels.find((c) => !usedColors.includes(c));
-  habit.color = available || pastels[data.habits.length % pastels.length];
+  const available = HABIT_COLORS.find((c) => !usedColors.includes(c));
+  habit.color = available || HABIT_COLORS[data.habits.length % HABIT_COLORS.length];
 
   data.habits.push(habit);
   notify();
@@ -385,8 +431,347 @@ export function deleteNote(id: string): void {
   notify();
 }
 
-// --- Export ---
+// --- Diagnostic: peek at raw storage content for debugging ---
+export function diagnoseStorage(): { primaryRaw: string | null; backupRaw: string | null; primaryParsed: unknown; backupParsed: unknown } {
+  const primaryRaw = localStorage.getItem(STORAGE_KEY);
+  const backupRaw = localStorage.getItem(BACKUP_KEY);
+  let primaryParsed: unknown = null;
+  let backupParsed: unknown = null;
+  try { if (primaryRaw) primaryParsed = JSON.parse(primaryRaw); } catch { /* ignore */ }
+  try { if (backupRaw) backupParsed = JSON.parse(backupRaw); } catch { /* ignore */ }
+  return { primaryRaw, backupRaw, primaryParsed, backupParsed };
+}
+
+interface ImportedHabit {
+  id: string;
+  name: string;
+  goal?: number;
+  archived?: boolean;
+  chaosDimension?: string;
+  chaosImpact?: number;
+  chaosThresholdDays?: number;
+}
+
+interface ImportedCheckIn {
+  habitId: string;
+  date: string;
+  completed: boolean;
+}
+
+interface ImportedNote {
+  habitId?: string;
+  content: string;
+  createdAt?: string;
+}
+
+export interface ImportMergeResult {
+  habitsCreated: number;
+  habitsMapped: number;
+  checkInsRestored: number;
+  notesCreated: number;
+  skippedCheckIns: number;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeHabitName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+function readArray(raw: unknown, key: 'habits' | 'checkIns' | 'notes'): unknown[] {
+  if (!isRecord(raw)) return [];
+  const value = raw[key];
+  return Array.isArray(value) ? value : [];
+}
+
+function parseImportedHabit(raw: unknown): ImportedHabit | null {
+  if (!isRecord(raw) || typeof raw.id !== 'string' || typeof raw.name !== 'string') return null;
+  const name = raw.name.trim();
+  if (!name) return null;
+  return {
+    id: raw.id,
+    name,
+    goal: typeof raw.goal === 'number' ? raw.goal : undefined,
+    archived: typeof raw.archived === 'boolean' ? raw.archived : undefined,
+    chaosDimension: typeof raw.chaosDimension === 'string' ? raw.chaosDimension : undefined,
+    chaosImpact: typeof raw.chaosImpact === 'number' ? raw.chaosImpact : undefined,
+    chaosThresholdDays: typeof raw.chaosThresholdDays === 'number' ? raw.chaosThresholdDays : undefined,
+  };
+}
+
+function parseImportedCheckIn(raw: unknown): ImportedCheckIn | null {
+  if (!isRecord(raw)) return null;
+  if (typeof raw.habitId !== 'string' || typeof raw.date !== 'string') return null;
+  return {
+    habitId: raw.habitId,
+    date: raw.date,
+    completed: raw.completed === true,
+  };
+}
+
+function parseImportedNote(raw: unknown): ImportedNote | null {
+  if (!isRecord(raw) || typeof raw.content !== 'string') return null;
+  const content = raw.content.trim();
+  if (!content) return null;
+  return {
+    habitId: typeof raw.habitId === 'string' ? raw.habitId : undefined,
+    content,
+    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : undefined,
+  };
+}
+
+function nextHabitColor(): string {
+  const usedColors = data.habits.map((habit) => habit.color).filter(Boolean);
+  return HABIT_COLORS.find((color) => !usedColors.includes(color)) || HABIT_COLORS[data.habits.length % HABIT_COLORS.length];
+}
+
+function createImportedHabit(source: ImportedHabit): Habit {
+  const maxOrder = data.habits.reduce((max, habit) => Math.max(max, habit.order), -1);
+  return {
+    id: crypto.randomUUID(),
+    name: source.name,
+    color: nextHabitColor(),
+    goal: source.goal ?? 0,
+    createdAt: new Date().toISOString(),
+    archived: source.archived ?? false,
+    order: maxOrder + 1,
+    ...(source.chaosDimension ? { chaosDimension: source.chaosDimension } : {}),
+    ...(source.chaosImpact !== undefined ? { chaosImpact: source.chaosImpact } : {}),
+    ...(source.chaosThresholdDays !== undefined ? { chaosThresholdDays: source.chaosThresholdDays } : {}),
+  };
+}
+
+function applyImportedHabitMetadata(target: Habit, source: ImportedHabit): void {
+  if (target.goal === 0 && source.goal !== undefined) target.goal = source.goal;
+  if (target.archived && source.archived === false) target.archived = false;
+  if (!target.chaosDimension && source.chaosDimension) target.chaosDimension = source.chaosDimension;
+  if (target.chaosImpact === undefined && source.chaosImpact !== undefined) target.chaosImpact = source.chaosImpact;
+  if (target.chaosThresholdDays === undefined && source.chaosThresholdDays !== undefined) {
+    target.chaosThresholdDays = source.chaosThresholdDays;
+  }
+}
+
+export function mergeImportedData(raw: unknown): ImportMergeResult {
+  const result: ImportMergeResult = {
+    habitsCreated: 0,
+    habitsMapped: 0,
+    checkInsRestored: 0,
+    notesCreated: 0,
+    skippedCheckIns: 0,
+  };
+  const idMap = new Map<string, string>();
+  const habitsByName = new Map(data.habits.map((habit) => [normalizeHabitName(habit.name), habit]));
+
+  for (const rawHabit of readArray(raw, 'habits')) {
+    const imported = parseImportedHabit(rawHabit);
+    if (!imported) continue;
+
+    const key = normalizeHabitName(imported.name);
+    let target = habitsByName.get(key);
+    if (!target) {
+      target = createImportedHabit(imported);
+      data.habits.push(target);
+      habitsByName.set(key, target);
+      result.habitsCreated++;
+    } else {
+      applyImportedHabitMetadata(target, imported);
+    }
+    idMap.set(imported.id, target.id);
+    result.habitsMapped++;
+  }
+
+  for (const rawCheckIn of readArray(raw, 'checkIns')) {
+    const imported = parseImportedCheckIn(rawCheckIn);
+    const habitId = imported ? idMap.get(imported.habitId) : undefined;
+    if (!imported || !habitId || !imported.completed) {
+      result.skippedCheckIns++;
+      continue;
+    }
+
+    const existing = getCheckIn(habitId, imported.date);
+    if (!existing) {
+      data.checkIns.push({ habitId, date: imported.date, completed: true });
+      result.checkInsRestored++;
+    } else if (!existing.completed) {
+      existing.completed = true;
+      result.checkInsRestored++;
+    }
+  }
+
+  for (const rawNote of readArray(raw, 'notes')) {
+    const imported = parseImportedNote(rawNote);
+    if (!imported) continue;
+    data.notes.push({
+      id: crypto.randomUUID(),
+      habitId: imported.habitId ? idMap.get(imported.habitId) ?? '' : '',
+      content: imported.content,
+      createdAt: imported.createdAt ?? new Date().toISOString(),
+    });
+    result.notesCreated++;
+  }
+
+  if (result.habitsCreated > 0 || result.checkInsRestored > 0 || result.notesCreated > 0) {
+    notify();
+  }
+  return result;
+}
+
+function migrateLegacyPrimaryData(): AppData | null {
+  // Try to read legacy format directly and save as envelope
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // If it's already an envelope, nothing to do
+    if (parsed && typeof parsed === 'object' && 'v' in parsed && 'd' in parsed && 'h' in parsed) {
+      return null;
+    }
+    // Legacy format detected — migrate
+    const sanitized = sanitizeData(parsed);
+    if (sanitized.habits.length === 0 && sanitized.checkIns.length === 0) {
+      console.warn('No valid data found in legacy format');
+      return null;
+    }
+    writeEnvelope(STORAGE_KEY, sanitized);
+    writeEnvelope(BACKUP_KEY, sanitized);
+    console.info(`Migrated ${sanitized.habits.length} habits, ${sanitized.checkIns.length} check-ins, ${sanitized.notes.length} notes`);
+    return sanitized;
+  } catch {
+    return null;
+  }
+}
+
+export function forceMigrateLegacyData(): boolean {
+  const migrated = migrateLegacyPrimaryData();
+  if (!migrated) return false;
+  data = migrated;
+  notify();
+  return true;
+}
 export function exportAllData(): AppData {
   // Return a deep clone so callers cannot mutate internal state
   return JSON.parse(JSON.stringify(data));
+}
+
+// --- Chaos ---
+const DEFAULT_CHAOS: ChaosDimension[] = [
+  { id: 'social', name: 'Social', triggers: [
+    { id: 's1', label: 'Conflict with partner/family', weight: 30, active: false },
+    { id: 's2', label: 'Isolation > 3 days', weight: 30, active: false },
+  ]},
+  { id: 'financial', name: 'Financial', triggers: [
+    { id: 'f1', label: 'No liquidity for 1 week', weight: 50, active: false },
+    { id: 'f2', label: 'Unexpected expense', weight: 30, active: false },
+  ]},
+  { id: 'physical', name: 'Physical', triggers: [
+    { id: 'p1', label: 'Gym / Training missed > 2', weight: 50, active: false },
+    { id: 'p2', label: 'PMO', weight: 50, active: false },
+    { id: 'p3', label: 'Sleep < 6h', weight: 30, active: false },
+  ]},
+  { id: 'structural', name: 'Structural', triggers: [
+    { id: 'st1', label: 'Routine disrupted', weight: 30, active: false },
+    { id: 'st2', label: 'Environment messy', weight: 30, active: false },
+  ]},
+  { id: 'spiritual', name: 'Spiritual', triggers: [
+    { id: 'sp1', label: 'No meditation / prayer', weight: 30, active: false },
+    { id: 'sp2', label: 'Feeling purposeless', weight: 30, active: false },
+  ]},
+];
+
+export function getDefaultChaosDimensions(): ChaosDimension[] {
+  return JSON.parse(JSON.stringify(DEFAULT_CHAOS));
+}
+
+export function getChaosDimensions(): ChaosDimension[] {
+  if (!data.chaosDimensions || data.chaosDimensions.length === 0) {
+    data.chaosDimensions = getDefaultChaosDimensions();
+  }
+  return data.chaosDimensions;
+}
+
+export function toggleChaosTrigger(dimId: string, triggerId: string): void {
+  const dim = data.chaosDimensions.find((d) => d.id === dimId);
+  if (!dim) return;
+  const trigger = dim.triggers.find((t) => t.id === triggerId);
+  if (trigger) {
+    trigger.active = !trigger.active;
+    notify();
+  }
+}
+
+export function resetChaos(): void {
+  data.chaosDimensions = getDefaultChaosDimensions();
+  notify();
+}
+
+/**
+ * Compute automatic chaos pressure per dimension by analyzing missed check-ins.
+ * For each habit with chaos linkage:
+ *   - Count consecutive missed days ending at today (or most recent day).
+ *   - If >= chaosThresholdDays, add chaosImpact % to the linked dimension.
+ * Trigger labels are auto-generated and visible in the UI.
+ */
+export function computeAutoChaos(asOf?: Date): Map<string, { trigger: ChaosTrigger; habitName: string }[]> {
+  const autoTriggerMap = new Map<string, { trigger: ChaosTrigger; habitName: string }[]>();
+  const today = asOf ?? new Date();
+
+  for (const habit of data.habits) {
+    if (habit.archived) continue;
+    if (!habit.chaosDimension || !habit.chaosImpact || !habit.chaosThresholdDays) continue;
+
+    // Walk backward from today, counting missed consecutive days.
+    let missedStreak = 0;
+    for (let i = 0; i < 90; i++) { // cap at 90 days
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const ci = data.checkIns.find((c) => c.habitId === habit.id && c.date === key);
+      // Considered missed if no entry, or entry marked completed=false
+      if (!ci || !ci.completed) {
+        missedStreak++;
+      } else {
+        break;
+      }
+    }
+
+    if (missedStreak >= habit.chaosThresholdDays) {
+      const triggerId = `auto_${habit.id}`;
+      const label = `"${habit.name}" missed ${missedStreak}d (threshold ${habit.chaosThresholdDays}d)`;
+      const trigger: ChaosTrigger = {
+        id: triggerId,
+        label,
+        weight: habit.chaosImpact,
+        active: true,
+      };
+      if (!autoTriggerMap.has(habit.chaosDimension)) {
+        autoTriggerMap.set(habit.chaosDimension, []);
+      }
+      autoTriggerMap.get(habit.chaosDimension)!.push({ trigger, habitName: habit.name });
+    }
+  }
+
+  return autoTriggerMap;
+}
+
+/**
+ * Get all chaos triggers for a dimension, combining:
+ *  - Manual user-toggled triggers
+ *  - Auto-generated triggers from missed habits
+ */
+export function getChaosTriggersForDimension(dimId: string): ChaosTrigger[] {
+  const dim = data.chaosDimensions.find((d) => d.id === dimId);
+  const manual = dim ? dim.triggers : [];
+  const autoMap = computeAutoChaos();
+  const auto = autoMap.get(dimId)?.map((e) => e.trigger) ?? [];
+  return [...manual, ...auto];
+}
+
+/**
+ * Total chaos percentage for a dimension (manual + auto, capped at 100).
+ */
+export function getChaosPercentageForDimension(dimId: string): number {
+  const triggers = getChaosTriggersForDimension(dimId);
+  return Math.min(100, triggers.reduce((s, t) => s + (t.active ? t.weight : 0), 0));
 }
