@@ -1,4 +1,5 @@
 import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger } from './types';
+import { computeStreakStats } from './stats';
 
 // --- Storage envelope ---
 // Wraps app data with versioning and an integrity checksum.
@@ -292,6 +293,29 @@ export function getStorageStatus(): StorageStatus {
 }
 
 let data: AppData = loadData();
+
+/**
+ * Backfill personal records on habits loaded from older storage versions
+ * that don't yet have bestStreak/longestGap persisted. Idempotent: only
+ * touches habits where the record is missing. Cheap (one pass over habits).
+ */
+function backfillHabitRecords(): void {
+  const today = new Date();
+  for (const habit of data.habits) {
+    if (habit.archived) continue;
+    if (habit.bestStreak === undefined || habit.longestGap === undefined || habit.totalCompleted === undefined) {
+      const stats = computeStreakStats(habit, data.checkIns, today);
+      habit.bestStreak = stats.best;
+      habit.bestStreakAt = stats.bestAt || undefined;
+      habit.longestGap = stats.longestGap;
+      habit.longestGapAt = stats.longestGapAt || undefined;
+      habit.totalCompleted = stats.totalCompleted;
+    }
+  }
+}
+
+// Run once at startup so legacy data shows records immediately.
+backfillHabitRecords();
 const listeners = new Set<() => void>();
 
 // Reset in-memory state and re-read from storage.
@@ -307,11 +331,33 @@ export function resetStore(): void {
   undoStack.length = 0;
   redoStack.length = 0;
   data = loadData();
+  backfillHabitRecords();
 }
 
 function notify() {
+  recalculateHabitRecords();
   scheduleSave(data);
   listeners.forEach((fn) => fn());
+}
+
+/**
+ * Recalculate persistent personal records (best streak, longest gap, total)
+ * for every non-archived habit. Cheap: O(habits × tracked_days) and runs
+ * synchronously after every mutation. The records are written back into
+ * the Habit object so they survive a streak break — see the gap analysis
+ * in docs/research/series_historique_benchmarks.md.
+ */
+function recalculateHabitRecords(): void {
+  const today = new Date();
+  for (const habit of data.habits) {
+    if (habit.archived) continue;
+    const stats = computeStreakStats(habit, data.checkIns, today);
+    habit.bestStreak = stats.best;
+    habit.bestStreakAt = stats.bestAt || undefined;
+    habit.longestGap = stats.longestGap;
+    habit.longestGapAt = stats.longestGapAt || undefined;
+    habit.totalCompleted = stats.totalCompleted;
+  }
 }
 
 export function subscribe(fn: () => void): () => void {
@@ -716,6 +762,23 @@ export function forceMigrateLegacyData(): boolean {
   data = migrated;
   notify();
   return true;
+}
+
+/**
+ * Recalculate persistent records for a single habit. Exported primarily for
+ * tests; production code path is the automatic recalculation inside notify().
+ */
+export function recomputeHabitRecords(habitId: string): void {
+  const habit = data.habits.find((h) => h.id === habitId);
+  if (!habit || habit.archived) return;
+  const today = new Date();
+  const stats = computeStreakStats(habit, data.checkIns, today);
+  habit.bestStreak = stats.best;
+  habit.bestStreakAt = stats.bestAt || undefined;
+  habit.longestGap = stats.longestGap;
+  habit.longestGapAt = stats.longestGapAt || undefined;
+  habit.totalCompleted = stats.totalCompleted;
+  scheduleSave(data);
 }
 export function exportAllData(): AppData {
   // Return a deep clone so callers cannot mutate internal state

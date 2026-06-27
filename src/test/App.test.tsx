@@ -193,11 +193,12 @@ describe('App component', () => {
     // Switch to stats
     await user.click(screen.getByText('Statistics'));
 
-    // Should show the habit name
-    expect(screen.getByText('Gym')).toBeInTheDocument();
-    // Should show streak headers
-    expect(screen.getByText('Streak')).toBeInTheDocument();
+    // Should show the habit name in the stats table
+    expect(screen.getAllByText('Gym').length).toBeGreaterThan(0);
+    // Should show the new column headers: Current / Best / Gap
+    expect(screen.getByText('Current')).toBeInTheDocument();
     expect(screen.getByText('Best')).toBeInTheDocument();
+    expect(screen.getByText('Gap')).toBeInTheDocument();
   });
 
   it('can switch back to Grid view from Statistics', async () => {

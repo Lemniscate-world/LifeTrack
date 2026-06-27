@@ -11,6 +11,13 @@ export interface Habit {
   chaosImpact?: number;        // 0-100, percent added when triggered
   chaosDimension?: string;     // dimension id: 'physical' | 'financial' | 'social' | 'structural' | 'spiritual'
   chaosThresholdDays?: number; // consecutive missed days that triggers chaos (e.g. 2 for gym > 2)
+  // Persistent personal records (recalculated from check-ins). Surviving a streak
+  // break is the whole point — see computeStreakStats() in stats.ts.
+  bestStreak?: number;        // longest completed-days run ever recorded
+  bestStreakAt?: string;      // YYYY-MM-DD ending date of that best streak
+  longestGap?: number;        // longest missed-days run ever recorded
+  longestGapAt?: string;      // YYYY-MM-DD ending date of that gap
+  totalCompleted?: number;    // lifetime count of completed check-ins
 }
 
 export interface CheckIn {

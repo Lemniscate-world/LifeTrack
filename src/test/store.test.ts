@@ -27,6 +27,7 @@ import {
   computeAutoChaos,
   computeChaosReport,
   mergeImportedData,
+  recomputeHabitRecords,
 } from '../store';
 
 // Reset store state between tests for full isolation
@@ -1128,3 +1129,145 @@ describe('Chaos Tracker', () => {
 });
 
 
+
+describe('Persistent habit records (bestStreak, longestGap, totalCompleted)', () => {
+  it('stores bestStreak on a habit after a streak', () => {
+    const habit = addHabit('Read');
+    updateHabit(habit.id, { createdAt: '2026-06-20T00:00:00.000Z' });
+    for (let d = 23; d <= 25; d++) {
+      const dateStr = `2026-06-${String(d).padStart(2, '0')}`;
+      toggleCheckIn(habit.id, dateStr);
+    }
+    const h = getHabits().find((x) => x.id === habit.id)!;
+    expect(h.bestStreak).toBe(3);
+    expect(h.totalCompleted).toBe(3);
+  });
+
+  it('bestStreak survives a current-streak break (the Habitica gap)', () => {
+    const habit = addHabit('Meditate');
+    updateHabit(habit.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+    for (let d = 1; d <= 10; d++) {
+      const dateStr = `2026-06-${String(d).padStart(2, '0')}`;
+      toggleCheckIn(habit.id, dateStr);
+    }
+    toggleCheckIn(habit.id, '2026-06-26');
+    toggleCheckIn(habit.id, '2026-06-27');
+    const h = getHabits().find((x) => x.id === habit.id)!;
+    expect(h.bestStreak).toBeGreaterThanOrEqual(10);
+  });
+
+  it('longestGap is populated and persisted on the habit', () => {
+    const habit = addHabit('Gym');
+    updateHabit(habit.id, { createdAt: '2026-06-19T00:00:00.000Z' });
+    toggleCheckIn(habit.id, '2026-06-20');
+    toggleCheckIn(habit.id, '2026-06-21');
+    const h = getHabits().find((x) => x.id === habit.id)!;
+    expect(h.longestGap).toBeGreaterThanOrEqual(6);
+    expect(h.longestGapAt).toBe('2026-06-27');
+  });
+
+  it('totalCompleted reflects lifetime completions', () => {
+    const habit = addHabit('Water');
+    updateHabit(habit.id, { createdAt: '2026-06-20T00:00:00.000Z' });
+    for (let d = 23; d <= 27; d++) {
+      const dateStr = `2026-06-${String(d).padStart(2, '0')}`;
+      toggleCheckIn(habit.id, dateStr);
+    }
+    const h = getHabits().find((x) => x.id === habit.id)!;
+    expect(h.totalCompleted).toBe(5);
+  });
+
+  it('records are updated on every check-in toggle', () => {
+    const habit = addHabit('Stretch');
+    updateHabit(habit.id, { createdAt: '2026-06-20T00:00:00.000Z' });
+    toggleCheckIn(habit.id, '2026-06-25');
+    const h1 = getHabits().find((x) => x.id === habit.id)!;
+    expect(h1.bestStreak).toBe(1);
+    toggleCheckIn(habit.id, '2026-06-26');
+    toggleCheckIn(habit.id, '2026-06-27');
+    const h2 = getHabits().find((x) => x.id === habit.id)!;
+    expect(h2.bestStreak).toBe(3);
+  });
+
+  it('archived habits are NOT recalculated', () => {
+    const active = addHabit('Active');
+    const archived = addHabit('Archived');
+    updateHabit(active.id, { createdAt: '2026-06-20T00:00:00.000Z' });
+    updateHabit(archived.id, { createdAt: '2026-06-20T00:00:00.000Z' });
+    toggleCheckIn(active.id, '2026-06-25');
+    toggleCheckIn(archived.id, '2026-06-25');
+    toggleCheckIn(archived.id, '2026-06-26');
+    toggleCheckIn(archived.id, '2026-06-27');
+    archiveHabit(archived.id);
+    const h = getHabits().find((x) => x.id === active.id)!;
+    expect(h.bestStreak).toBe(1);
+  });
+
+  it('recomputeHabitRecords() fixes corrupted cached records', () => {
+    const habit = addHabit('Read');
+    updateHabit(habit.id, { createdAt: '2026-06-20T00:00:00.000Z' });
+    toggleCheckIn(habit.id, '2026-06-25');
+    const h = getHabits().find((x) => x.id === habit.id)!;
+    h.bestStreak = 999;
+    expect(h.bestStreak).toBe(999);
+    recomputeHabitRecords(habit.id);
+    const fixed = getHabits().find((x) => x.id === habit.id)!;
+    expect(fixed.bestStreak).toBe(1);
+  });
+
+  it('recomputeHabitRecords() handles unknown habit IDs gracefully', () => {
+    expect(() => recomputeHabitRecords('does-not-exist')).not.toThrow();
+  });
+
+  it('records survive a save and reload cycle', () => {
+    const habit = addHabit('Gym');
+    updateHabit(habit.id, { createdAt: '2026-06-20T00:00:00.000Z' });
+    for (let d = 23; d <= 27; d++) {
+      const dateStr = `2026-06-${String(d).padStart(2, '0')}`;
+      toggleCheckIn(habit.id, dateStr);
+    }
+    flushSave();
+    const before = getHabits().find((x) => x.id === habit.id)!;
+    expect(before.bestStreak).toBe(5);
+    resetStore();
+    const after = getHabits().find((x) => x.id === habit.id)!;
+    expect(after.bestStreak).toBe(5);
+    expect(after.totalCompleted).toBe(5);
+  });
+
+  it('backfill works for legacy data without persisted records', () => {
+    const legacy = {
+      habits: [{
+        id: 'legacy-1',
+        name: 'Legacy Habit',
+        color: '#FFF',
+        goal: 0,
+        createdAt: '2026-06-20T00:00:00.000Z',
+        archived: false,
+        order: 0,
+      }],
+      checkIns: [
+        { habitId: 'legacy-1', date: '2026-06-25', completed: true },
+        { habitId: 'legacy-1', date: '2026-06-26', completed: true },
+        { habitId: 'legacy-1', date: '2026-06-27', completed: true },
+      ],
+      notes: [],
+    };
+    const json = JSON.stringify(legacy);
+    let hash = 2166136261 >>> 0;
+    for (let i = 0; i < json.length; i++) {
+      hash ^= json.charCodeAt(i);
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    const envelope = JSON.stringify({
+      v: 1, d: legacy,
+      h: hash.toString(16).padStart(8, '0'),
+    });
+    localStorage.setItem('lifetrack-data', envelope);
+    localStorage.removeItem('lifetrack-data-backup');
+    resetStore();
+    const h = getHabits().find((x) => x.id === 'legacy-1');
+    expect(h).toBeDefined();
+    expect(h!.bestStreak).toBeGreaterThanOrEqual(3);
+  });
+});

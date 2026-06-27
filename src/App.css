@@ -1014,6 +1014,257 @@ body {
   color: var(--primary);
 }
 
+/* Tag for "all-time best" — small star next to a non-zero longest streak */
+.stats-best-tag {
+  margin-left: 4px;
+  font-size: 11px;
+  color: #f59e0b; /* warm amber to draw the eye */
+}
+
+.dark .stats-best-tag {
+  color: #fbbf24;
+}
+
+/* Longest gap column — visually de-emphasized, neutral color */
+.stats-gap {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dark .stats-gap {
+  color: var(--text-muted);
+}
+
+/* ============ HEATMAPS & SPARKLINES ============ */
+
+.stats-heatmaps {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border, #e5e7eb);
+}
+
+.stats-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 4px 0;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stats-section-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 16px 0;
+}
+
+.stats-heatmap-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border, #f1f5f9);
+}
+
+.stats-heatmap-row:last-child {
+  border-bottom: none;
+}
+
+.stats-heatmap-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 160px;
+  flex-shrink: 0;
+}
+
+.stats-heatmap-name {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stats-heatmap-and-spark {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  overflow-x: auto;
+}
+
+.heatmap-wrapper {
+  flex-shrink: 0;
+}
+
+.heatmap-svg {
+  display: block;
+}
+
+.heatmap-cell {
+  transition: opacity 0.1s ease;
+}
+
+.heatmap-cell:hover {
+  opacity: 0.7;
+}
+
+.heatmap-month-label {
+  font-size: 9px;
+  fill: var(--text-muted);
+  font-family: inherit;
+}
+
+.heatmap-dow-label {
+  font-size: 9px;
+  fill: var(--text-muted);
+  font-family: inherit;
+}
+
+.sparkline-svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+/* ============ HISTORY VIEW ============ */
+
+.history-container {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 0;
+}
+
+.history-controls {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  padding: 8px 0 16px 0;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  margin-bottom: 16px;
+}
+
+.history-filter,
+.history-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.history-filter select {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #d1d5db);
+  background: var(--surface, white);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.history-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 24px 0;
+  text-align: center;
+}
+
+.history-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.history-day {
+  margin-bottom: 18px;
+  border-left: 2px solid var(--border, #e5e7eb);
+  padding-left: 14px;
+  position: relative;
+}
+
+.history-day::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary, #7c3aed);
+}
+
+.history-day-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.history-day-label {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.history-day-date {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.history-day-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.history-day-entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.history-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.history-entry.done {
+  background: rgba(34, 197, 94, 0.06);
+}
+
+.history-entry.missed {
+  background: rgba(120, 120, 120, 0.06);
+  opacity: 0.7;
+}
+
+.history-entry-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.history-entry-name {
+  flex: 1;
+  color: var(--text);
+}
+
+.history-entry-status {
+  font-size: 12px;
+  color: var(--text-muted);
+  width: 16px;
+  text-align: center;
+}
+
 /* ============ CHAOS ============ */
 .chaos-container {
   flex: 1;

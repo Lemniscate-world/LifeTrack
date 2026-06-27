@@ -1,9 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import type { Habit, Note } from './types';
+import type { Habit, Note, CheckIn } from './types';
 import {
   getHabits,
   getMonthCheckIns,
-  getCheckInsForHabit,
   toggleCheckIn,
   subscribe,
   addHabit,
@@ -20,6 +19,9 @@ import {
   redoLastUndo,
   mergeImportedData,
 } from './store';
+import { computeStreakStats, computeCompletionRate, computeWeightedScore } from './stats';
+import { Heatmap, Sparkline } from './Heatmap';
+import { HistoryView } from './HistoryView';
 import './App.css';
 import ChaosView from './ChaosView';
 
@@ -58,6 +60,9 @@ export default function App() {
   const [newHabitChaosImpact, setNewHabitChaosImpact] = useState<number>(50);
   const [newHabitChaosThreshold, setNewHabitChaosThreshold] = useState<number>(2);
   const [checkIns, setCheckIns] = useState<Map<string, Map<number, boolean>>>(new Map());
+  // All check-ins across all months/habits — needed by the Statistics view to
+  // compute lifetime streaks (best, longest gap, etc.).
+  const [allCheckIns, setAllCheckIns] = useState<CheckIn[]>([]);
   const [darkMode, setDarkMode] = useState(() => {
     // Persist dark mode preference across sessions
     try {
@@ -75,7 +80,7 @@ export default function App() {
   const [editChaosDim, setEditChaosDim] = useState('physical');
   const [editChaosImpact, setEditChaosImpact] = useState(50);
   const [editChaosThreshold, setEditChaosThreshold] = useState(2);
-  const [view, setView] = useState<'grid' | 'stats' | 'chaos'>('grid');
+  const [view, setView] = useState<'grid' | 'stats' | 'history' | 'chaos'>('grid');
   const [savedMsg, setSavedMsg] = useState('');
 
   // Periodically refresh the "last saved" display
@@ -244,6 +249,8 @@ export default function App() {
       }
       setCheckIns(ci);
       setNotes(getNotes());
+      // Refresh the lifetime check-in cache so Stats view shows fresh records.
+      setAllCheckIns(exportAllData().checkIns);
     }
     update();
     return subscribe(update);
@@ -386,14 +393,54 @@ export default function App() {
 
   function handleExportCSV() {
     const allData = exportAllData();
-    const habitMap = new Map(allData.habits.map((h) => [h.id, h.name]));
-    const header = 'date,habit,completed';
+    const habitById = new Map(allData.habits.map((h) => [h.id, h]));
+    // Per-habit lifetime stats (using the same persistent records)
+    const lifetimeStats = new Map<string, {
+      current: number; best: number; rate30: number; total: number;
+    }>();
+    const allCheckIns = allData.checkIns;
+    const now = new Date();
+    for (const habit of allData.habits) {
+      const stats = computeStreakStats(habit, allCheckIns, now);
+      const rate30 = computeCompletionRate(habit, allCheckIns, 30, now);
+      lifetimeStats.set(habit.id, {
+        current: stats.current,
+        best: stats.best,
+        rate30,
+        total: stats.totalCompleted,
+      });
+    }
+
+    const quote = (v: string) =>
+      /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+
+    const header = [
+      'date',
+      'habit',
+      'habit_id',
+      'completed',
+      'current_streak_at_date',
+      'best_streak_at_date',
+      'completion_rate_30d',
+      'total_completed',
+      'chaos_dimension',
+    ].join(',');
+
     const rows = allData.checkIns.map((ci) => {
-      const habitName = habitMap.get(ci.habitId) || ci.habitId;
-      const safeName = habitName.includes(',') || habitName.includes('"')
-        ? `"${habitName.replace(/"/g, '""')}"`
-        : habitName;
-      return `${ci.date},${safeName},${ci.completed ? '1' : '0'}`;
+      const habit = habitById.get(ci.habitId);
+      const ls = lifetimeStats.get(ci.habitId);
+      const cols = [
+        quote(ci.date),
+        quote(habit?.name ?? ci.habitId),
+        quote(ci.habitId),
+        ci.completed ? '1' : '0',
+        ls ? String(ls.current) : '',
+        ls ? String(ls.best) : '',
+        ls ? String(ls.rate30) : '',
+        ls ? String(ls.total) : '',
+        quote(habit?.chaosDimension ?? ''),
+      ];
+      return cols.join(',');
     });
     const csv = [header, ...rows].join('\n');
     downloadBlob(csv, `lifetrack-export-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv;charset=utf-8');
@@ -453,96 +500,32 @@ export default function App() {
   }
 
   // --- Streak & Statistics helpers ---
+//
+// Stats are computed from the persistent, persisted `bestStreak` / `longestGap`
+// fields on each Habit (kept up-to-date by store.recalculateHabitRecords()).
+// That avoids re-scanning every check-in on every render. We still call
+// computeStreakStats() to derive the rolling-window rates (7d / 30d / …)
+// and the weighted score.
 
-  // Build a sorted array of date strings (YYYY-MM-DD) for which a habit was checked.
-  function getCheckedDates(habitId: string): string[] {
-    const checks = getCheckInsForHabit(habitId).filter((c) => c.completed);
-    const dates = checks.map((c) => c.date);
-    dates.sort();
-    return dates;
-  }
-
-  // Count consecutive days ending at endDate (inclusive), going backwards.
-  // endDate is a Date object representing the last day to count from.
-  function streakBackwards(dates: Set<string>, endDate: Date): number {
-    let count = 0;
-    const d = new Date(endDate);
-    while (true) {
-      const key = parseDateStr(d.getFullYear(), d.getMonth(), d.getDate());
-      if (dates.has(key)) {
-        count++;
-        d.setDate(d.getDate() - 1);
-      } else {
-        break;
-      }
-    }
-    return count;
-  }
-
-  // Compute the longest streak from a sorted array of date strings.
-  function longestStreak(dates: string[]): number {
-    if (dates.length === 0) return 0;
-    let max = 1;
-    let current = 1;
-    for (let i = 1; i < dates.length; i++) {
-      const prev = new Date(dates[i - 1]);
-      const curr = new Date(dates[i]);
-      const diffMs = curr.getTime() - prev.getTime();
-      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-      if (diffDays === 1) {
-        current++;
-        max = Math.max(max, current);
-      } else {
-        current = 1;
-      }
-    }
-    return max;
-  }
-
-  // Compute stats for all habits: current streak, longest streak, completion rates, score.
+  // Compute stats for all habits: current/best streak, longest gap, completion
+  // rates for 7/30/90/365-day windows, and a weighted score.
   const habitStats = useMemo(() => {
+    const now = new Date();
     return habits.map((habit) => {
-      const checked = getCheckedDates(habit.id);
-      const dateSet = new Set(checked);
-      const todayDate = new Date();
-      const current = streakBackwards(dateSet, todayDate);
-      const longest = longestStreak(checked);
+      // Prefer the persisted record (kept in sync by store) to stay consistent
+      // with what gets shown after a reload. Fall back to a live compute when
+      // the record hasn't been written yet (shouldn't happen in practice).
+      const stats = computeStreakStats(habit, allCheckIns, now);
+      const current = stats.current;
+      const longest = stats.best;
+      const longestGap = stats.longestGap;
+      const totalChecks = stats.totalCompleted;
 
-      // Completion rates for different periods
-      const now = new Date();
-      const periods = [7, 30, 90, 365] as const;
-      const rates: Record<number, number> = {};
-      for (const days of periods) {
-        let possible = 0;
-        let done = 0;
-        for (let i = 0; i < days; i++) {
-          const d = new Date(now);
-          d.setDate(d.getDate() - i);
-          const key = parseDateStr(d.getFullYear(), d.getMonth(), d.getDate());
-          possible++;
-          if (dateSet.has(key)) done++;
-        }
-        rates[days] = possible > 0 ? Math.round((done / possible) * 100) : 0;
-      }
-
-      // Weighted habit score (Loop-style exponential moving average).
-      // Scores recent completions more heavily using a decay factor.
-      // Window: 90 days. Frequency factor: 0.95 (today=1, yesterday=0.95, etc.).
-      const SCORE_WINDOW = 90;
-      const SCORE_FREQ = 0.95;
-      let weightedSum = 0;
-      let weightTotal = 0;
-      for (let i = 0; i < SCORE_WINDOW; i++) {
-        const d = new Date(now);
-        d.setDate(d.getDate() - i);
-        const key = parseDateStr(d.getFullYear(), d.getMonth(), d.getDate());
-        const weight = Math.pow(SCORE_FREQ, i);
-        weightTotal += weight;
-        if (dateSet.has(key)) {
-          weightedSum += weight;
-        }
-      }
-      const score = weightTotal > 0 ? Math.round((weightedSum / weightTotal) * 100) : 0;
+      const completion7d = computeCompletionRate(habit, allCheckIns, 7, now);
+      const completion30d = computeCompletionRate(habit, allCheckIns, 30, now);
+      const completion90d = computeCompletionRate(habit, allCheckIns, 90, now);
+      const completion365d = computeCompletionRate(habit, allCheckIns, 365, now);
+      const score = computeWeightedScore(habit, allCheckIns, now);
 
       return {
         habitId: habit.id,
@@ -550,15 +533,16 @@ export default function App() {
         habitColor: habit.color,
         currentStreak: current,
         longestStreak: longest,
-        totalChecks: checked.length,
-        completion7d: rates[7],
-        completion30d: rates[30],
-        completion90d: rates[90],
-        completion365d: rates[365],
+        longestGap,
+        totalChecks,
+        completion7d,
+        completion30d,
+        completion90d,
+        completion365d,
         score,
       };
     });
-  }, [habits]);
+  }, [habits, allCheckIns]);
 
   // Days headers with letters
   const dayHeaders: { day: number; letter: string }[] = [];
@@ -638,6 +622,7 @@ export default function App() {
         <div className="view-tabs">
           <button className={`view-tab ${view === 'grid' ? 'active' : ''}`} onClick={() => setView('grid')}>Grid</button>
           <button className={`view-tab ${view === 'stats' ? 'active' : ''}`} onClick={() => setView('stats')}>Statistics</button>
+          <button className={`view-tab ${view === 'history' ? 'active' : ''}`} onClick={() => setView('history')}>History</button>
           <button className={`view-tab ${view === 'chaos' ? 'active' : ''}`} onClick={() => setView('chaos')}>Chaos</button>
         </div>
       </div>
@@ -817,8 +802,9 @@ export default function App() {
                   <tr>
                     <th>Habit</th>
                     <th>Score</th>
-                    <th>Streak</th>
+                    <th>Current</th>
                     <th>Best</th>
+                    <th>Gap</th>
                     <th>7d</th>
                     <th>30d</th>
                     <th>90d</th>
@@ -846,7 +832,15 @@ export default function App() {
                           <span className="streak-zero">--</span>
                         )}
                       </td>
-                      <td className="stats-number">{stat.longestStreak}d</td>
+                      <td className="stats-number">
+                        {stat.longestStreak}d
+                        {stat.longestStreak > 0 && (
+                          <span className="stats-best-tag" title="All-time best">★</span>
+                        )}
+                      </td>
+                      <td className="stats-number stats-gap">
+                        {stat.longestGap > 0 ? `${stat.longestGap}d` : '—'}
+                      </td>
                       <td className="stats-number">{stat.completion7d}%</td>
                       <td className="stats-number">{stat.completion30d}%</td>
                       <td className="stats-number">{stat.completion90d}%</td>
@@ -857,8 +851,35 @@ export default function App() {
                 </tbody>
               </table>
             )}
+
+            {/* Per-habit heatmaps + sparklines for visual context */}
+            {habits.length > 0 && (
+              <div className="stats-heatmaps">
+                <h3 className="stats-section-title">Activity (last 365 days)</h3>
+                <p className="stats-section-hint">
+                  Pastel cells = completed days. Grey outline = explicit miss. Pale = before tracking started.
+                </p>
+                {habits.map((habit) => (
+                  <div key={habit.id} className="stats-heatmap-row">
+                    <div className="stats-heatmap-label">
+                      <span
+                        className="stats-color-dot"
+                        style={{ backgroundColor: habit.color }}
+                      />
+                      <span className="stats-heatmap-name">{habit.name}</span>
+                    </div>
+                    <div className="stats-heatmap-and-spark">
+                      <Heatmap habit={habit} checkIns={allCheckIns} />
+                      <Sparkline habit={habit} checkIns={allCheckIns} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </>
+      ) : view === 'history' ? (
+        <HistoryView checkIns={allCheckIns} habits={habits} />
       ) : (
         <ChaosView />
       )}
