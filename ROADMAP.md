@@ -41,12 +41,21 @@ To provide a fast, local-first, distraction-free desktop application for trackin
 - [x] Keyboard shortcut navigation (arrow keys to move focus, Space to check/uncheck).
 - [x] Undo/Redo support for accidental checks (Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z).
 
-### Phase 5: Polish & Edge Cases (In Progress)
+### Phase 5: Polish & Edge Cases (Completed)
 - [x] Custom Chaos pressure gauge tracking routines and physical/financial indicators linked to habits.
 - [x] Empty state UI polish.
 - [x] Import/storage hardening for invalid dates and corrupted entries.
+- [x] **Persistent personal records** (best streak, longest gap) — survives streak breaks.
+- [x] **365-day heatmap + sparkline** per habit in Statistics view.
+- [x] **History tab** with reverse-chronological timeline.
+- [x] **Enriched CSV export** (9 columns incl. lifetime streak stats).
 - [ ] Accessibility audit (focus rings, ARIA roles, and screen-reader friendliness).
 - [ ] Performance audit (Lighthouse performance target > 95).
+
+### Phase 5.5: Insight Saturation (Completed 2026-06-27)
+- [x] `src/stats.ts` — pure functions module for streak / rate / score calculations.
+- [x] Refactor: Statistics view uses `computeStreakStats` instead of bespoke helpers.
+- [x] Backward-compatible data migration (new Habit fields auto-backfilled on load).
 
 ### Phase 6: Habit Stacking (Planned)
 - [ ] Add optional "after habit" links to build routines from existing habits.

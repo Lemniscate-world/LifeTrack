@@ -9,9 +9,12 @@ It uses React + TypeScript + Vite for the UI and Tauri v2 (Rust + WebView2) for 
 - Habit CRUD: add, rename, archive, delete, edit monthly goals
 - Optional Chaos links per habit: missed streaks heat up life dimensions
 - Chaos dashboard showing healthy vs triggered habits per dimension
-- Statistics view: current/best streaks, completion rates, weighted score
+- **Statistics view**: current/best streak, longest gap, completion rates (7d/30d/90d/365d), weighted score, **365-day heatmap** + sparkline per habit
+- **History view**: reverse-chronological timeline of all check-ins, filter by habit, toggle misses
+- **Persistent personal records**: best streak and longest gap survive streak breaks (no "Habitica gap")
 - Notes panel with persistent local notes
 - Theme cycling + dark mode with persisted preferences
+- **Enriched CSV export** (9 columns: date, habit, habit_id, completed, current_streak, best_streak, completion_rate_30d, total_completed, chaos_dimension)
 - JSON import/export and CSV export
 - Desktop auto-backups in the app data directory
 - Offline-first storage with checksum envelope, backup recovery, and malformed-data filtering
@@ -32,9 +35,13 @@ Requirements: Node.js 22+, Rust 1.77+, Windows WebView2.
 
 ```sh
 npm run lint       # ESLint
-npm test           # 113 tests (Vitest + React Testing Library)
+npm test           # 171 tests (Vitest + React Testing Library)
 npm run build      # TypeScript + Vite production build
 ```
+
+> New in 0.1.1: `src/stats.ts` is the pure-functions core for streak / rate / score
+> calculations. It's fully unit-tested and powers both the Statistics view and
+> the enriched CSV export.
 
 For the Rust/Tauri side:
 

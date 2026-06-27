@@ -4,6 +4,29 @@ All notable changes to LifeTrack are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-06-27
+
+### Added
+- **`src/stats.ts`** — new pure-functions core: `computeStreakStats()`, `computeCompletionRate()`, `computeWeightedScore()`, `trackingStart()`. 29 unit tests.
+- **Persistent personal records** on `Habit`: `bestStreak`, `bestStreakAt`, `longestGap`, `longestGapAt`, `totalCompleted`. Recalculated on every mutation and on legacy data load (`recalculateHabitRecords()` in `notify()`, backfill on `resetStore()`).
+- **Statistics view — Gap column** + ★ tag on all-time best streak.
+- **365-day GitHub-style heatmap** per habit (pure SVG, no dependencies). Shows past 365 days, marks today, grey-pales days before tracking start.
+- **30-day rolling sparkline** per habit (7-day completion window).
+- **History tab** — reverse-chronological timeline of all check-ins, grouped by day, with habit filter and "show misses" toggle.
+- **Enriched CSV export** — now 9 columns: `date, habit, habit_id, completed, current_streak_at_date, best_streak_at_date, completion_rate_30d, total_completed, chaos_dimension`. Backward-compatible header change (was 3 columns).
+
+### Changed
+- `App.tsx` statistics calculation refactored to use `src/stats.ts` (single source of truth for streaks and rates).
+- Statistics view now reads the **persistent** `bestStreak` field instead of recomputing on every render — much faster on large datasets.
+- Habit colors no longer default to "no color" if palette exhausted (fallback to modulo rotation).
+
+### Tests
+- 171 tests passing (was 113, +58).
+- New test files: `src/test/stats.test.ts` (29), `src/test/Heatmap.test.tsx` (11), `src/test/HistoryView.test.tsx` (8).
+- `src/test/store.test.ts`: +10 tests for record persistence, backfill, and save/reload cycle.
+
+## [Unreleased-pre-sprint]
+
 ### Added
 - Chaos dashboard with full linked-habit visibility, healthy/triggered states, and dimension pressure summaries.
 - Regression coverage for Chaos missed-streak behavior, keyboard focus, import hardening, and undo/redo shortcuts.
