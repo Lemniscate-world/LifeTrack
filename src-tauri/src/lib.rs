@@ -21,7 +21,11 @@ fn auto_backup(app: tauri::AppHandle, json_data: String) -> Result<String, Strin
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().map_or(false, |ext| ext == "json"))
         .collect();
-    entries.sort_by_key(|e| e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH));
+    entries.sort_by_key(|e| {
+        e.metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+    });
     while entries.len() > 10 {
         if let Some(old) = entries.first() {
             let _ = std::fs::remove_file(old.path());
@@ -46,7 +50,10 @@ async fn export_file(app: tauri::AppHandle, json_data: String) -> Result<String,
 
     match file_path {
         Some(p) => {
-            let path = p.as_path().unwrap().to_path_buf();
+            let path = p
+                .as_path()
+                .ok_or_else(|| "Selected path is not a local filesystem path".to_string())?
+                .to_path_buf();
             std::fs::write(&path, &json_data).map_err(|e| e.to_string())?;
             Ok(path.to_string_lossy().to_string())
         }
@@ -64,11 +71,27 @@ async fn import_file(app: tauri::AppHandle) -> Result<String, String> {
 
     match file_path {
         Some(p) => {
-            let path = p.as_path().unwrap().to_path_buf();
+            let path = p
+                .as_path()
+                .ok_or_else(|| "Selected path is not a local filesystem path".to_string())?
+                .to_path_buf();
             std::fs::read_to_string(&path).map_err(|e| e.to_string())
         }
         None => Err("Cancelled".to_string()),
     }
+}
+
+fn backup_has_data(content: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(content) else {
+        return false;
+    };
+    ["habits", "checkIns", "notes"].iter().any(|key| {
+        value
+            .get(key)
+            .and_then(|v| v.as_array())
+            .map(|items| !items.is_empty())
+            .unwrap_or(false)
+    })
 }
 
 #[tauri::command]
@@ -99,8 +122,7 @@ fn find_latest_backup(app: tauri::AppHandle) -> Result<Option<String>, String> {
     });
     for entry in entries {
         let content = std::fs::read_to_string(entry.path()).unwrap_or_default();
-        // Check if backup has actual data (not just empty structure)
-        if content.len() > 200 {
+        if backup_has_data(&content) {
             return Ok(Some(content));
         }
     }
@@ -109,19 +131,24 @@ fn find_latest_backup(app: tauri::AppHandle) -> Result<Option<String>, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  tauri::Builder::default()
-    .plugin(tauri_plugin_dialog::init())
-    .invoke_handler(tauri::generate_handler![auto_backup, export_file, import_file, find_latest_backup])
-    .setup(|app| {
-      if cfg!(debug_assertions) {
-        app.handle().plugin(
-          tauri_plugin_log::Builder::default()
-            .level(log::LevelFilter::Info)
-            .build(),
-        )?;
-      }
-      Ok(())
-    })
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![
+            auto_backup,
+            export_file,
+            import_file,
+            find_latest_backup
+        ])
+        .setup(|app| {
+            if cfg!(debug_assertions) {
+                app.handle().plugin(
+                    tauri_plugin_log::Builder::default()
+                        .level(log::LevelFilter::Info)
+                        .build(),
+                )?;
+            }
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
 }

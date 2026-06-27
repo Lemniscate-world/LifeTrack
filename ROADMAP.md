@@ -33,26 +33,33 @@ To provide a fast, local-first, distraction-free desktop application for trackin
 - [x] Detailed habit statistics (current streak, best streak, 7d/30d/90d/365d completion rates).
 - [x] Loop-style habit scoring using an Exponential Moving Average (90-day window, 0.95 decay factor).
 
-### Phase 4: Desktop Packaging & Desktop Features (In Progress)
+### Phase 4: Desktop Packaging & Desktop Features (Completed)
 - [x] Tauri integration (src-tauri initialize, Cargo setups).
 - [x] Automatic local file backup in AppData directory.
 - [x] Bidirectional backup restore system with name-deduplication.
-- [/] Native Windows package generation (`.exe` / `.msi` packaging).
-- [ ] Keyboard shortcut navigation (arrow keys to move focus, Space to check/uncheck).
-- [ ] Undo/Redo support for accidental checks (Ctrl+Z / Ctrl+Y).
+- [x] Native Windows package generation (`.exe` / `.msi` packaging).
+- [x] Keyboard shortcut navigation (arrow keys to move focus, Space to check/uncheck).
+- [x] Undo/Redo support for accidental checks (Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z).
 
-### Phase 5: Polish & Edge Cases (Planned)
+### Phase 5: Polish & Edge Cases (In Progress)
+- [x] Custom Chaos pressure gauge tracking routines and physical/financial indicators linked to habits.
+- [x] Empty state UI polish.
+- [x] Import/storage hardening for invalid dates and corrupted entries.
 - [ ] Accessibility audit (focus rings, ARIA roles, and screen-reader friendliness).
-- [ ] Custom Chaos pressure gauge tracking routines and physical/financial indicators linked to habits.
-- [ ] Empty state UI polish.
 - [ ] Performance audit (Lighthouse performance target > 95).
+
+### Phase 6: Habit Stacking (Planned)
+- [ ] Add optional "after habit" links to build routines from existing habits.
+- [ ] Show stack progress: completed, blocked, skipped, and next suggested habit.
+- [ ] Add stack templates for common morning/evening workflows.
+- [ ] Consider Chaos amplification when multiple linked habits in a stack are missed.
 
 ---
 
 ## Local Development Setup
 
 ### Prerequisites
-- Node.js (v18+)
+- Node.js (v22+)
 - Rust (Cargo) for Tauri desktop builds
 
 ### Installation

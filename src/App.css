@@ -1024,18 +1024,19 @@ body {
 .chaos-header {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
   margin-bottom: 20px;
 }
 
-.chaos-header h2 {
+.chaos-heading h2 {
   font-size: 16px;
   font-weight: 700;
 }
 
-.chaos-overall {
-  display: flex;
-  align-items: center;
+.chaos-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
 }
 
 .chaos-gauge {
@@ -1114,41 +1115,91 @@ body {
   transition: width 0.3s;
 }
 
-.chaos-triggers {
+.chaos-card.empty {
+  opacity: 0.6;
+}
+
+.chaos-empty-dim {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.chaos-hint {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.chaos-dim-summary {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.chaos-habits {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
-.chaos-trigger {
+.chaos-habit {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 12px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 3px 0;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--bg);
+  border-left: 3px solid var(--border);
 }
 
-.chaos-trigger:hover {
-  color: var(--text);
+.chaos-habit.triggered {
+  border-left-color: #ef4444;
+  background: color-mix(in srgb, #ef4444 8%, var(--bg));
 }
 
-.chaos-trigger input {
-  accent-color: var(--primary);
-  width: 14px;
-  height: 14px;
+.chaos-habit.ok {
+  border-left-color: #22c55e;
 }
 
-.chaos-trigger span:first-of-type {
+.chaos-habit-icon {
+  flex-shrink: 0;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.chaos-habit.ok .chaos-habit-icon {
+  color: #22c55e;
+}
+
+.chaos-habit-name {
   flex: 1;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.chaos-weight {
-  font-size: 10px;
+.chaos-habit-status {
+  flex-shrink: 0;
+  font-size: 11px;
   color: var(--text-muted);
-  font-weight: 500;
-  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.chaos-habit.triggered .chaos-habit-status {
+  color: #ef4444;
+  font-weight: 600;
 }
 
 /* New habit chaos config (inline form below "Add habit") */
@@ -1207,22 +1258,16 @@ body {
   color: var(--text);
   font-size: 13px;
 }
-.chaos-hint {
+/* Inline hint inside the new-habit chaos config form */
+.chaos-config .chaos-hint {
   grid-column: 1 / -1;
   font-size: 11px;
   color: var(--text-muted);
   font-style: italic;
-  margin-top: 4px;
-}
-
-/* Auto chaos trigger (distinct from manual) */
-.chaos-trigger.auto {
-  background: color-mix(in srgb, var(--primary) 8%, transparent);
-  border-left: 3px solid var(--primary);
-  padding-left: 8px;
-}
-.chaos-trigger.auto input[type='checkbox'] {
-  opacity: 0.5;
-  cursor: not-allowed;
+  margin: 4px 0 0;
+  padding: 0;
+  background: none;
+  border: none;
+  line-height: 1.4;
 }
 

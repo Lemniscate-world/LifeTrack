@@ -2,6 +2,31 @@
 
 All notable changes to LifeTrack are documented in this file.
 
+## [Unreleased]
+
+### Added
+- Chaos dashboard with full linked-habit visibility, healthy/triggered states, and dimension pressure summaries.
+- Regression coverage for Chaos missed-streak behavior, keyboard focus, import hardening, and undo/redo shortcuts.
+
+### Changed
+- Improved Chaos design and grid iconography.
+- Refactored restore-from-backup to reuse the safer import merge path.
+- Updated Tauri backup detection to parse backup JSON instead of relying on file length.
+
+### Fixed
+- Freshly-created habits now correctly enter Chaos when recent past days are marked missed.
+- Weekday headers now use the displayed year/month instead of a hardcoded reference date.
+- Keyboard focus now highlights the correct habit row.
+- `Ctrl+Shift+Z` redo is handled correctly.
+- Imported/stored check-ins now reject invalid dates and invalid completion values.
+- Imported metadata on existing habits is persisted even when no check-ins are restored.
+- Notes retrieval no longer mutates internal store order.
+- Tauri import/export paths no longer use avoidable `unwrap()` calls.
+
+### Removed
+- Stale `src/App.tsx.bak` source backup.
+- Tracked coverage artifacts from the repository.
+
 ## [0.1.0] — 2026-06-23
 
 ### Added

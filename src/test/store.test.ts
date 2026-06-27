@@ -25,6 +25,7 @@ import {
   getChaosTriggersForDimension,
   getChaosPercentageForDimension,
   computeAutoChaos,
+  computeChaosReport,
   mergeImportedData,
 } from '../store';
 
@@ -275,6 +276,26 @@ describe('Persistence and fallbacks', () => {
     expect(habits[0].name).toBe('Valid');
   });
 
+  it('filters invalid stored check-in dates and completed values on load', () => {
+    const rawData = {
+      habits: [{ id: 'h1', name: 'Gym', color: '#FFF', goal: 0, createdAt: '', archived: false, order: 0 }],
+      checkIns: [
+        { habitId: 'h1', date: '2026-06-15', completed: true },
+        { habitId: 'h1', date: '2026-06-31', completed: true },
+        { habitId: 'h1', date: 'oops', completed: true },
+        { habitId: 'h1', date: '2026-06-16', completed: 'yes' },
+      ],
+      notes: [],
+    };
+    localStorage.setItem('lifetrack-data', makeEnvelope(rawData));
+    resetStore();
+
+    const habit = getHabits()[0];
+    const checks = getMonthCheckIns(habit.id, 2026, 5);
+    expect(checks.size).toBe(1);
+    expect(checks.get(15)).toBe(true);
+  });
+
   it('restores a duplicated backup by mapping repeated habit names to one habit', () => {
     const result = mergeImportedData({
       habits: [
@@ -324,6 +345,41 @@ describe('Persistence and fallbacks', () => {
     expect(result.checkInsRestored).toBe(1);
     expect(getHabits()).toHaveLength(1);
     expect(getCheckIn(existing.id, '2026-06-01')?.completed).toBe(true);
+  });
+
+  it('rejects invalid imported check-in dates', () => {
+    const result = mergeImportedData({
+      habits: [{ id: 'old-gym', name: 'Gym', color: '#fff', goal: 0, createdAt: '', archived: false, order: 0 }],
+      checkIns: [
+        { habitId: 'old-gym', date: '2026-02-29', completed: true }, // invalid: 2026 is not leap year
+        { habitId: 'old-gym', date: '2026-06-31', completed: true }, // invalid June day
+        { habitId: 'old-gym', date: 'not-a-date', completed: true },
+        { habitId: 'old-gym', date: '2026-06-30', completed: true },
+      ],
+      notes: [],
+    });
+
+    const habit = getHabits()[0];
+    expect(result.checkInsRestored).toBe(1);
+    expect(result.skippedCheckIns).toBe(3);
+    expect(getCheckIn(habit.id, '2026-06-30')?.completed).toBe(true);
+    expect(getMonthCheckIns(habit.id, 2026, 5).size).toBe(1);
+  });
+
+  it('persists metadata merged into an existing habit even without check-ins', () => {
+    addHabit('Gym');
+
+    const result = mergeImportedData({
+      habits: [{ id: 'old-gym', name: 'Gym', color: '#fff', goal: 20, createdAt: '', archived: false, order: 0 }],
+      checkIns: [],
+      notes: [],
+    });
+    expect(result.habitsCreated).toBe(0);
+    expect(getHabits()[0].goal).toBe(20);
+
+    flushSave();
+    resetStore();
+    expect(getHabits()[0].goal).toBe(20);
   });
 });
 
@@ -378,13 +434,12 @@ describe('Chaos Tracker', () => {
     expect(ids).toEqual(expect.arrayContaining(['physical', 'financial', 'social', 'structural', 'spiritual']));
   });
 
-  it('toggles a manual trigger active state', () => {
-    const dim = getChaosDimensions()[0]; // physical
-    const trigger = dim.triggers[0];
-    const initial = trigger.active;
-    toggleChaosTrigger(dim.id, trigger.id);
-    const after = getChaosDimensions().find((d) => d.id === dim.id)!.triggers.find((t) => t.id === trigger.id)!.active;
-    expect(after).toBe(!initial);
+  it('toggles a non-existent trigger gracefully (no manual triggers by default)', () => {
+    // Default chaos has no manual triggers — toggleChaosTrigger should handle gracefully
+    const dim = getChaosDimensions()[0];
+    expect(dim.triggers).toHaveLength(0);
+    // Toggling a non-existent trigger should not throw
+    expect(() => toggleChaosTrigger(dim.id, 'nonexistent')).not.toThrow();
   });
 
   it('addHabit accepts optional chaos config (dimension, impact, threshold)', () => {
@@ -406,13 +461,14 @@ describe('Chaos Tracker', () => {
   });
 
   it('computes auto chaos when habit missed beyond threshold', () => {
-    addHabit('Gym', {
+    const h = addHabit('Gym', {
       chaosDimension: 'physical',
       chaosImpact: 50,
       chaosThresholdDays: 2,
     });
-    // Today + yesterday + day before are all missed (no check-ins)
-    // computeAutoChaos walks backwards from today — missing 3 days >= threshold 2 → trigger
+    // Backdate creation so streak can accumulate
+    updateHabit(h.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+    // No check-ins → 25+ days missed >= threshold 2 → trigger
     const auto = computeAutoChaos();
     const physTriggers = auto.get('physical') ?? [];
     expect(physTriggers.length).toBeGreaterThan(0);
@@ -450,25 +506,105 @@ describe('Chaos Tracker', () => {
     expect(physTriggers).toHaveLength(0);
   });
 
-  it('combines manual and auto triggers for a dimension', () => {
+  it('REAL USER SCENARIO: brand new habit does NOT trigger chaos immediately', () => {
+    // User opens app for the first time, creates a habit
+    // They haven't checked anything yet
+    // The habit was just created TODAY
+    // Threshold 2: need 2 consecutive missed days YESTERDAY-1, YESTERDAY-2
+    // But YESTERDAY-2 < creation date → break
+    // So only YESTERDAY-1 counts → 1 < 2 → NO chaos
+    addHabit('Gym', {
+      chaosDimension: 'physical',
+      chaosImpact: 50,
+      chaosThresholdDays: 2,
+    });
+    const auto = computeAutoChaos();
+    const phys = auto.get('physical') ?? [];
+    expect(phys).toHaveLength(0); // brand new habit, shouldn't trigger immediately
+  });
+
+  it('REAL USER SCENARIO: created habit 3 days ago, no check-ins → chaos triggers', () => {
+    // User created habit June 23, today is June 26
+    // No check-ins → streak: YESTERDAY (1), YESTERDAY-1 (2), YESTERDAY-2 (3) = 3 >= threshold 2
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-06-23T00:00:00.000Z' });
+
+    const asOf = new Date(2026, 5, 26); // June 26
+    const auto = computeAutoChaos(asOf);
+    const phys = auto.get('physical') ?? [];
+    expect(phys).toHaveLength(1);
+    expect(phys[0].trigger.label).toContain('missed 3d');
+    expect(phys[0].trigger.weight).toBe(50);
+  });
+
+  it('REAL USER SCENARIO: checked yesterday only → streak of 1 (today not counted)', () => {
+    // User created habit 5 days ago, checked in yesterday
+    // Today is still in progress, NOT counted as missed
+    // Yesterday checked → streak = 0 → no chaos
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-06-20T00:00:00.000Z' });
+
+    const asOf = new Date(2026, 5, 26); // June 26
+    toggleCheckIn(h.id, '2026-06-25'); // checked yesterday
+    const auto = computeAutoChaos(asOf);
+    const phys = auto.get('physical') ?? [];
+    expect(phys).toHaveLength(0); // yesterday was checked, no streak
+  });
+
+  it('REAL USER SCENARIO: missed yesterday and the day before → chaos triggers', () => {
+    // User created habit 5 days ago, last check was June 24
+    // Missed: June 25 (1), June 26-as-yesterday-not-counted
+    // Actually: today is June 26, so yesterday is June 25 (missed), day before is June 24 (checked)
+    // → streak = 1 → below threshold 2 → NO chaos
+    // For chaos, must have missed June 25 AND June 24 (or earlier un-checked)
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-06-20T00:00:00.000Z' });
+
+    const asOf = new Date(2026, 5, 26);
+    toggleCheckIn(h.id, '2026-06-23'); // last check 3 days ago
+    const auto = computeAutoChaos(asOf);
+    const phys = auto.get('physical') ?? [];
+    // Streak: YESTERDAY (June 25 missed=1), YESTERDAY-1 (June 24 missed=2), YESTERDAY-2 (June 23 checked=break)
+    expect(phys).toHaveLength(1);
+    expect(phys[0].trigger.label).toContain('missed 2d');
+  });
+
+  it('REAL USER SCENARIO: missed 3 consecutive days (threshold 2) → +50%', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-06-20T00:00:00.000Z' });
+
+    const asOf = new Date(2026, 5, 26);
+    toggleCheckIn(h.id, '2026-06-22'); // last check 4 days ago
+    const auto = computeAutoChaos(asOf);
+    const phys = auto.get('physical') ?? [];
+    expect(phys).toHaveLength(1);
+    expect(phys[0].trigger.weight).toBe(50);
+    expect(phys[0].trigger.label).toContain('missed 3d');
+  });
+
+  it('auto triggers appear for dimension when habit is linked', () => {
     const dims = getChaosDimensions();
     const physical = dims.find((d) => d.id === 'physical')!;
-    // Activate first manual trigger (already default)
+    // No manual triggers by default
+    expect(physical.triggers).toHaveLength(0);
     const triggersBefore = getChaosTriggersForDimension('physical');
-    expect(triggersBefore.length).toBe(physical.triggers.length);
+    expect(triggersBefore.length).toBe(0);
 
     // Add a gym habit linked to physical → auto trigger appears
-    addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-06-01T00:00:00.000Z' });
     const triggersAfter = getChaosTriggersForDimension('physical');
-    expect(triggersAfter.length).toBe(physical.triggers.length + 1);
+    expect(triggersAfter.length).toBe(1); // one auto trigger
     const auto = triggersAfter.find((t) => t.id.startsWith('auto_'));
     expect(auto).toBeDefined();
   });
 
   it('caps dimension percentage at 100', () => {
     // Add two habits each contributing 60% to physical, threshold 2
-    addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 60, chaosThresholdDays: 2 });
-    addHabit('Run', { chaosDimension: 'physical', chaosImpact: 60, chaosThresholdDays: 2 });
+    const h1 = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 60, chaosThresholdDays: 2 });
+    const h2 = addHabit('Run', { chaosDimension: 'physical', chaosImpact: 60, chaosThresholdDays: 2 });
+    updateHabit(h1.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+    updateHabit(h2.id, { createdAt: '2026-06-01T00:00:00.000Z' });
     const pct = getChaosPercentageForDimension('physical');
     expect(pct).toBeLessThanOrEqual(100);
     expect(pct).toBeGreaterThan(0);
@@ -482,15 +618,14 @@ describe('Chaos Tracker', () => {
     expect(physTriggers).toHaveLength(0);
   });
 
-  it('resetChaos restores defaults (triggers inactive, identical labels)', () => {
-    const dim = getChaosDimensions()[0];
-    toggleChaosTrigger(dim.id, dim.triggers[0].id);
+  it('resetChaos restores defaults (empty triggers)', () => {
+    // After reset, all dimensions have empty triggers
     resetChaos();
     const fresh = getChaosDimensions();
-    const freshDim = fresh.find((d) => d.id === dim.id)!;
-    // After reset, structure matches defaults: same triggers, all inactive
-    expect(freshDim.triggers).toHaveLength(dim.triggers.length);
-    expect(freshDim.triggers.every((t) => t.active === false)).toBe(true);
+    expect(fresh).toHaveLength(5);
+    for (const d of fresh) {
+      expect(d.triggers).toEqual([]);
+    }
   });
 
   it('auto trigger ignores today\'s missing if habit checked once ever (streak counts from today)', () => {
@@ -505,8 +640,10 @@ describe('Chaos Tracker', () => {
   });
 
   it('multiple habits contribute independently to their dimension', () => {
-    addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
-    addHabit('Sleep7h', { chaosDimension: 'physical', chaosImpact: 30, chaosThresholdDays: 1 });
+    const h1 = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    const h2 = addHabit('Sleep7h', { chaosDimension: 'physical', chaosImpact: 30, chaosThresholdDays: 1 });
+    updateHabit(h1.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+    updateHabit(h2.id, { createdAt: '2026-06-01T00:00:00.000Z' });
     const phys = getChaosTriggersForDimension('physical');
     const autoTriggers = phys.filter((t) => t.id.startsWith('auto_'));
     expect(autoTriggers.length).toBe(2);
@@ -514,10 +651,479 @@ describe('Chaos Tracker', () => {
 
   it('habit without check-ins in past 90 days stops counting streak', () => {
     // Threshold is 2; even with 90 days missed, only 1 auto trigger should be emitted (not infinite)
-    addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-01-01T00:00:00.000Z' });
     const auto = computeAutoChaos();
     const phys = auto.get('physical') ?? [];
     expect(phys.length).toBe(1); // one auto trigger for this single habit
+  });
+
+  it('getChaosPercentageForDimension returns 0 when no triggers active', () => {
+    // Fresh store: all manual triggers inactive, no habits linked → 0%
+    const pct = getChaosPercentageForDimension('financial');
+    expect(pct).toBe(0);
+  });
+
+  it('getChaosPercentageForDimension returns correct auto chaos sum', () => {
+    // Two missed habits in the same dimension → sum of their impacts
+    const h1 = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 30, chaosThresholdDays: 2 });
+    const h2 = addHabit('Run', { chaosDimension: 'physical', chaosImpact: 40, chaosThresholdDays: 2 });
+    updateHabit(h1.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+    updateHabit(h2.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+    const pct = getChaosPercentageForDimension('physical');
+    expect(pct).toBe(70); // 30 + 40
+  });
+
+  it('toggleChaosTrigger on non-existent dimension does nothing', () => {
+    const before = getChaosDimensions();
+    toggleChaosTrigger('nonexistent', 'p1');
+    const after = getChaosDimensions();
+    expect(after).toEqual(before);
+  });
+
+  it('toggleChaosTrigger on non-existent trigger does nothing', () => {
+    const before = getChaosDimensions();
+    toggleChaosTrigger('physical', 'nonexistent');
+    const after = getChaosDimensions();
+    expect(after).toEqual(before);
+  });
+
+  it('computeAutoChaos accepts asOf date parameter', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    // Check in yesterday (relative to asOf) → 1 day missed (asOf day), then break → 1 < threshold 2
+    const asOf = new Date(2026, 5, 15); // June 15, 2026
+    const checkedDate = '2026-06-14'; // checked the day before asOf
+    toggleCheckIn(h.id, checkedDate);
+    // Streak: June 15 missed (1), June 14 checked → break → 1 < threshold 2 → no trigger
+    const auto = computeAutoChaos(asOf);
+    const phys = auto.get('physical') ?? [];
+    expect(phys).toHaveLength(0);
+  });
+
+  it('computeAutoChaos with asOf: missed streak >= threshold triggers', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+    // Check in 5 days before asOf → 4 consecutive missed days (threshold 2 → trigger)
+    const asOf = new Date(2026, 5, 15); // June 15
+    const checkedDate = '2026-06-10';
+    toggleCheckIn(h.id, checkedDate);
+    const auto = computeAutoChaos(asOf);
+    const phys = auto.get('physical') ?? [];
+    expect(phys).toHaveLength(1);
+    expect(phys[0].trigger.weight).toBe(50);
+    expect(phys[0].trigger.label).toContain('missed');
+  });
+
+  it('auto trigger label includes missed days and threshold', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 3 });
+    updateHabit(h.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+    const auto = computeAutoChaos();
+    const phys = auto.get('physical') ?? [];
+    expect(phys).toHaveLength(1);
+    expect(phys[0].trigger.label).toContain('Gym');
+    expect(phys[0].trigger.label).toContain('missed');
+  });
+
+  it('getChaosTriggersForDimension returns empty array for non-existent dimension', () => {
+    const triggers = getChaosTriggersForDimension('nonexistent');
+    expect(triggers).toEqual([]);
+  });
+
+  it('auto triggers have distinct IDs per habit', () => {
+    const h1 = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    const h2 = addHabit('Run', { chaosDimension: 'physical', chaosImpact: 30, chaosThresholdDays: 2 });
+    updateHabit(h1.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+    updateHabit(h2.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+    const phys = getChaosTriggersForDimension('physical');
+    const autoIds = phys.filter((t) => t.id.startsWith('auto_')).map((t) => t.id);
+    expect(autoIds).toContain(`auto_${h1.id}`);
+    expect(autoIds).toContain(`auto_${h2.id}`);
+    expect(new Set(autoIds).size).toBe(2); // distinct
+  });
+
+  it('habit with chaosImpact=0 is skipped by computeAutoChaos', () => {
+    addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 0, chaosThresholdDays: 2 });
+    const auto = computeAutoChaos();
+    const phys = auto.get('physical') ?? [];
+    expect(phys).toHaveLength(0);
+  });
+
+  it('habit with chaosThresholdDays=0 is skipped by computeAutoChaos', () => {
+    addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 0 });
+    const auto = computeAutoChaos();
+    const phys = auto.get('physical') ?? [];
+    expect(phys).toHaveLength(0);
+  });
+
+  it('habit without chaosDimension is skipped', () => {
+    addHabit('Gym', { chaosImpact: 50, chaosThresholdDays: 2 }); // no dimension
+    const auto = computeAutoChaos();
+    expect(auto.size).toBe(0);
+  });
+
+  it('consecutive missed days break on first completed check-in going backward', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 3 });
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const dayBefore = new Date(today);
+    dayBefore.setDate(dayBefore.getDate() - 2);
+
+    const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    // Check in yesterday → streak is: today missed (1), yesterday checked → break → 1 day missed
+    toggleCheckIn(h.id, fmt(yesterday));
+    const auto = computeAutoChaos();
+    const phys = auto.get('physical') ?? [];
+    expect(phys).toHaveLength(0); // threshold 3, only 1 day missed
+  });
+
+  it('streak of 3 missed with threshold 3 triggers chaos', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 3 });
+    updateHabit(h.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+    const today = new Date();
+    const fourDaysAgo = new Date(today);
+    fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
+
+    const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    // Last check 4 days ago → with NEW algo (starts from yesterday):
+    // YESTERDAY (1), YESTERDAY-1 (2), YESTERDAY-2 (3) = 3 missed >= threshold 3 → trigger
+    toggleCheckIn(h.id, fmt(fourDaysAgo));
+    const auto = computeAutoChaos();
+    const phys = auto.get('physical') ?? [];
+    expect(phys).toHaveLength(1);
+  });
+
+  it('resetChaos does not affect habits with chaos config', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    resetChaos();
+    const habit = getHabits().find((x) => x.id === h.id);
+    expect(habit).toBeDefined();
+    expect(habit!.chaosDimension).toBe('physical');
+    expect(habit!.chaosImpact).toBe(50);
+  });
+
+  it('getChaosDimensions returns same reference (mutable, not cloned)', () => {
+    const a = getChaosDimensions();
+    const b = getChaosDimensions();
+    expect(a).toBe(b); // same reference — by design, for reactivity
+  });
+
+  it('all 5 default dimensions exist with empty triggers (auto-only)', () => {
+    const dims = getChaosDimensions();
+    expect(dims).toHaveLength(5);
+    for (const d of dims) {
+      expect(d.triggers).toEqual([]);
+    }
+  });
+
+  it('auto chaos map returns empty for dimensions with no linked habits', () => {
+    const auto = computeAutoChaos();
+    // No habits linked → all dimensions should be absent from the map
+    expect(auto.get('social')).toBeUndefined();
+    expect(auto.get('financial')).toBeUndefined();
+  });
+
+  // ── End-to-end workflow tests ──
+
+  it('E2E: habit with backdated creation triggers chaos after 2 missed days', () => {
+    // Simulate: habit created June 23, last check June 24, missed June 25-26
+    // Today is June 26. Yesterday (June 25) missed → 1. June 24 checked → break.
+    // So actually NO chaos with new algo (only 1 day missed from yesterday).
+    // For chaos we need a check earlier than 2 days ago.
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-06-20T00:00:00.000Z' });
+
+    // Last check June 23 → YESTERDAY(25) missed(1), YESTERDAY-1(24) missed(2), YESTERDAY-2(23) checked=break
+    toggleCheckIn(h.id, '2026-06-23');
+
+    const auto = computeAutoChaos(new Date(2026, 5, 26)); // June 26, 2026
+    const phys = auto.get('physical') ?? [];
+    expect(phys).toHaveLength(1);
+    expect(phys[0].trigger.label).toContain('missed');
+    expect(phys[0].trigger.weight).toBe(50);
+  });
+
+  it('E2E: checking in today clears the chaos trigger', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+
+    // With NEW algo: chaos depends on YESTERDAY, not today.
+    // If no check-ins for 5+ days, chaos triggers from yesterday's streak.
+    // After backdating creation, chaos is triggered by yesterday's missed streak.
+    // Today being checked does NOT change yesterday's status.
+    // To "clear" the chaos we need to check in YESTERDAY.
+    const before = computeAutoChaos(new Date(2026, 5, 26));
+    expect((before.get('physical') ?? []).length).toBeGreaterThan(0);
+
+    // Check in YESTERDAY → breaks the streak at yesterday
+    toggleCheckIn(h.id, '2026-06-25');
+    const after = computeAutoChaos(new Date(2026, 5, 26));
+    expect(after.get('physical') ?? []).toHaveLength(0);
+  });
+
+  it('E2E: two habits in different dimensions tracked independently', () => {
+    const gym = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    const budget = addHabit('Budget', { chaosDimension: 'financial', chaosImpact: 40, chaosThresholdDays: 3 });
+    updateHabit(gym.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+    updateHabit(budget.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+
+    const auto = computeAutoChaos(new Date(2026, 5, 26));
+    expect((auto.get('physical') ?? []).length).toBeGreaterThan(0);
+    expect((auto.get('financial') ?? []).length).toBeGreaterThan(0);
+    expect(auto.get('social') ?? []).toHaveLength(0);
+  });
+
+  it('E2E: check-in with completed=false still counts as missed', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-06-20T00:00:00.000Z' });
+
+    // Toggle creates completed=true, toggle again makes it false
+    toggleCheckIn(h.id, '2026-06-26');
+    toggleCheckIn(h.id, '2026-06-26'); // now completed=false
+
+    const auto = computeAutoChaos(new Date(2026, 5, 26));
+    const phys = auto.get('physical') ?? [];
+    expect(phys.length).toBeGreaterThan(0); // still counts as missed
+  });
+
+  it('E2E: habit created today with threshold 2 does NOT immediately trigger', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-06-26T10:00:00.000Z' }); // created today
+    // createdAt = now, so only today can be counted → 1 < 2
+
+    const auto = computeAutoChaos(new Date(2026, 5, 26));
+    const phys = auto.get('physical') ?? [];
+    expect(phys).toHaveLength(0);
+  });
+
+  it('E2E: habit created 2 days ago with threshold 2 triggers (2 missed days)', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-06-24T00:00:00.000Z' }); // 2 days before asOf
+
+    // No check-ins → June 26 (missed), June 25 (missed), June 24 (creation day → missed), June 23 (< createdAt → break)
+    // 3 missed days >= threshold 2 → trigger
+    const auto = computeAutoChaos(new Date(2026, 5, 26));
+    const phys = auto.get('physical') ?? [];
+    expect(phys).toHaveLength(1);
+    expect(phys[0].trigger.label).toContain('missed');
+  });
+
+  it('E2E: getChaosPercentageForDimension reflects active auto triggers', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+
+    const pct = getChaosPercentageForDimension('physical');
+    expect(pct).toBe(50);
+  });
+
+  it('E2E: getChaosTriggersForDimension returns auto triggers for linked habits only', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+
+    const triggers = getChaosTriggersForDimension('physical');
+    const autoTriggers = triggers.filter((t) => t.id.startsWith('auto_'));
+    expect(autoTriggers).toHaveLength(1);
+    expect(autoTriggers[0].active).toBe(true);
+  });
+
+  it('E2E: dimension with no linked habits returns 0% and empty triggers', () => {
+    const pct = getChaosPercentageForDimension('social');
+    expect(pct).toBe(0);
+    const triggers = getChaosTriggersForDimension('social');
+    expect(triggers).toHaveLength(0);
+  });
+
+  // ── Bug regression tests ──
+
+  it('BUG FIX: updateHabit with chaosDimension="" clears all chaos fields', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    expect(h.chaosDimension).toBe('physical');
+
+    // Simulate "None" selection
+    updateHabit(h.id, { chaosDimension: '' });
+    const updated = getHabits().find((x) => x.id === h.id);
+    expect(updated!.chaosDimension).toBeUndefined();
+    expect(updated!.chaosImpact).toBeUndefined();
+    expect(updated!.chaosThresholdDays).toBeUndefined();
+  });
+
+  it('BUG FIX: updateHabit with chaosDimension=null clears all chaos fields', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { chaosDimension: null as unknown as undefined });
+    const updated = getHabits().find((x) => x.id === h.id);
+    expect(updated!.chaosDimension).toBeUndefined();
+    expect(updated!.chaosImpact).toBeUndefined();
+  });
+
+  it('BUG FIX: updateHabit clamps chaosImpact to [0,100]', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { chaosImpact: 9999 });
+    const updated = getHabits().find((x) => x.id === h.id);
+    expect(updated!.chaosImpact).toBe(100);
+
+    updateHabit(h.id, { chaosImpact: -50 });
+    const updated2 = getHabits().find((x) => x.id === h.id);
+    expect(updated2!.chaosImpact).toBe(0);
+  });
+
+  it('BUG FIX: updateHabit rejects NaN for chaos fields', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { chaosImpact: NaN });
+    const updated = getHabits().find((x) => x.id === h.id);
+    expect(updated!.chaosImpact).toBeUndefined();
+  });
+
+  it('BUG FIX: updateHabit clamps chaosThresholdDays to [1,90]', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { chaosThresholdDays: 999 });
+    const updated = getHabits().find((x) => x.id === h.id);
+    expect(updated!.chaosThresholdDays).toBe(90);
+
+    updateHabit(h.id, { chaosThresholdDays: 0 });
+    const updated2 = getHabits().find((x) => x.id === h.id);
+    expect(updated2!.chaosThresholdDays).toBe(1); // clamped to min
+  });
+
+  it('BUG FIX: habit with chaosDimension="" but chaosImpact=50 does NOT trigger chaos', () => {
+    // After "None" cleanup, all three fields must be gone
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-01-01T00:00:00.000Z' });
+    updateHabit(h.id, { chaosDimension: '' });
+    const auto = computeAutoChaos();
+    const phys = auto.get('physical') ?? [];
+    expect(phys).toHaveLength(0); // unlinked → no trigger
+  });
+
+  it('BUG FIX: parseImportedHabit clamps chaos fields on import', () => {
+    const result = mergeImportedData({
+      habits: [{
+        id: 'h1',
+        name: 'Test',
+        chaosDimension: 'physical',
+        chaosImpact: 9999,  // out of range
+        chaosThresholdDays: -5, // out of range
+      }],
+    });
+    expect(result.habitsCreated).toBe(1);
+    const habits = exportAllData().habits;
+    const imported = habits.find((h) => h.name === 'Test');
+    expect(imported!.chaosImpact).toBe(100); // clamped
+    expect(imported!.chaosThresholdDays).toBe(1); // clamped
+  });
+
+  it('BUG FIX: parseImportedHabit rejects non-string chaosDimension', () => {
+    const result = mergeImportedData({
+      habits: [{
+        id: 'h1',
+        name: 'Test',
+        chaosDimension: 42, // number, not string
+        chaosImpact: 50,
+        chaosThresholdDays: 2,
+      }],
+    });
+    expect(result.habitsCreated).toBe(1);
+    const habits = exportAllData().habits;
+    const imported = habits.find((h) => h.name === 'Test');
+    // Non-string dimension should result in undefined
+    expect(imported!.chaosDimension).toBeUndefined();
+  });
+
+  // ── computeChaosReport: full dashboard picture (linked + on-track habits) ──
+
+  it('computeChaosReport lists a linked habit even when it is on-track', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-06-20T00:00:00.000Z' });
+    // Checked yesterday → not triggered, but must still appear in the report
+    toggleCheckIn(h.id, '2026-06-25');
+
+    const report = computeChaosReport(new Date(2026, 5, 26));
+    expect(report.linkedHabitCount).toBe(1);
+    const phys = report.dimensions.find((d) => d.id === 'physical')!;
+    expect(phys.habits).toHaveLength(1);
+    expect(phys.habits[0].habitName).toBe('Gym');
+    expect(phys.habits[0].triggered).toBe(false);
+    expect(phys.pct).toBe(0);
+  });
+
+  it('computeChaosReport marks a habit triggered past its threshold', () => {
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+
+    const report = computeChaosReport(new Date(2026, 5, 26));
+    const phys = report.dimensions.find((d) => d.id === 'physical')!;
+    expect(phys.habits[0].triggered).toBe(true);
+    expect(phys.habits[0].missedStreak).toBeGreaterThanOrEqual(2);
+    expect(phys.pct).toBe(50);
+  });
+
+  it('computeChaosReport excludes unlinked and archived habits', () => {
+    addHabit('Read'); // unlinked
+    const archived = addHabit('Run', { chaosDimension: 'physical', chaosImpact: 40, chaosThresholdDays: 2 });
+    archiveHabit(archived.id);
+
+    const report = computeChaosReport(new Date(2026, 5, 26));
+    expect(report.linkedHabitCount).toBe(0);
+  });
+
+  it('computeChaosReport overall % averages only dimensions with linked habits', () => {
+    const gym = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    const budget = addHabit('Budget', { chaosDimension: 'financial', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(gym.id, { createdAt: '2026-06-01T00:00:00.000Z' }); // triggered → 50%
+    updateHabit(budget.id, { createdAt: '2026-06-20T00:00:00.000Z' });
+    toggleCheckIn(budget.id, '2026-06-25'); // on-track → 0%
+
+    const report = computeChaosReport(new Date(2026, 5, 26));
+    // Two dimensions have linked habits: 50% and 0% → average 25%.
+    // The three empty dimensions are ignored.
+    expect(report.overallPct).toBe(25);
+  });
+
+  it('computeChaosReport caps a dimension at 100%', () => {
+    const h1 = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 70, chaosThresholdDays: 2 });
+    const h2 = addHabit('Run', { chaosDimension: 'physical', chaosImpact: 70, chaosThresholdDays: 2 });
+    updateHabit(h1.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+    updateHabit(h2.id, { createdAt: '2026-06-01T00:00:00.000Z' });
+
+    const report = computeChaosReport(new Date(2026, 5, 26));
+    const phys = report.dimensions.find((d) => d.id === 'physical')!;
+    expect(phys.habits).toHaveLength(2);
+    expect(phys.pct).toBe(100);
+  });
+
+  // ── BUG FIX: marking recent days as missed must drive chaos even for a habit
+  // created "today". Previously the streak broke at any day before createdAt, so
+  // a freshly-created habit could never go into chaos no matter what you unchecked.
+
+  it('computeChaosReport: unchecking recent days triggers chaos for a habit created today', () => {
+    const today = new Date(2026, 5, 26); // asOf
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    // Habit created TODAY (the failing real-world case)
+    updateHabit(h.id, { createdAt: '2026-06-26T08:00:00.000Z' });
+
+    // User marks the two prior days as missed: check then uncheck → completed:false
+    for (const day of ['2026-06-24', '2026-06-25']) {
+      toggleCheckIn(h.id, day); // true
+      toggleCheckIn(h.id, day); // false (missed)
+    }
+
+    const report = computeChaosReport(today);
+    const phys = report.dimensions.find((d) => d.id === 'physical')!;
+    expect(phys.habits[0].triggered).toBe(true);
+    expect(phys.habits[0].missedStreak).toBeGreaterThanOrEqual(2);
+    expect(phys.pct).toBe(50);
+  });
+
+  it('computeChaosReport: a brand-new untouched habit is NOT in chaos', () => {
+    const today = new Date(2026, 5, 26);
+    const h = addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 2 });
+    updateHabit(h.id, { createdAt: '2026-06-26T08:00:00.000Z' }); // created today, no check-ins
+
+    const report = computeChaosReport(today);
+    const phys = report.dimensions.find((d) => d.id === 'physical')!;
+    expect(phys.habits[0].triggered).toBe(false);
+    expect(phys.habits[0].missedStreak).toBe(0);
   });
 });
 

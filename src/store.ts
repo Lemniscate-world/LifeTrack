@@ -43,10 +43,27 @@ function sanitizeData(raw: unknown): AppData {
   if (!raw || typeof raw !== 'object') return empty;
   const obj = raw as Record<string, unknown>;
   function isValidHabit(x: unknown): x is Habit {
-    return !!(x && typeof x === 'object' && 'id' in (x as object) && 'name' in (x as object));
+    if (!x || typeof x !== 'object') return false;
+    const h = x as Record<string, unknown>;
+    if (typeof h.id !== 'string' || typeof h.name !== 'string') return false;
+    // Validate chaos fields if present
+    if (h.chaosDimension !== undefined && h.chaosDimension !== null && typeof h.chaosDimension !== 'string') return false;
+    if (h.chaosDimension === '' || h.chaosDimension === null) {
+      // Unlinked habit — clear other chaos fields
+      delete h.chaosImpact;
+      delete h.chaosThresholdDays;
+    }
+    if (h.chaosImpact !== undefined && (typeof h.chaosImpact !== 'number' || !Number.isFinite(h.chaosImpact))) return false;
+    if (h.chaosThresholdDays !== undefined && (typeof h.chaosThresholdDays !== 'number' || h.chaosThresholdDays < 1 || !Number.isFinite(h.chaosThresholdDays))) return false;
+    return true;
   }
   function isValidCheckIn(x: unknown): x is CheckIn {
-    return !!(x && typeof x === 'object' && 'habitId' in (x as object) && 'date' in (x as object));
+    if (!x || typeof x !== 'object') return false;
+    const c = x as Record<string, unknown>;
+    return typeof c.habitId === 'string'
+      && typeof c.date === 'string'
+      && isValidDateKey(c.date)
+      && typeof c.completed === 'boolean';
   }
   function isValidNote(x: unknown): x is Note {
     return !!(x && typeof x === 'object' && 'id' in (x as object) && 'content' in (x as object));
@@ -337,7 +354,26 @@ export function addHabit(
 export function updateHabit(id: string, updates: Partial<Habit>): void {
   const idx = data.habits.findIndex((h) => h.id === id);
   if (idx !== -1) {
-    data.habits[idx] = { ...data.habits[idx], ...updates };
+    const cleaned = { ...updates };
+    if ('chaosImpact' in cleaned) {
+      const v = cleaned.chaosImpact;
+      cleaned.chaosImpact = (typeof v === 'number' && Number.isFinite(v))
+        ? Math.max(0, Math.min(100, v))
+        : undefined;
+    }
+    if ('chaosThresholdDays' in cleaned) {
+      const v = cleaned.chaosThresholdDays;
+      cleaned.chaosThresholdDays = (typeof v === 'number' && Number.isFinite(v))
+        ? Math.max(1, Math.min(90, Math.floor(v)))
+        : undefined;
+    }
+    // If dimension is empty string or null, treat as unlinked
+    if ('chaosDimension' in cleaned && (cleaned.chaosDimension === '' || cleaned.chaosDimension === null)) {
+      cleaned.chaosDimension = undefined;
+      cleaned.chaosImpact = undefined;
+      cleaned.chaosThresholdDays = undefined;
+    }
+    data.habits[idx] = { ...data.habits[idx], ...cleaned };
     notify();
   }
 }
@@ -406,7 +442,7 @@ export function getCompletionForMonth(habitId: string, year: number, month: numb
 
 // --- Notes ---
 export function getNotes(): Note[] {
-  return data.notes.sort((a, b) => {
+  return [...data.notes].sort((a, b) => {
     const timeDiff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     if (timeDiff !== 0) return timeDiff;
     // Stable sort: fall back to id comparison when timestamps are equal
@@ -480,6 +516,13 @@ function normalizeHabitName(name: string): string {
   return name.trim().toLowerCase();
 }
 
+function isValidDateKey(date: string): boolean {
+  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)) return false;
+  const [year, month, day] = date.split('-').map(Number);
+  const parsed = new Date(year, month - 1, day);
+  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
+}
+
 function readArray(raw: unknown, key: 'habits' | 'checkIns' | 'notes'): unknown[] {
   if (!isRecord(raw)) return [];
   const value = raw[key];
@@ -490,20 +533,28 @@ function parseImportedHabit(raw: unknown): ImportedHabit | null {
   if (!isRecord(raw) || typeof raw.id !== 'string' || typeof raw.name !== 'string') return null;
   const name = raw.name.trim();
   if (!name) return null;
+  // Clamp chaos fields on import to prevent poison data
+  const dim = typeof raw.chaosDimension === 'string' && raw.chaosDimension.length > 0
+    ? raw.chaosDimension : undefined;
+  const impact = typeof raw.chaosImpact === 'number' && Number.isFinite(raw.chaosImpact)
+    ? Math.max(0, Math.min(100, raw.chaosImpact)) : undefined;
+  const threshold = typeof raw.chaosThresholdDays === 'number' && Number.isFinite(raw.chaosThresholdDays)
+    ? Math.max(1, Math.min(90, Math.floor(raw.chaosThresholdDays))) : undefined;
   return {
     id: raw.id,
     name,
     goal: typeof raw.goal === 'number' ? raw.goal : undefined,
     archived: typeof raw.archived === 'boolean' ? raw.archived : undefined,
-    chaosDimension: typeof raw.chaosDimension === 'string' ? raw.chaosDimension : undefined,
-    chaosImpact: typeof raw.chaosImpact === 'number' ? raw.chaosImpact : undefined,
-    chaosThresholdDays: typeof raw.chaosThresholdDays === 'number' ? raw.chaosThresholdDays : undefined,
+    chaosDimension: dim,
+    chaosImpact: impact,
+    chaosThresholdDays: threshold,
   };
 }
 
 function parseImportedCheckIn(raw: unknown): ImportedCheckIn | null {
   if (!isRecord(raw)) return null;
   if (typeof raw.habitId !== 'string' || typeof raw.date !== 'string') return null;
+  if (!isValidDateKey(raw.date)) return null;
   return {
     habitId: raw.habitId,
     date: raw.date,
@@ -543,14 +594,29 @@ function createImportedHabit(source: ImportedHabit): Habit {
   };
 }
 
-function applyImportedHabitMetadata(target: Habit, source: ImportedHabit): void {
-  if (target.goal === 0 && source.goal !== undefined) target.goal = source.goal;
-  if (target.archived && source.archived === false) target.archived = false;
-  if (!target.chaosDimension && source.chaosDimension) target.chaosDimension = source.chaosDimension;
-  if (target.chaosImpact === undefined && source.chaosImpact !== undefined) target.chaosImpact = source.chaosImpact;
+function applyImportedHabitMetadata(target: Habit, source: ImportedHabit): boolean {
+  let changed = false;
+  if (target.goal === 0 && source.goal !== undefined) {
+    target.goal = source.goal;
+    changed = true;
+  }
+  if (target.archived && source.archived === false) {
+    target.archived = false;
+    changed = true;
+  }
+  if (!target.chaosDimension && source.chaosDimension) {
+    target.chaosDimension = source.chaosDimension;
+    changed = true;
+  }
+  if (target.chaosImpact === undefined && source.chaosImpact !== undefined) {
+    target.chaosImpact = source.chaosImpact;
+    changed = true;
+  }
   if (target.chaosThresholdDays === undefined && source.chaosThresholdDays !== undefined) {
     target.chaosThresholdDays = source.chaosThresholdDays;
+    changed = true;
   }
+  return changed;
 }
 
 export function mergeImportedData(raw: unknown): ImportMergeResult {
@@ -563,6 +629,7 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
   };
   const idMap = new Map<string, string>();
   const habitsByName = new Map(data.habits.map((habit) => [normalizeHabitName(habit.name), habit]));
+  let metadataChanged = false;
 
   for (const rawHabit of readArray(raw, 'habits')) {
     const imported = parseImportedHabit(rawHabit);
@@ -576,7 +643,7 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
       habitsByName.set(key, target);
       result.habitsCreated++;
     } else {
-      applyImportedHabitMetadata(target, imported);
+      metadataChanged = applyImportedHabitMetadata(target, imported) || metadataChanged;
     }
     idMap.set(imported.id, target.id);
     result.habitsMapped++;
@@ -612,7 +679,7 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
     result.notesCreated++;
   }
 
-  if (result.habitsCreated > 0 || result.checkInsRestored > 0 || result.notesCreated > 0) {
+  if (metadataChanged || result.habitsCreated > 0 || result.checkInsRestored > 0 || result.notesCreated > 0) {
     notify();
   }
   return result;
@@ -656,28 +723,13 @@ export function exportAllData(): AppData {
 }
 
 // --- Chaos ---
+// Chaos is 100% auto-driven from habits. Dimensions are categories only — no manual triggers.
 const DEFAULT_CHAOS: ChaosDimension[] = [
-  { id: 'social', name: 'Social', triggers: [
-    { id: 's1', label: 'Conflict with partner/family', weight: 30, active: false },
-    { id: 's2', label: 'Isolation > 3 days', weight: 30, active: false },
-  ]},
-  { id: 'financial', name: 'Financial', triggers: [
-    { id: 'f1', label: 'No liquidity for 1 week', weight: 50, active: false },
-    { id: 'f2', label: 'Unexpected expense', weight: 30, active: false },
-  ]},
-  { id: 'physical', name: 'Physical', triggers: [
-    { id: 'p1', label: 'Gym / Training missed > 2', weight: 50, active: false },
-    { id: 'p2', label: 'PMO', weight: 50, active: false },
-    { id: 'p3', label: 'Sleep < 6h', weight: 30, active: false },
-  ]},
-  { id: 'structural', name: 'Structural', triggers: [
-    { id: 'st1', label: 'Routine disrupted', weight: 30, active: false },
-    { id: 'st2', label: 'Environment messy', weight: 30, active: false },
-  ]},
-  { id: 'spiritual', name: 'Spiritual', triggers: [
-    { id: 'sp1', label: 'No meditation / prayer', weight: 30, active: false },
-    { id: 'sp2', label: 'Feeling purposeless', weight: 30, active: false },
-  ]},
+  { id: 'social', name: 'Social', triggers: [] },
+  { id: 'financial', name: 'Financial', triggers: [] },
+  { id: 'physical', name: 'Physical', triggers: [] },
+  { id: 'structural', name: 'Structural', triggers: [] },
+  { id: 'spiritual', name: 'Spiritual', triggers: [] },
 ];
 
 export function getDefaultChaosDimensions(): ChaosDimension[] {
@@ -708,11 +760,68 @@ export function resetChaos(): void {
 
 /**
  * Compute automatic chaos pressure per dimension by analyzing missed check-ins.
- * For each habit with chaos linkage:
- *   - Count consecutive missed days ending at today (or most recent day).
- *   - If >= chaosThresholdDays, add chaosImpact % to the linked dimension.
- * Trigger labels are auto-generated and visible in the UI.
+ *
+ * Algorithm (semantics: "missed N consecutive days ago"):
+ *   - Start from YESTERDAY (today is still in progress — not counted as missed).
+ *   - Walk backward, counting consecutive missed days.
+ *   - Break on the first completed check-in.
+ *   - Stop at 90 days (max window).
+ *   - Skip days before the habit was created.
+ *   - If streak >= chaosThresholdDays → emit auto trigger with chaosImpact %.
  */
+// The "tracking start" boundary for a habit (date-only): the EARLIER of its
+// creation date and its earliest check-in date. Including the earliest check-in
+// means that when the user marks past days in the grid — e.g. right after
+// creating a habit — those days count as missed instead of being silently
+// ignored as "before the habit existed". Without this, a habit created today
+// can never accrue a missed streak (yesterday is already before createdAt).
+function trackingStart(habit: Habit): Date | null {
+  let start: Date | null = null;
+  if (habit.createdAt) {
+    const c = new Date(habit.createdAt);
+    start = new Date(c.getFullYear(), c.getMonth(), c.getDate());
+  }
+  for (const ci of data.checkIns) {
+    if (ci.habitId !== habit.id) continue;
+    const [y, m, dd] = ci.date.split('-').map(Number);
+    if (!y || !m || !dd) continue;
+    const d = new Date(y, m - 1, dd);
+    if (!start || d < start) start = d;
+  }
+  return start;
+}
+
+// Count consecutive missed days for a habit, starting from YESTERDAY and walking
+// backward. Today is excluded (still in progress). Days before the habit's
+// tracking start are not counted, and the window is capped at 90 days.
+function computeMissedStreak(habit: Habit, today: Date): number {
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  let missedStreak = 0;
+  const startBoundary = trackingStart(habit);
+  const maxDays = 90;
+
+  for (let i = 0; i < maxDays; i++) {
+    const d = new Date(yesterday);
+    d.setDate(d.getDate() - i);
+    // Don't count days before the habit started being tracked
+    if (startBoundary) {
+      const dStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      if (dStart < startBoundary) break;
+    }
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const ci = data.checkIns.find((c) => c.habitId === habit.id && c.date === key);
+    // Considered missed if no entry, or entry marked completed=false
+    if (!ci || !ci.completed) {
+      missedStreak++;
+    } else {
+      break;
+    }
+  }
+  return missedStreak;
+}
+
 export function computeAutoChaos(asOf?: Date): Map<string, { trigger: ChaosTrigger; habitName: string }[]> {
   const autoTriggerMap = new Map<string, { trigger: ChaosTrigger; habitName: string }[]>();
   const today = asOf ?? new Date();
@@ -721,20 +830,7 @@ export function computeAutoChaos(asOf?: Date): Map<string, { trigger: ChaosTrigg
     if (habit.archived) continue;
     if (!habit.chaosDimension || !habit.chaosImpact || !habit.chaosThresholdDays) continue;
 
-    // Walk backward from today, counting missed consecutive days.
-    let missedStreak = 0;
-    for (let i = 0; i < 90; i++) { // cap at 90 days
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      const ci = data.checkIns.find((c) => c.habitId === habit.id && c.date === key);
-      // Considered missed if no entry, or entry marked completed=false
-      if (!ci || !ci.completed) {
-        missedStreak++;
-      } else {
-        break;
-      }
-    }
+    const missedStreak = computeMissedStreak(habit, today);
 
     if (missedStreak >= habit.chaosThresholdDays) {
       const triggerId = `auto_${habit.id}`;
@@ -774,4 +870,68 @@ export function getChaosTriggersForDimension(dimId: string): ChaosTrigger[] {
 export function getChaosPercentageForDimension(dimId: string): number {
   const triggers = getChaosTriggersForDimension(dimId);
   return Math.min(100, triggers.reduce((s, t) => s + (t.active ? t.weight : 0), 0));
+}
+
+// --- Chaos report (full picture for the dashboard) ---
+// Unlike computeAutoChaos (which only surfaces TRIGGERED habits), this returns
+// every linked habit per dimension along with its current missed streak, so the
+// UI can show habits that are on-track too — not just the ones in chaos.
+export interface ChaosHabitStatus {
+  habitId: string;
+  habitName: string;
+  impact: number;        // chaosImpact %
+  thresholdDays: number; // consecutive missed days needed to trigger
+  missedStreak: number;  // current consecutive missed days (from yesterday)
+  triggered: boolean;    // missedStreak >= thresholdDays
+}
+
+export interface ChaosDimensionReport {
+  id: string;
+  name: string;
+  habits: ChaosHabitStatus[]; // all linked, non-archived habits in this dimension
+  pct: number;                // sum of impacts of triggered habits, capped at 100
+}
+
+export interface ChaosReport {
+  dimensions: ChaosDimensionReport[];
+  linkedHabitCount: number; // total linked habits across all dimensions
+  overallPct: number;       // average pct over dimensions that have linked habits
+}
+
+export function computeChaosReport(asOf?: Date): ChaosReport {
+  const today = asOf ?? new Date();
+  const dims = getChaosDimensions();
+  const linkedByDim = new Map<string, ChaosHabitStatus[]>();
+  let linkedHabitCount = 0;
+
+  for (const habit of data.habits) {
+    if (habit.archived) continue;
+    if (!habit.chaosDimension || !habit.chaosImpact || !habit.chaosThresholdDays) continue;
+
+    const missedStreak = computeMissedStreak(habit, today);
+    const status: ChaosHabitStatus = {
+      habitId: habit.id,
+      habitName: habit.name,
+      impact: habit.chaosImpact,
+      thresholdDays: habit.chaosThresholdDays,
+      missedStreak,
+      triggered: missedStreak >= habit.chaosThresholdDays,
+    };
+    if (!linkedByDim.has(habit.chaosDimension)) linkedByDim.set(habit.chaosDimension, []);
+    linkedByDim.get(habit.chaosDimension)!.push(status);
+    linkedHabitCount++;
+  }
+
+  const dimensions: ChaosDimensionReport[] = dims.map((dim) => {
+    const habits = linkedByDim.get(dim.id) ?? [];
+    const pct = Math.min(100, habits.reduce((s, h) => s + (h.triggered ? h.impact : 0), 0));
+    return { id: dim.id, name: dim.name, habits, pct };
+  });
+
+  const dimsWithHabits = dimensions.filter((d) => d.habits.length > 0);
+  const overallPct = dimsWithHabits.length > 0
+    ? Math.round(dimsWithHabits.reduce((sum, d) => sum + d.pct, 0) / dimsWithHabits.length)
+    : 0;
+
+  return { dimensions, linkedHabitCount, overallPct };
 }

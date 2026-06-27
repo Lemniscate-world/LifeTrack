@@ -30,10 +30,9 @@ function getDaysInMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate();
 }
 
-function getDayLetter(day: number): string {
-  const d = new Date(2025, 0, 5 + day); // Jan 5 2025 = Sunday
+function getDayLetter(year: number, month: number, day: number): string {
   const letters = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-  return letters[d.getDay()];
+  return letters[new Date(year, month, day).getDay()];
 }
 
 function parseDateStr(year: number, month: number, day: number): string {
@@ -185,13 +184,14 @@ export default function App() {
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
       const ctrl = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
 
-      if (ctrl && e.key === 'z') {
+      if (ctrl && key === 'z' && !e.shiftKey) {
         e.preventDefault();
         undoLastToggle();
         return;
       }
-      if (ctrl && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+      if (ctrl && (key === 'y' || (key === 'z' && e.shiftKey))) {
         e.preventDefault();
         redoLastUndo();
         return;
@@ -282,13 +282,17 @@ export default function App() {
           }
         : undefined;
       addHabit(newHabitName.trim(), chaosOpts);
-      setNewHabitName('');
-      setNewHabitChaosEnabled(false);
-      setNewHabitChaosDimension('physical');
-      setNewHabitChaosImpact(50);
-      setNewHabitChaosThreshold(2);
-      setShowNewHabitInput(false);
+      resetNewHabitForm();
     }
+  }
+
+  function resetNewHabitForm() {
+    setNewHabitName('');
+    setNewHabitChaosEnabled(false);
+    setNewHabitChaosDimension('physical');
+    setNewHabitChaosImpact(50);
+    setNewHabitChaosThreshold(2);
+    setShowNewHabitInput(false);
   }
 
   function handleHabitNameSave(habitId: string, name: string) {
@@ -300,18 +304,28 @@ export default function App() {
 
   function openChaosEditor(habit: Habit) {
     setEditingChaosHabitId(habit.id);
-    setEditChaosDim(habit.chaosDimension || 'physical');
-    setEditChaosImpact(habit.chaosImpact || 50);
-    setEditChaosThreshold(habit.chaosThresholdDays || 2);
+    // Use ?? (nullish coalescing) to preserve empty string for "None"
+    setEditChaosDim(habit.chaosDimension ?? 'physical');
+    setEditChaosImpact(habit.chaosImpact ?? 50);
+    setEditChaosThreshold(habit.chaosThresholdDays ?? 2);
   }
 
   function saveChaosEditor() {
     if (editingChaosHabitId) {
-      updateHabit(editingChaosHabitId, {
-        chaosDimension: editChaosDim,
-        chaosImpact: editChaosImpact,
-        chaosThresholdDays: editChaosThreshold,
-      });
+      if (editChaosDim === '' || editChaosDim === null) {
+        // Fully unlink: clear all three chaos fields
+        updateHabit(editingChaosHabitId, {
+          chaosDimension: undefined,
+          chaosImpact: undefined,
+          chaosThresholdDays: undefined,
+        });
+      } else {
+        updateHabit(editingChaosHabitId, {
+          chaosDimension: editChaosDim,
+          chaosImpact: editChaosImpact,
+          chaosThresholdDays: editChaosThreshold,
+        });
+      }
       setEditingChaosHabitId(null);
     }
   }
@@ -549,7 +563,7 @@ export default function App() {
   // Days headers with letters
   const dayHeaders: { day: number; letter: string }[] = [];
   for (let d = 1; d <= daysInMonth; d++) {
-    dayHeaders.push({ day: d, letter: getDayLetter(d) });
+    dayHeaders.push({ day: d, letter: getDayLetter(year, month, d) });
   }
 
   return (
@@ -594,44 +608,11 @@ export default function App() {
                     const habitCount = parsed?.habits?.length || 0;
                     const checkinCount = parsed?.checkIns?.length || 0;
                     if (!habitCount) { alert('Backup is empty.'); return; }
-                    if (!window.confirm(`Restore ${habitCount} habits + ${checkinCount} check-ins from backup?\n\nExisting habits with the same name will be skipped.`)) return;
-
-                    // Build set of existing habit names to avoid duplicates
-                    const existingNames = new Set(getHabits().map(h => h.name.toLowerCase()));
-                    const idMap = new Map<string, string>();
-
-                    for (const h of parsed.habits) {
-                      if (!h?.name || !h?.id) continue;
-                      if (existingNames.has(h.name.toLowerCase())) {
-                        // Habit with this name already exists, map old ID to existing habit ID
-                        const existing = getHabits().find(eh => eh.name.toLowerCase() === h.name.toLowerCase());
-                        if (existing) idMap.set(h.id, existing.id);
-                        continue;
-                      }
-                      const nh = addHabit(h.name);
-                      idMap.set(h.id, nh.id);
-                      if (h.goal) updateHabit(nh.id, { goal: h.goal });
-                      if (h.chaosDimension) updateHabit(nh.id, { chaosDimension: h.chaosDimension, chaosImpact: h.chaosImpact, chaosThresholdDays: h.chaosThresholdDays });
-                      existingNames.add(h.name.toLowerCase());
-                    }
-
-                    let restoredCheckins = 0;
-                    if (parsed.checkIns?.length) {
-                      for (const c of parsed.checkIns) {
-                        const newId = idMap.get(c.habitId);
-                        if (newId && c?.date && c.completed) {
-                          // Only toggle if not already checked
-                          const existing = getCheckInsForHabit(newId).find(ci => ci.date === c.date);
-                          if (!existing || !existing.completed) {
-                            toggleCheckIn(newId, c.date);
-                            restoredCheckins++;
-                          }
-                        }
-                      }
-                    }
-                    alert(`Done: ${idMap.size} habits mapped, ${restoredCheckins} check-ins restored.`);
+                    if (!window.confirm(`Restore ${habitCount} habits + ${checkinCount} check-ins from backup?\n\nExisting habits with the same name will be merged, not duplicated.`)) return;
+                    const result = mergeImportedData(parsed);
+                    alert(`Restore successful: ${result.habitsCreated} habits added, ${result.checkInsRestored} check-ins restored.`);
                   }).catch((e) => alert('Restore failed: ' + e))
-                );
+                ).catch((e) => alert('Restore failed: ' + e));
               }}>Restore from Backup</button>
             </div>
           </div>
@@ -688,7 +669,7 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {habits.map((habit) => {
+                {habits.map((habit, habitIdx) => {
                   const habitChecks = checkIns.get(habit.id) || new Map();
                   let completedCount = 0;
                   for (let d = 1; d <= daysInMonth; d++) {
@@ -734,34 +715,42 @@ export default function App() {
                             onClick={() => openChaosEditor(habit)}
                             title={habit.chaosDimension ? `Chaos: ${habit.chaosDimension} +${habit.chaosImpact}%` : 'Link to chaos'}
                           >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+                              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
                             </svg>
                           </button>
                         </div>
                         {editingChaosHabitId === habit.id && (
                           <div className="habit-chaos-edit">
                             <select value={editChaosDim} onChange={(e) => setEditChaosDim(e.target.value)} className="chaos-select-sm">
+                              <option value="">— None (unlink) —</option>
                               <option value="physical">Physical</option>
                               <option value="financial">Financial</option>
                               <option value="social">Social</option>
                               <option value="structural">Structural</option>
                               <option value="spiritual">Spiritual</option>
-                              <option value="">None</option>
                             </select>
-                            <input type="number" min="1" max="100" value={editChaosImpact} onChange={(e) => setEditChaosImpact(parseInt(e.target.value) || 0)} className="chaos-input-sm" title="Impact %" />
+                            <input type="number" min="1" max="100" value={Number.isFinite(editChaosImpact) ? editChaosImpact : ''} onChange={(e) => {
+                              const raw = e.target.value;
+                              if (raw === '') { setEditChaosImpact(NaN); return; }
+                              setEditChaosImpact(parseInt(raw, 10));
+                            }} className="chaos-input-sm" title="Impact %" />
                             <span className="chaos-edit-label">if missed ≥</span>
-                            <input type="number" min="1" max="90" value={editChaosThreshold} onChange={(e) => setEditChaosThreshold(parseInt(e.target.value) || 1)} className="chaos-input-sm" title="Days" />
+                            <input type="number" min="1" max="90" value={Number.isFinite(editChaosThreshold) ? editChaosThreshold : ''} onChange={(e) => {
+                              const raw = e.target.value;
+                              if (raw === '') { setEditChaosThreshold(NaN); return; }
+                              setEditChaosThreshold(parseInt(raw, 10));
+                            }} className="chaos-input-sm" title="Days" />
                             <span className="chaos-edit-label">days</span>
                             <button className="btn btn-sm btn-primary" onClick={saveChaosEditor}>OK</button>
                             <button className="btn btn-sm btn-ghost" onClick={() => setEditingChaosHabitId(null)}>Cancel</button>
                           </div>
                         )}
                       </td>
-                      {dayHeaders.map((h, dayIdx) => {
+                      {dayHeaders.map((h) => {
                         const checked = habitChecks.get(h.day) || false;
                         const isToday = isCurrentMonth && h.day === todayDay;
-                        const isFocused = keyboardUsed && focusDay === h.day && focusHabitIdx === dayIdx;
+                        const isFocused = keyboardUsed && focusDay === h.day && focusHabitIdx === habitIdx;
                         return (
                           <td
                             key={h.day}
@@ -888,11 +877,11 @@ export default function App() {
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleAddHabit();
-                  if (e.key === 'Escape') { setShowNewHabitInput(false); setNewHabitName(''); }
+                  if (e.key === 'Escape') { resetNewHabitForm(); }
                 }}
               />
               <button className="btn btn-sm btn-primary" onClick={handleAddHabit}>Add</button>
-              <button className="btn btn-sm btn-ghost" onClick={() => { setShowNewHabitInput(false); setNewHabitName(''); }}>Cancel</button>
+              <button className="btn btn-sm btn-ghost" onClick={resetNewHabitForm}>Cancel</button>
             </div>
             <div className="new-habit-chaos">
               <label className="chaos-toggle">
@@ -923,7 +912,7 @@ export default function App() {
                       min={1}
                       max={100}
                       value={newHabitChaosImpact}
-                      onChange={(e) => setNewHabitChaosImpact(Math.max(0, Math.min(100, parseInt(e.target.value || '0', 10))))}
+                      onChange={(e) => setNewHabitChaosImpact(Math.max(1, Math.min(100, parseInt(e.target.value || '1', 10))))}
                     />
                   </label>
                   <label className="chaos-field">
