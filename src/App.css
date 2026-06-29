@@ -519,6 +519,17 @@ body {
   gap: 6px;
 }
 
+/* Drag-and-drop visual feedback for the row currently being dragged */
+.habit-row-dragging {
+  background: var(--bg-alt, #f9fafb) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  cursor: grabbing;
+}
+
+.habit-grid tbody tr:hover:not(.habit-row-dragging) {
+  cursor: grab;
+}
+
 .habit-name {
   font-weight: 500;
   color: var(--text);

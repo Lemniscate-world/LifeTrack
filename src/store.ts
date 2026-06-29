@@ -439,6 +439,44 @@ export function deleteHabit(id: string): void {
   notify();
 }
 
+/**
+ * Reorder habits after a drag-and-drop. Reassigns `order` sequentially so we
+ * never accumulate fractional-order gaps (which would still sort correctly
+ * but create sparse integers over time as items are inserted/removed).
+ *
+ * `sourceIndex` and `destIndex` follow the `@hello-pangea/dnd` convention:
+ * `destIndex` is the target position in the array AFTER the source has been
+ * removed (i.e. if you drag item from index 0 to the bottom of 5 items, you
+ * pass destination.index = 5, which becomes index 4 after removal).
+ *
+ * Only non-archived habits participate — archived habits keep their existing
+ * order and are reinserted at the end if they were caught in the array.
+ */
+export function reorderHabits(sourceIndex: number, destIndex: number): void {
+  // Operate on the non-archived list (what the UI shows), preserving order.
+  const visible = data.habits.filter((h) => !h.archived);
+  if (sourceIndex < 0 || sourceIndex >= visible.length) return;
+  const clampedDest = Math.max(0, Math.min(destIndex, visible.length));
+  if (sourceIndex === clampedDest) return;
+
+  const [moved] = visible.splice(sourceIndex, 1);
+  visible.splice(clampedDest, 0, moved);
+
+  // Renumber sequentially starting at 0 — archived habits get the highest
+  // orders so they sort last if someone ever unarchives them.
+  let next = 0;
+  for (const h of visible) {
+    h.order = next++;
+  }
+  // Archived habits keep existing order; bump to next available space.
+  const archived = data.habits.filter((h) => h.archived);
+  for (const h of archived) {
+    h.order = next++;
+  }
+
+  notify();
+}
+
 // --- Check-ins ---
 export function getCheckIn(habitId: string, date: string): CheckIn | undefined {
   return data.checkIns.find((c) => c.habitId === habitId && c.date === date);

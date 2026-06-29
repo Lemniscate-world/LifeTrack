@@ -18,10 +18,13 @@ import {
   undoLastToggle,
   redoLastUndo,
   mergeImportedData,
+  reorderHabits,
 } from './store';
 import { computeStreakStats, computeCompletionRate, computeWeightedScore } from './stats';
 import { Heatmap, Sparkline } from './Heatmap';
 import { HistoryView } from './HistoryView';
+import { DraggableHabitRow } from './components/DraggableHabitRow';
+import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import './App.css';
 import ChaosView from './ChaosView';
 
@@ -46,7 +49,7 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-export default function App() {
+  export default function App() {
   const now = new Date();
   const [habits, setHabits] = useState<Habit[]>([]);
   const [year, setYear] = useState(now.getFullYear());
@@ -544,6 +547,15 @@ export default function App() {
     });
   }, [habits, allCheckIns]);
 
+  // --- Drag and drop (habit reordering) ---
+  // We pass DropResult through @hello-pangea/dnd's onDragEnd. If the user drops
+  // outside any droppable (e.g. dragging onto the bottom-bar), destination is
+  // null — we ignore that.
+  function handleDragEnd(result: { source: { index: number }; destination?: { index: number } | null }) {
+    if (!result.destination) return;
+    reorderHabits(result.source.index, result.destination.index);
+  }
+
   // Days headers with letters
   const dayHeaders: { day: number; letter: string }[] = [];
   for (let d = 1; d <= daysInMonth; d++) {
@@ -635,6 +647,7 @@ export default function App() {
               <p className="empty-hint">Click the button below or press <kbd>Ctrl+N</kbd> to add your first habit.</p>
             </div>
           ) : (
+          <DragDropContext onDragEnd={handleDragEnd}>
           <div className="table-scroll">
             <table className="habit-grid">
               <thead>
@@ -653,9 +666,14 @@ export default function App() {
                   <th className="col-achieved">Achieved</th>
                 </tr>
               </thead>
-              <tbody>
-                {habits.map((habit, habitIdx) => {
-                  const habitChecks = checkIns.get(habit.id) || new Map();
+              <Droppable droppableId="habit-list">
+                {(dropProvided) => (
+                  <tbody
+                    ref={dropProvided.innerRef}
+                    {...dropProvided.droppableProps}
+                  >
+                    {habits.map((habit, habitIdx) => {
+                      const habitChecks = checkIns.get(habit.id) || new Map();
                   let completedCount = 0;
                   for (let d = 1; d <= daysInMonth; d++) {
                     if (habitChecks.get(d)) completedCount++;
@@ -663,7 +681,7 @@ export default function App() {
                   const goal = habit.goal || daysInMonth;
 
                   return (
-                    <tr key={habit.id}>
+                    <DraggableHabitRow habitId={habit.id} index={habitIdx}>
                       <td className="col-habits">
                         <div className="habit-row">
                           {editingHabitId === habit.id ? (
@@ -782,12 +800,16 @@ export default function App() {
                       <td className="col-achieved">
                         <span className="achieved-number">{completedCount}</span>
                       </td>
-                    </tr>
+                    </DraggableHabitRow>
                   );
                 })}
-              </tbody>
+                    {dropProvided.placeholder}
+                  </tbody>
+                )}
+              </Droppable>
             </table>
           </div>
+          </DragDropContext>
           )}
         </div>
       ) : view === 'stats' ? (

@@ -1163,7 +1163,11 @@ describe('Persistent habit records (bestStreak, longestGap, totalCompleted)', ()
     toggleCheckIn(habit.id, '2026-06-21');
     const h = getHabits().find((x) => x.id === habit.id)!;
     expect(h.longestGap).toBeGreaterThanOrEqual(6);
-    expect(h.longestGapAt).toBe('2026-06-27');
+    // The gap ends at "today" (whatever the real date is when the test runs).
+    // We just assert it's a valid YYYY-MM-DD string equal to today's local date.
+    const today = new Date();
+    const expectedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    expect(h.longestGapAt).toBe(expectedToday);
   });
 
   it('totalCompleted reflects lifetime completions', () => {
