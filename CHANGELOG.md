@@ -4,6 +4,25 @@ All notable changes to LifeTrack are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-06-29
+
+### Added
+- **Drag-and-drop habit reordering** in the grid view — pick up any habit row and drop it at a new position. Whole row is the drag handle (`cursor: grab` on hover).
+- `@hello-pangea/dnd` 18.0.1 already in deps; now actually wired up.
+- New component: `src/components/DraggableHabitRow.tsx` — wraps each row in a `<Draggable>` from the lib.
+
+### Changed
+- `store.ts` exports a new `reorderHabits(sourceIndex, destIndex)` function that follows the `@hello-pangea/dnd` convention (`destIndex` is the target slot AFTER the source has been removed, clamped to valid range).
+- Order field is now renumbered sequentially (0, 1, 2, ...) after every reorder — archived habits get the highest orders so they sort last if ever unarchived. No more fractional gaps accumulating over time.
+- Grid cursor now shows `grab` on hover for reorderable rows (and `grabbing` while dragging) for discoverability.
+
+### Tests
+- 191 tests passing (was 171, +20).
+- New test files: `src/test/reorder.test.ts` (14 tests covering basic moves, guards, archived habits, order hygiene, save/reload cycle), `src/test/dnd.test.tsx` (6 UI integration smoke tests for draggable IDs, droppable, handle propagation).
+
+### Fixed
+- `store.test.ts` had a stale assertion (`longestGapAt` hard-coded to `2026-06-27`) which broke as soon as real-time advanced. Now uses runtime date.
+
 ## [0.1.1] — 2026-06-27
 
 ### Added
