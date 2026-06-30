@@ -194,7 +194,8 @@ function detectStackSuggestions(
     const completed = checkIns.filter(
       (ci) => ci.habitId === habit.id && ci.completed && ci.date >= thirtyAgo,
     ).length;
-    rate30.set(habit.id, total > 0 ? completed / total : 0);
+    // Require at least 7 data points before computing a meaningful rate
+    rate30.set(habit.id, total >= 7 ? completed / total : 0);
   }
 
   for (const child of activeHabits) {
@@ -452,7 +453,7 @@ function detectTrends(
       ? lastPeriod.filter((ci) => ci.completed).length / lastPeriod.length
       : 0;
 
-    if (thisPeriod.length < 5 || lastPeriod.length < 5) continue;
+    if (thisPeriod.length < 7 || lastPeriod.length < 7) continue;
     const delta = Math.round((thisRate - lastRate) * 100);
     if (Math.abs(delta) < 10) continue; // only flag significant changes
 
