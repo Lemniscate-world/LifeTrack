@@ -296,7 +296,7 @@ describe('Edge cases', () => {
       checks.push(makeCheckIn(h.id, '2026-05-15', true));
     }
     const result = generateInsights(habits, checks, NOW);
-    expect(result.recommendations.length).toBeLessThanOrEqual(6);
+    expect(result.recommendations.length).toBeLessThanOrEqual(8);
   });
 
   it('every recommendation has required fields', () => {
@@ -317,5 +317,131 @@ describe('Edge cases', () => {
       expect(rec.strength).toBeGreaterThanOrEqual(0);
       expect(rec.strength).toBeLessThanOrEqual(100);
     }
+  });
+});
+
+// ============================================================================
+// CORRELATION — same-day habit pairs
+// ============================================================================
+describe('CORRELATION detection', () => {
+  it('detects when two habits often occur on the same day', () => {
+    const habits = [
+      makeHabit('h1', 'Exercise'),
+      makeHabit('h2', 'Meditate'),
+    ];
+    // 20 days where both are done, 5 where only Exercise
+    const checks: CheckIn[] = [];
+    for (let d = 0; d < 25; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      const ds = date.toISOString().slice(0, 10);
+      checks.push(makeCheckIn('h1', ds, true)); // Exercise always done
+      checks.push(makeCheckIn('h2', ds, d < 20)); // Meditate only first 20
+    }
+    const result = generateInsights(habits, checks, NOW);
+    const corr = result.recommendations.filter((r) => r.kind === 'CORRELATION');
+    expect(corr.length).toBeGreaterThanOrEqual(1);
+    expect(corr[0].habitIds).toContain('h1');
+    expect(corr[0].habitIds).toContain('h2');
+  });
+
+  it('does NOT flag correlation below 70%', () => {
+    const habits = [
+      makeHabit('h1', 'A'),
+      makeHabit('h2', 'B'),
+    ];
+    const checks: CheckIn[] = [];
+    for (let d = 0; d < 20; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      const ds = date.toISOString().slice(0, 10);
+      checks.push(makeCheckIn('h1', ds, true));
+      checks.push(makeCheckIn('h2', ds, d < 8)); // only 40%
+    }
+    const result = generateInsights(habits, checks, NOW);
+    const corr = result.recommendations.filter((r) => r.kind === 'CORRELATION');
+    expect(corr.length).toBe(0);
+  });
+});
+
+// ============================================================================
+// TREND — month-over-month change
+// ============================================================================
+describe('TREND detection', () => {
+  it('detects improvement this month vs last month', () => {
+    const habits = [makeHabit('h1', 'Reading')];
+    const checks: CheckIn[] = [];
+    // Last month: 30% completion (days 31-60 ago)
+    for (let d = 31; d <= 60; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      checks.push(makeCheckIn('h1', date.toISOString().slice(0, 10), d % 3 === 0)); // ~33%
+    }
+    // This month: 80% completion (days 0-30 ago)
+    for (let d = 0; d < 30; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      checks.push(makeCheckIn('h1', date.toISOString().slice(0, 10), d % 5 !== 0)); // 80%
+    }
+    const result = generateInsights(habits, checks, NOW);
+    const trends = result.recommendations.filter((r) => r.kind === 'TREND');
+    expect(trends.length).toBeGreaterThanOrEqual(1);
+    expect(trends[0].title).toContain('Reading');
+    expect(trends[0].title).toMatch(/\+/); // positive trend
+  });
+
+  it('detects decline', () => {
+    const habits = [makeHabit('h1', 'Exercise')];
+    const checks: CheckIn[] = [];
+    // Last month: 90%
+    for (let d = 31; d <= 45; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      checks.push(makeCheckIn('h1', date.toISOString().slice(0, 10), true));
+    }
+    // This month: 40%
+    for (let d = 0; d < 15; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      checks.push(makeCheckIn('h1', date.toISOString().slice(0, 10), d % 3 === 0));
+    }
+    const result = generateInsights(habits, checks, NOW);
+    const trends = result.recommendations.filter((r) => r.kind === 'TREND');
+    expect(trends.length).toBeGreaterThanOrEqual(1);
+    expect(trends[0].title).toContain('📉');
+  });
+});
+
+// ============================================================================
+// WEEKLY_SUMMARY
+// ============================================================================
+describe('WEEKLY_SUMMARY', () => {
+  it('generates a weekly summary with recent data', () => {
+    const habits = [
+      makeHabit('h1', 'Exercise', { bestStreak: 5, bestStreakAt: '2026-06-28' }),
+      makeHabit('h2', 'Read', { stackParent: 'h1' }),
+    ];
+    const checks: CheckIn[] = [];
+    // Last 7 days: 80% completion
+    for (let d = 0; d < 7; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      const ds = date.toISOString().slice(0, 10);
+      checks.push(makeCheckIn('h1', ds, d !== 3));
+      checks.push(makeCheckIn('h2', ds, d !== 3 && d !== 5));
+    }
+    const result = generateInsights(habits, checks, NOW);
+    const weekly = result.recommendations.filter((r) => r.kind === 'WEEKLY_SUMMARY');
+    expect(weekly.length).toBe(1);
+    expect(weekly[0].title).toContain('This week');
+    expect(weekly[0].title).toContain('🏆');
+  });
+
+  it('returns empty when no recent data', () => {
+    const habits = [makeHabit('h1', 'Old')];
+    const checks = [makeCheckIn('h1', '2026-06-01', true)]; // 29 days ago
+    const result = generateInsights(habits, checks, NOW);
+    const weekly = result.recommendations.filter((r) => r.kind === 'WEEKLY_SUMMARY');
+    expect(weekly.length).toBe(0);
   });
 });

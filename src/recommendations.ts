@@ -13,13 +13,16 @@ import type { Habit, CheckIn } from './types';
 // --- Recommendation types ---
 
 export type RecKind =
-  | 'MISS_PATTERN'       // User tends to skip habit X on specific day
-  | 'STACK_SUGGESTION'   // Habit X + Y would make a good stack
-  | 'RECORD_APPROACH'    // Close to beating all-time best streak
-  | 'CHAOS_CORRELATION'  // Chaos dimension linked to habit misses
-  | 'NEGLECTED'          // Habit not checked in > N days
-  | 'RECOVERY_PATTERN'   // How quickly user recovers after a miss
-  | 'PRIME_TIME';        // Day pattern where habit completion is highest
+  | 'MISS_PATTERN'
+  | 'STACK_SUGGESTION'
+  | 'RECORD_APPROACH'
+  | 'CHAOS_CORRELATION'
+  | 'NEGLECTED'
+  | 'RECOVERY_PATTERN'
+  | 'PRIME_TIME'
+  | 'CORRELATION'
+  | 'TREND'
+  | 'WEEKLY_SUMMARY';
 
 export interface Recommendation {
   kind: RecKind;
@@ -357,6 +360,169 @@ function detectPrimeTime(
   return recs;
 }
 
+// --- Rule 7: Correlation between habits ---
+// "When you do 'Exercise', you also do 'Meditate' 85% of the time"
+function detectCorrelations(
+  habits: Habit[],
+  checkIns: CheckIn[],
+): Recommendation[] {
+  const recs: Recommendation[] = [];
+  const activeHabits = habits.filter((h) => !h.archived);
+  if (activeHabits.length < 2) return recs;
+
+  // Build a map: date -> set of completed habit IDs
+  const byDate = new Map<string, Set<string>>();
+  for (const ci of checkIns) {
+    if (!ci.completed) continue;
+    let set = byDate.get(ci.date);
+    if (!set) {
+      set = new Set();
+      byDate.set(ci.date, set);
+    }
+    set.add(ci.habitId);
+  }
+
+  // For each pair (A, B): on days where A is done, what % also have B done?
+  const days = Array.from(byDate.keys());
+  if (days.length < 10) return recs; // need enough data
+
+  for (let i = 0; i < activeHabits.length; i++) {
+    for (let j = i + 1; j < activeHabits.length; j++) {
+      const a = activeHabits[i];
+      const b = activeHabits[j];
+      let aDays = 0;
+      let bothDays = 0;
+      for (const [, habits] of byDate) {
+        if (habits.has(a.id)) {
+          aDays++;
+          if (habits.has(b.id)) bothDays++;
+        }
+      }
+      if (aDays < 10) continue;
+      const rate = Math.round((bothDays / aDays) * 100);
+      if (rate >= 70) {
+        const anchor = rate >= 90 ? 'almost always' : rate >= 80 ? 'usually' : 'often';
+        recs.push({
+          kind: 'CORRELATION',
+          title: `"${a.name}" → "${b.name}" (${rate}% same-day)`,
+          detail: `On days you complete "${a.name}", you ${anchor} also complete "${b.name}" (${bothDays} of ${aDays} days). This is a naturally reinforcing pair.`,
+          habitIds: [a.id, b.id],
+          strength: rate,
+          actionLabel: 'Link now',
+        });
+      }
+    }
+  }
+  recs.sort((a, b) => b.strength - a.strength);
+  return recs.slice(0, 3);
+}
+
+// --- Rule 8: Trend detection ---
+// "Your 'Exercise' completion is +15% this month vs last month"
+function detectTrends(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  now: Date,
+): Recommendation[] {
+  const recs: Recommendation[] = [];
+  for (const habit of habits) {
+    if (habit.archived) continue;
+    // This month (last 30 days) vs last month (30-60 days ago)
+    const thisMonth = new Date(now);
+    thisMonth.setUTCDate(thisMonth.getUTCDate() - 30);
+    const thisMonthStr = thisMonth.toISOString().slice(0, 10);
+    const lastMonthStart = new Date(now);
+    lastMonthStart.setUTCDate(lastMonthStart.getUTCDate() - 60);
+    const lastMonthStartStr = lastMonthStart.toISOString().slice(0, 10);
+    const lastMonthEnd = new Date(now);
+    lastMonthEnd.setUTCDate(lastMonthEnd.getUTCDate() - 31);
+    const lastMonthEndStr = lastMonthEnd.toISOString().slice(0, 10);
+
+    const thisPeriod = checkIns.filter(
+      (ci) => ci.habitId === habit.id && ci.date >= thisMonthStr,
+    );
+    const lastPeriod = checkIns.filter(
+      (ci) => ci.habitId === habit.id && ci.date >= lastMonthStartStr && ci.date <= lastMonthEndStr,
+    );
+
+    const thisRate = thisPeriod.length > 0
+      ? thisPeriod.filter((ci) => ci.completed).length / thisPeriod.length
+      : 0;
+    const lastRate = lastPeriod.length > 0
+      ? lastPeriod.filter((ci) => ci.completed).length / lastPeriod.length
+      : 0;
+
+    if (thisPeriod.length < 5 || lastPeriod.length < 5) continue;
+    const delta = Math.round((thisRate - lastRate) * 100);
+    if (Math.abs(delta) < 10) continue; // only flag significant changes
+
+    const direction = delta > 0 ? 'up' : 'down';
+    const emoji = delta > 0 ? '📈' : '📉';
+    recs.push({
+      kind: 'TREND',
+      title: `${emoji} "${habit.name}" ${delta > 0 ? '+' : ''}${delta}% this month`,
+      detail: `Your completion rate for "${habit.name}" is ${direction} ${Math.abs(delta)}% compared to last month (${Math.round(thisRate * 100)}% vs ${Math.round(lastRate * 100)}%). ${delta > 0 ? "Whatever you're doing — keep it up!" : "A small adjustment could turn this around."}`,
+      habitIds: [habit.id],
+      strength: Math.min(100, Math.abs(delta) + 50),
+      actionLabel: delta > 0 ? 'View stats' : 'Go to habit',
+    });
+  }
+  recs.sort((a, b) => b.strength - a.strength);
+  return recs.slice(0, 3);
+}
+
+// --- Rule 9: Weekly summary ---
+// "This week: 3 records beaten, stacks 80% done, chaos trend: down"
+function generateWeeklySummary(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  now: Date,
+): Recommendation[] {
+  const weekAgo = new Date(now);
+  weekAgo.setUTCDate(weekAgo.getUTCDate() - 7);
+  const weekAgoStr = weekAgo.toISOString().slice(0, 10);
+
+  const weekChecks = checkIns.filter((ci) => ci.date >= weekAgoStr);
+  const activeHabits = habits.filter((h) => !h.archived);
+  if (activeHabits.length === 0 || weekChecks.length < 5) return [];
+
+  const totalChecks = weekChecks.length;
+  const completed = weekChecks.filter((ci) => ci.completed).length;
+  const weekRate = Math.round((completed / totalChecks) * 100);
+
+  // Count records beaten this week (best streaks achieved ending this week)
+  let recordsBeaten = 0;
+  for (const h of habits) {
+    if (!h.bestStreak || !h.bestStreakAt || h.bestStreak < 3) continue;
+    if (h.bestStreakAt >= weekAgoStr) recordsBeaten++;
+  }
+
+  // Stack completion this week
+  const stacked = activeHabits.filter((h) => h.stackParent);
+  const stackedDone = stacked.filter((h) => {
+    const checks = weekChecks.filter((ci) => ci.habitId === h.id && ci.completed);
+    return checks.length > 0;
+  }).length;
+  const stackRate = stacked.length > 0 ? Math.round((stackedDone / stacked.length) * 100) : 0;
+
+  const parts: string[] = [];
+  if (weekRate >= 80) parts.push(`✅ ${weekRate}% completion rate`);
+  else if (weekRate >= 50) parts.push(`📊 ${weekRate}% completion rate`);
+  else parts.push(`⚠️ ${weekRate}% completion rate`);
+
+  if (recordsBeaten > 0) parts.push(`🏆 ${recordsBeaten} record${recordsBeaten > 1 ? 's' : ''} beaten`);
+  if (stacked.length > 0) parts.push(`🔗 stacks ${stackRate}% done`);
+
+  return [{
+    kind: 'WEEKLY_SUMMARY',
+    title: `📋 This week: ${parts.join(' · ')}`,
+    detail: `Over the last 7 days, you completed ${completed} of ${totalChecks} check-ins across ${activeHabits.length} habits.${stacked.length > 0 ? ` Your ${stacked.length} stacked habit${stacked.length > 1 ? 's are' : ' is'} ${stackRate}% on track.` : ''}${recordsBeaten > 0 ? ` You set ${recordsBeaten} new personal record${recordsBeaten > 1 ? 's' : ''}!` : ''}`,
+    habitIds: activeHabits.map((h) => h.id),
+    strength: Math.min(100, weekRate),
+    actionLabel: 'View history',
+  }];
+}
+
 // --- Main entry point ---
 
 export interface InsightsResult {
@@ -384,6 +550,9 @@ export function generateInsights(
     ...detectNeglected(activeHabits, checkIns, now),
     ...detectRecoveryPatterns(activeHabits, checkIns),
     ...detectPrimeTime(activeHabits, checkIns),
+    ...detectCorrelations(activeHabits, checkIns),
+    ...detectTrends(activeHabits, checkIns, now),
+    ...generateWeeklySummary(habits, checkIns, now),
   ];
 
   // Deduplicate by title
@@ -399,12 +568,15 @@ export function generateInsights(
   // NEGLECTED/STACK_SUGGESTION/RECORD_APPROACH > RECOVERY/PRIME_TIME > MISS_PATTERN
   const kindPriority: Record<RecKind, number> = {
     NEGLECTED: 0,
-    STACK_SUGGESTION: 0,
     RECORD_APPROACH: 0,
-    RECOVERY_PATTERN: 1,
-    PRIME_TIME: 1,
-    CHAOS_CORRELATION: 1,
-    MISS_PATTERN: 2,
+    STACK_SUGGESTION: 0,
+    CORRELATION: 1,
+    TREND: 1,
+    WEEKLY_SUMMARY: 1,
+    RECOVERY_PATTERN: 2,
+    PRIME_TIME: 2,
+    CHAOS_CORRELATION: 2,
+    MISS_PATTERN: 3,
   };
   unique.sort((a, b) => {
     const pa = kindPriority[a.kind] ?? 2;

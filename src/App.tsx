@@ -30,7 +30,6 @@ import { DraggableHabitRow } from './components/DraggableHabitRow';
 import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import './App.css';
 import ChaosView from './ChaosView';
-import QRSync from './QRSync';
 import { generateInsights, type Recommendation, type RecKind } from './recommendations';
 
 // Detected at module load (window is always present in browser and Tauri).
@@ -102,7 +101,6 @@ const MONTH_NAMES = [
   const [editWhyText, setEditWhyText] = useState('');
   const [view, setView] = useState<'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights'>('grid');
   const [savedMsg, setSavedMsg] = useState('');
-  const [showQRSync, setShowQRSync] = useState(false);
 
   // Periodically refresh the "last saved" display
   useEffect(() => {
@@ -612,8 +610,6 @@ const MONTH_NAMES = [
             <div className="export-menu">
               <button className="export-item" onClick={handleExportJSON}>Export JSON</button>
               <button className="export-item" onClick={handleExportCSV}>Export CSV</button>
-              <div className="export-sep"></div>
-              <button className="export-item" onClick={() => setShowQRSync(true)}>Sync to Mobile 📱</button>
               <div className="export-sep"></div>
               <button className="export-item" onClick={handleImportJSON}>Import JSON</button>
               <button className="export-item" onClick={() => {
@@ -1179,7 +1175,6 @@ const MONTH_NAMES = [
         </div>
       )}
 
-      <QRSync open={showQRSync} onClose={() => setShowQRSync(false)} />
     </div>
   );
 }
@@ -1260,6 +1255,9 @@ function InsightsView({
     NEGLECTED: '⏰',
     RECOVERY_PATTERN: '🔄',
     PRIME_TIME: '⭐',
+    CORRELATION: '🤝',
+    TREND: '📊',
+    WEEKLY_SUMMARY: '📋',
   };
 
   // eslint-disable-next-line no-unused-vars
@@ -1273,6 +1271,11 @@ function InsightsView({
     NEGLECTED: () => onView('grid'),
     RECOVERY_PATTERN: () => onView('history'),
     PRIME_TIME: () => onView('stats'),
+    CORRELATION: (rec) => {
+      if (rec.habitIds.length >= 2) onLink(rec.habitIds[0], rec.habitIds[1]);
+    },
+    TREND: () => onView('history'),
+    WEEKLY_SUMMARY: () => onView('history'),
   };
 
   if (recommendations.length === 0) {
