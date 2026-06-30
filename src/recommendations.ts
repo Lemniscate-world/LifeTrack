@@ -70,16 +70,15 @@ function habitCheckDates(habitId: string, checkIns: CheckIn[]): string[] {
 
 function currentStreak(habitId: string, checkIns: CheckIn[], now: Date): number {
   let streak = 0;
-  let cursor = new Date(now);
+  // Start from yesterday — today may not be complete yet.
+  const cursor = new Date(now);
   cursor.setUTCHours(0, 0, 0, 0);
+  cursor.setUTCDate(cursor.getUTCDate() - 1);
   const completedSet = new Set(habitCheckDates(habitId, checkIns));
   while (true) {
     const ds = cursor.toISOString().slice(0, 10);
     if (completedSet.has(ds)) {
       streak++;
-      cursor.setUTCDate(cursor.getUTCDate() - 1);
-    } else if (ds > now.toISOString().slice(0, 10)) {
-      // today hasn't happened yet, look at yesterday
       cursor.setUTCDate(cursor.getUTCDate() - 1);
     } else {
       break;
@@ -123,7 +122,17 @@ function detectMissPatterns(
     if (habit.archived) continue;
     if (checkIns.filter((ci) => ci.habitId === habit.id).length < MIN_CHECKINS_FOR_ANALYSIS) continue;
 
-    // Count misses per day of week over the last 12 weeks
+    // Limit the window to the habit's actual tracking period.
+    const myDates = habitCheckDates(habit.id, checkIns);
+    if (myDates.length === 0) continue;
+    const firstDate = new Date(myDates[0] + 'T00:00:00Z');
+    const weeksSinceStart = Math.max(
+      1,
+      Math.ceil((now.getTime() - firstDate.getTime()) / (7 * 86400000)),
+    );
+    const weeksToScan = Math.min(12, weeksSinceStart);
+
+    // Count misses per day of week
     const dayMisses = new Array(7).fill(0);
     const dayTotal = new Array(7).fill(0);
     const completedSet = new Set(
@@ -131,15 +140,16 @@ function detectMissPatterns(
         .filter((ci) => ci.habitId === habit.id && ci.completed)
         .map((ci) => ci.date),
     );
-    for (let w = 0; w < 12; w++) {
+    for (let w = 0; w < weeksToScan; w++) {
       for (let d = 0; d < 7; d++) {
         const date = new Date(now);
         date.setUTCDate(date.getUTCDate() - w * 7 - d);
         const ds = date.toISOString().slice(0, 10);
         if (ds > now.toISOString().slice(0, 10)) continue;
-        dayTotal[(7 - d) % 7]++;
+        const dayIdx = date.getUTCDay(); // 0=Sun...6=Sat
+        dayTotal[dayIdx]++;
         if (!completedSet.has(ds)) {
-          dayMisses[(7 - d) % 7]++;
+          dayMisses[dayIdx]++;
         }
       }
     }
@@ -360,7 +370,7 @@ export function generateInsights(
   now: Date = new Date(),
 ): InsightsResult {
   const activeHabits = habits.filter((h) => !h.archived);
-  if (activeHabits.length === 0 || checkIns.length < 5) {
+  if (activeHabits.length === 0) {
     return {
       recommendations: [],
       generatedAt: now.toISOString(),
@@ -385,11 +395,37 @@ export function generateInsights(
     return true;
   });
 
-  // Sort by strength descending
-  unique.sort((a, b) => b.strength - a.strength);
+  // Sort by strength descending, but prioritize actionable kinds first:
+  // NEGLECTED/STACK_SUGGESTION/RECORD_APPROACH > RECOVERY/PRIME_TIME > MISS_PATTERN
+  const kindPriority: Record<RecKind, number> = {
+    NEGLECTED: 0,
+    STACK_SUGGESTION: 0,
+    RECORD_APPROACH: 0,
+    RECOVERY_PATTERN: 1,
+    PRIME_TIME: 1,
+    CHAOS_CORRELATION: 1,
+    MISS_PATTERN: 2,
+  };
+  unique.sort((a, b) => {
+    const pa = kindPriority[a.kind] ?? 2;
+    const pb = kindPriority[b.kind] ?? 2;
+    if (pa !== pb) return pa - pb;
+    return b.strength - a.strength;
+  });
+
+  // Limit to top 8, and max 2 per kind to avoid flooding
+  const perKind = new Map<RecKind, number>();
+  const limited: Recommendation[] = [];
+  for (const r of unique) {
+    const count = perKind.get(r.kind) ?? 0;
+    if (count >= 2) continue;
+    perKind.set(r.kind, count + 1);
+    limited.push(r);
+    if (limited.length >= 8) break;
+  }
 
   return {
-    recommendations: unique.slice(0, 6), // top 6 most relevant
+    recommendations: limited,
     generatedAt: now.toISOString(),
   };
 }
