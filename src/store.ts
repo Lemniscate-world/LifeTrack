@@ -1,5 +1,13 @@
 import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger } from './types';
 import { computeStreakStats } from './stats';
+import {
+  linkHabitToParentInPlace,
+  unlinkHabitInPlace,
+  clearDanglingStackParentsInPlace,
+  computeStacks,
+  getNextStackSuggestion,
+  type StackStatus,
+} from './stacks';
 
 // --- Storage envelope ---
 // Wraps app data with versioning and an integrity checksum.
@@ -433,10 +441,53 @@ export function unarchiveHabit(id: string): void {
 }
 
 export function deleteHabit(id: string): void {
+  // Clear any habits that reference this one as their stack parent BEFORE removal.
+  clearDanglingStackParentsInPlace(data.habits, id);
   data.habits = data.habits.filter((h) => h.id !== id);
   data.checkIns = data.checkIns.filter((c) => c.habitId !== id);
   data.notes = data.notes.filter((n) => n.habitId !== id);
   notify();
+}
+
+// --- Stack API ---
+// Thin wrappers around the pure helpers in `src/stacks.ts` so the UI has one
+// stable import surface (`./store`) without leaking module split.
+
+export function linkHabitToParent(habitId: string, parentId: string): boolean {
+  const result = linkHabitToParentInPlace(data.habits, habitId, parentId);
+  if (!result.ok) {
+    if (result.reason === 'cycle') {
+      console.warn('linkHabitToParent: cycle detected — refusing', { habitId, parentId });
+    } else if (result.reason === 'self') {
+      console.warn('linkHabitToParent: cannot link habit to itself', habitId);
+    } else if (result.reason === 'missing') {
+      console.warn('linkHabitToParent: habit or parent not found', { habitId, parentId });
+    }
+    return false;
+  }
+  notify();
+  return true;
+}
+
+export function unlinkHabitFromParent(habitId: string): void {
+  unlinkHabitInPlace(data.habits, habitId);
+  notify();
+}
+
+export function getStacks(today: Date = new Date()): StackStatus[] {
+  return computeStacks(data.habits, data.checkIns, today);
+}
+
+export function getNextStackSuggestionForToday(): {
+  habitId: string; habitName: string; habitColor: string; rootName: string;
+} | null {
+  return getNextStackSuggestion(data.habits, data.checkIns, new Date());
+}
+
+export function getNextStackSuggestionFor(today: Date): {
+  habitId: string; habitName: string; habitColor: string; rootName: string;
+} | null {
+  return getNextStackSuggestion(data.habits, data.checkIns, today);
 }
 
 /**

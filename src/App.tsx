@@ -19,10 +19,13 @@ import {
   redoLastUndo,
   mergeImportedData,
   reorderHabits,
+  linkHabitToParent as linkHabitToParentStore,
+  unlinkHabitFromParent as unlinkHabitFromParentStore,
 } from './store';
 import { computeStreakStats, computeCompletionRate, computeWeightedScore } from './stats';
 import { Heatmap, Sparkline } from './Heatmap';
 import { HistoryView } from './HistoryView';
+import { StacksView } from './StacksView';
 import { DraggableHabitRow } from './components/DraggableHabitRow';
 import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import './App.css';
@@ -83,7 +86,9 @@ const MONTH_NAMES = [
   const [editChaosDim, setEditChaosDim] = useState('physical');
   const [editChaosImpact, setEditChaosImpact] = useState(50);
   const [editChaosThreshold, setEditChaosThreshold] = useState(2);
-  const [view, setView] = useState<'grid' | 'stats' | 'history' | 'chaos'>('grid');
+  // Stack parent picker (which habit triggers this one)
+  const [editingStackParentId, setEditingStackParentId] = useState<string | null>(null);
+  const [view, setView] = useState<'grid' | 'stats' | 'history' | 'stacks' | 'chaos'>('grid');
   const [savedMsg, setSavedMsg] = useState('');
 
   // Periodically refresh the "last saved" display
@@ -635,6 +640,7 @@ const MONTH_NAMES = [
           <button className={`view-tab ${view === 'grid' ? 'active' : ''}`} onClick={() => setView('grid')}>Grid</button>
           <button className={`view-tab ${view === 'stats' ? 'active' : ''}`} onClick={() => setView('stats')}>Statistics</button>
           <button className={`view-tab ${view === 'history' ? 'active' : ''}`} onClick={() => setView('history')}>History</button>
+          <button className={`view-tab ${view === 'stacks' ? 'active' : ''}`} onClick={() => setView('stacks')}>Stacks</button>
           <button className={`view-tab ${view === 'chaos' ? 'active' : ''}`} onClick={() => setView('chaos')}>Chaos</button>
         </div>
       </div>
@@ -704,6 +710,18 @@ const MONTH_NAMES = [
                               {habit.name}
                             </span>
                           )}
+                          {habit.stackParent && (() => {
+                            const parent = habits.find((h) => h.id === habit.stackParent);
+                            return parent ? (
+                              <span
+                                className="habit-stack-badge"
+                                title={`Triggered by: ${parent.name}`}
+                                onClick={() => setFocusHabitIdx(habits.findIndex((h) => h.id === parent.id))}
+                              >
+                                ↳ {parent.name}
+                              </span>
+                            ) : null;
+                          })()}
                           <button
                             className="habit-archive"
                             onClick={() => archiveHabit(habit.id)}
@@ -720,6 +738,16 @@ const MONTH_NAMES = [
                           >
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
                               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                            </svg>
+                          </button>
+                          <button
+                            className={`habit-stack-btn ${habit.stackParent ? 'linked' : ''}`}
+                            onClick={() => setEditingStackParentId(editingStackParentId === habit.id ? null : habit.id)}
+                            title={habit.stackParent ? `After: ${habits.find((h) => h.id === habit.stackParent)?.name ?? '?'}` : 'Add to a stack (after another habit)'}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
                             </svg>
                           </button>
                         </div>
@@ -747,6 +775,37 @@ const MONTH_NAMES = [
                             <span className="chaos-edit-label">days</span>
                             <button className="btn btn-sm btn-primary" onClick={saveChaosEditor}>OK</button>
                             <button className="btn btn-sm btn-ghost" onClick={() => setEditingChaosHabitId(null)}>Cancel</button>
+                          </div>
+                        )}
+                        {editingStackParentId === habit.id && (
+                          <div className="habit-stack-edit">
+                            <span className="stack-edit-label">Triggered by:</span>
+                            <select
+                              className="stack-select-sm"
+                              value={habit.stackParent ?? ''}
+                              onChange={(e) => {
+                                const newParent = e.target.value;
+                                if (newParent === '') {
+                                  unlinkHabitFromParentStore(habit.id);
+                                } else {
+                                  linkHabitToParentStore(habit.id, newParent);
+                                }
+                              }}
+                            >
+                              <option value="">— None (remove from stack) —</option>
+                              {habits
+                                .filter((h) => h.id !== habit.id && !h.archived)
+                                .sort((a, b) => a.name.localeCompare(b.name))
+                                .map((h) => (
+                                  <option key={h.id} value={h.id}>{h.name}</option>
+                                ))}
+                            </select>
+                            <button
+                              className="btn btn-sm btn-ghost"
+                              onClick={() => setEditingStackParentId(null)}
+                            >
+                              Done
+                            </button>
                           </div>
                         )}
                       </td>
@@ -902,6 +961,8 @@ const MONTH_NAMES = [
         </>
       ) : view === 'history' ? (
         <HistoryView checkIns={allCheckIns} habits={habits} />
+      ) : view === 'stacks' ? (
+        <StacksView checkIns={allCheckIns} habits={habits} />
       ) : (
         <ChaosView />
       )}

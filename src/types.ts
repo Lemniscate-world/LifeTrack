@@ -18,6 +18,9 @@ export interface Habit {
   longestGap?: number;        // longest missed-days run ever recorded
   longestGapAt?: string;      // YYYY-MM-DD ending date of that gap
   totalCompleted?: number;    // lifetime count of completed check-ins
+  // Habit stacking: if set, this habit is a "downstream" of the given parent.
+  // Used to build routines like "after coffee → meditate". See computeStacks().
+  stackParent?: string;       // id of the triggering habit, or undefined
 }
 
 export interface CheckIn {
