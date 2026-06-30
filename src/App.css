@@ -1592,6 +1592,370 @@ body {
   font-weight: 600;
 }
 
+/* ============ QR SYNC MODAL ============ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  backdrop-filter: blur(4px);
+}
+
+.modal-content {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  max-width: 480px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 0 20px;
+}
+
+.modal-header h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.modal-close {
+  width: 32px;
+  height: 32px;
+}
+
+.qr-modal {
+  max-width: 440px;
+}
+
+.qr-body {
+  padding: 16px 20px 20px 20px;
+}
+
+.qr-instruction {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 16px 0;
+  text-align: center;
+}
+
+.qr-instruction strong {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.qr-error {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.dark .qr-error {
+  background: #450a0a;
+  color: #fca5a5;
+  border-color: #7f1d1d;
+}
+
+.qr-code-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: #ffffff;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+}
+
+.dark .qr-code-wrapper {
+  background: #ffffff; /* Keep white for QR scan contrast */
+}
+
+.qr-code-img {
+  width: 100%;
+  max-width: 300px;
+  height: auto;
+  display: block;
+}
+
+.btn-qr-regenerate {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: var(--font);
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-qr-regenerate:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+.qr-loading {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.qr-actions {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-secondary {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+  font-family: var(--font);
+  padding: 8px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-weight: 500;
+}
+
+.btn-secondary:hover {
+  background: var(--border);
+}
+
+.qr-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ============ RESPONSIVE – ANDROID MOBILE ============ */
+
+/* Breakpoint: phones in portrait (<640px) */
+@media (max-width: 639px) {
+
+  /* -- Touch-friendly sizing -- */
+  :root {
+    --radius: 8px;
+  }
+
+  .btn-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+  }
+
+  /* Navbar compact */
+  .navbar {
+    padding: 6px 10px;
+    gap: 4px;
+  }
+
+  .logo {
+    font-size: 14px;
+    gap: 4px;
+  }
+
+  .nav-actions {
+    gap: 2px;
+  }
+
+  /* Toolbar: stack month + tabs vertically */
+  .toolbar {
+    flex-wrap: wrap;
+    padding: 6px 10px;
+    gap: 6px;
+  }
+
+  .month-selector {
+    order: 1;
+    flex: 1 1 auto;
+  }
+
+  .month-label {
+    font-size: 13px;
+    min-width: 100px;
+  }
+
+  .view-tabs {
+    order: 2;
+    flex: 1 1 100%;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  .view-tab {
+    padding: 6px 12px;
+    font-size: 11px;
+    flex: 1;
+    text-align: center;
+  }
+
+  /* -- Habit grid: reduce columns, horizontal scroll if needed -- */
+  .table-scroll {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .habit-grid {
+    font-size: 11px;
+  }
+
+  .col-habits {
+    min-width: 120px;
+    padding-left: 8px !important;
+    padding-right: 6px !important;
+  }
+
+  .col-day {
+    min-width: 24px;
+    width: 24px;
+  }
+
+  .day-letter {
+    font-size: 8px;
+  }
+
+  .day-number {
+    font-size: 10px;
+  }
+
+  .col-goal,
+  .col-achieved {
+    min-width: 42px;
+    font-size: 11px;
+  }
+
+  .habit-name {
+    font-size: 11px;
+    max-width: 90px;
+  }
+
+  .habit-name-input {
+    font-size: 11px;
+    width: 80px;
+  }
+
+  /* Hide hover-only controls on mobile (show permanently instead) */
+  .habit-archive {
+    opacity: 0.6;
+    padding: 4px;
+  }
+
+  .habit-chaos-btn {
+    opacity: 0.6;
+    padding: 4px;
+  }
+
+  /* -- Stats view: compact tables -- */
+  .stats-table {
+    font-size: 11px;
+  }
+
+  .stats-table th,
+  .stats-table td {
+    padding: 4px 6px;
+  }
+
+  /* -- Stacks view: full-width cards -- */
+  .stacks-view {
+    padding: 8px !important;
+  }
+
+  .stack-card {
+    padding: 10px !important;
+    margin-bottom: 8px !important;
+  }
+
+  /* -- History view: simpler layout -- */
+  .history-list {
+    padding: 8px;
+  }
+
+  .history-entry {
+    padding: 8px 10px;
+  }
+
+  /* -- Chaos view: compact -- */
+  .chaos-view {
+    padding: 8px !important;
+  }
+
+
+  /* -- Export menu: full-width dropdown -- */
+  .export-menu {
+    right: -8px;
+    min-width: 120px;
+  }
+
+  /* -- Bottom safe area for gesture nav -- */
+  .app {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+/* Breakpoint: tablets (640px – 1024px) */
+@media (min-width: 640px) and (max-width: 1024px) {
+  .col-habits {
+    min-width: 140px;
+  }
+
+  .toolbar {
+    padding: 6px 12px;
+  }
+
+  .view-tab {
+    padding: 5px 16px;
+    font-size: 12px;
+  }
+}
+
+/* Touch-friendly: increase tap targets to 48px minimum */
+@media (hover: none) and (pointer: coarse) {
+  .btn-icon {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .view-tab {
+    min-height: 40px;
+  }
+
+  .month-arrow {
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .habit-name {
+    min-height: 36px;
+    line-height: 36px;
+  }
+
+  .col-day {
+    min-height: 36px;
+  }
+}
+
 .next-suggestion-context {
   color: var(--text-muted);
   font-size: 12px;

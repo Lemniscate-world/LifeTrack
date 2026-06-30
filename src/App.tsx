@@ -30,6 +30,7 @@ import { DraggableHabitRow } from './components/DraggableHabitRow';
 import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import './App.css';
 import ChaosView from './ChaosView';
+import QRSync from './QRSync';
 
 // Detected at module load (window is always present in browser and Tauri).
 // In test environments this is false. Module-level constant is acceptable
@@ -97,6 +98,7 @@ const MONTH_NAMES = [
   const [editingStackParentId, setEditingStackParentId] = useState<string | null>(null);
   const [view, setView] = useState<'grid' | 'stats' | 'history' | 'stacks' | 'chaos'>('grid');
   const [savedMsg, setSavedMsg] = useState('');
+  const [showQRSync, setShowQRSync] = useState(false);
 
   // Periodically refresh the "last saved" display
   useEffect(() => {
@@ -607,6 +609,8 @@ const MONTH_NAMES = [
               <button className="export-item" onClick={handleExportJSON}>Export JSON</button>
               <button className="export-item" onClick={handleExportCSV}>Export CSV</button>
               <div className="export-sep"></div>
+              <button className="export-item" onClick={() => setShowQRSync(true)}>Sync to Mobile 📱</button>
+              <div className="export-sep"></div>
               <button className="export-item" onClick={handleImportJSON}>Import JSON</button>
               <button className="export-item" onClick={() => {
                 import('@tauri-apps/api/core').then(({ invoke }) =>
@@ -1107,6 +1111,8 @@ const MONTH_NAMES = [
           )}
         </div>
       )}
+
+      <QRSync open={showQRSync} onClose={() => setShowQRSync(false)} />
     </div>
   );
 }

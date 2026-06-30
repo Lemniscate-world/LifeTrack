@@ -57,11 +57,25 @@ To provide a fast, local-first, distraction-free desktop application for trackin
 - [x] Refactor: Statistics view uses `computeStreakStats` instead of bespoke helpers.
 - [x] Backward-compatible data migration (new Habit fields auto-backfilled on load).
 
-### Phase 6: Habit Stacking (Planned)
-- [ ] Add optional "after habit" links to build routines from existing habits.
-- [ ] Show stack progress: completed, blocked, skipped, and next suggested habit.
-- [ ] Add stack templates for common morning/evening workflows.
-- [ ] Consider Chaos amplification when multiple linked habits in a stack are missed.
+### Phase 6: Habit Stacking (Completed 2026-06-30)
+- [x] `src/stacks.ts` — pure graph module: link/unlink, cycle detection, BFS chain walking.
+- [x] `src/StacksView.tsx` — stack cards with status glyphs (✓ • ⊘ ?) and progress bars.
+- [x] Inline `stackParent` picker per habit (chain glyph) + `↳ parent` badge.
+- [x] "Up next" suggestion banner in Stacks view.
+- [x] Cycle detection: refuses A→B→A and longer cycles.
+- [x] Stack state propagation: blocked when parent incomplete, done when both done.
+
+### Phase 7: Android Mobile App (In Progress 2026-06-30)
+- [x] Tauri Android target initialized (`npx tauri android init`)
+- [x] Android SDK + NDK 27 installed
+- [x] R75 competitive benchmark: `docs/research/android_competitive_benchmark.md`
+- [x] Responsive CSS: mobile-first media queries (≤639px, 640-1024px), touch targets
+- [x] QR-based local sync Desktop↔Mobile (no cloud, no account)
+- [ ] Build APK (aarch64, armv7, x86_64) — blocked on JDK 21 install
+- [ ] Widget homescreen (4 habits + checkboxes)
+- [ ] Notification actions (OUI/NON sans ouvrir l'app)
+- [ ] Material You dynamic theming
+- [ ] Play Store submission (Early Access)
 
 ---
 
