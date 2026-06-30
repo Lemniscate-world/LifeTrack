@@ -1887,6 +1887,187 @@ body {
   white-space: nowrap;
 }
 
+/* ============ INTENTIONS (WHY) ============ */
+.habit-why-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.1s;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.habit-grid tbody tr:hover .habit-why-btn {
+  opacity: 0.7;
+}
+
+.habit-why-btn.has-intentions {
+  opacity: 0.85;
+}
+
+.habit-why-btn:hover {
+  opacity: 1 !important;
+  background: var(--bg-alt);
+}
+
+.habit-why-edit {
+  padding: 8px 10px 10px 10px;
+  margin: 4px 0 0 0;
+  background: var(--bg-alt);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.why-header {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.why-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--bg);
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.why-text {
+  flex: 1;
+  color: var(--text);
+  font-style: italic;
+}
+
+.why-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 4px;
+  border-radius: 3px;
+  transition: all 0.1s;
+}
+
+.why-remove:hover {
+  color: #ef4444;
+  background: #fee2e2;
+}
+
+.why-add-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.why-input {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+}
+
+.why-input:focus {
+  border-color: var(--primary);
+}
+
+.why-close {
+  display: block;
+  margin: 8px auto 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: var(--font);
+  padding: 2px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.why-close:hover {
+  background: var(--bg-alt);
+}
+
+/* ============ AI DEEP ANALYSIS (Ollama) ============ */
+.ai-analyze-btn {
+  font-size: 11px;
+  padding: 3px 10px;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.ai-analyze-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.ai-error {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.dark .ai-error {
+  background: #450a0a;
+  color: #fca5a5;
+  border-color: #7f1d1d;
+}
+
+.ai-response-card {
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.dark .ai-response-card {
+  background: linear-gradient(135deg, #052e16 0%, #064e3b 100%);
+  border-color: #166534;
+}
+
+.ai-response-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-badge {
+  font-size: 10px;
+  background: var(--primary);
+  color: white;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.ai-response-body {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
 /* ============ RESPONSIVE – ANDROID MOBILE ============ */
 
 /* Breakpoint: phones in portrait (<640px) */

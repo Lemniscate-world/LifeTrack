@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { Habit, Note, CheckIn } from './types';
 import {
   getHabits,
@@ -97,6 +97,9 @@ const MONTH_NAMES = [
   const [editChaosThreshold, setEditChaosThreshold] = useState(2);
   // Stack parent picker (which habit triggers this one)
   const [editingStackParentId, setEditingStackParentId] = useState<string | null>(null);
+  // Intentions editor (why you do this habit)
+  const [editingWhyHabitId, setEditingWhyHabitId] = useState<string | null>(null);
+  const [editWhyText, setEditWhyText] = useState('');
   const [view, setView] = useState<'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights'>('grid');
   const [savedMsg, setSavedMsg] = useState('');
   const [showQRSync, setShowQRSync] = useState(false);
@@ -763,7 +766,64 @@ const MONTH_NAMES = [
                               <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
                             </svg>
                           </button>
+                          <button
+                            className={`habit-why-btn ${(habit.why?.length ?? 0) > 0 ? 'has-intentions' : ''}`}
+                            onClick={() => {
+                              setEditingWhyHabitId(editingWhyHabitId === habit.id ? null : habit.id);
+                              setEditWhyText('');
+                            }}
+                            title={(habit.why?.length ?? 0) > 0 ? `${habit.why!.length} intention(s)` : 'Add intentions (why?)'}
+                          >
+                            💭
+                          </button>
                         </div>
+                        {editingWhyHabitId === habit.id && (
+                          <div className="habit-why-edit">
+                            <div className="why-header">Why do you do "{habit.name}"?</div>
+                            {(habit.why ?? []).map((w, i) => (
+                              <div key={i} className="why-row">
+                                <span className="why-text">{w}</span>
+                                <button
+                                  className="why-remove"
+                                  onClick={() => {
+                                    const updated = (habit.why ?? []).filter((_, j) => j !== i);
+                                    updateHabit(habit.id, { why: updated.length > 0 ? updated : undefined });
+                                  }}
+                                  title="Remove"
+                                >×</button>
+                              </div>
+                            ))}
+                            {(habit.why?.length ?? 0) < 5 && (
+                              <div className="why-add-row">
+                                <input
+                                  className="why-input"
+                                  placeholder="e.g. To feel energized..."
+                                  value={editWhyText}
+                                  onChange={(e) => setEditWhyText(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && editWhyText.trim()) {
+                                      const current = habit.why ?? [];
+                                      updateHabit(habit.id, { why: [...current, editWhyText.trim()] });
+                                      setEditWhyText('');
+                                    }
+                                    if (e.key === 'Escape') setEditingWhyHabitId(null);
+                                  }}
+                                />
+                                <button
+                                  className="btn btn-sm btn-primary"
+                                  onClick={() => {
+                                    if (editWhyText.trim()) {
+                                      const current = habit.why ?? [];
+                                      updateHabit(habit.id, { why: [...current, editWhyText.trim()] });
+                                      setEditWhyText('');
+                                    }
+                                  }}
+                                >Add</button>
+                              </div>
+                            )}
+                            <button className="why-close" onClick={() => setEditingWhyHabitId(null)}>Done</button>
+                          </div>
+                        )}
                         {editingChaosHabitId === habit.id && (
                           <div className="habit-chaos-edit">
                             <select value={editChaosDim} onChange={(e) => setEditChaosDim(e.target.value)} className="chaos-select-sm">
@@ -1151,6 +1211,47 @@ function InsightsView({
     return m;
   }, [habits]);
 
+  // --- Ollama Deep Analysis state ---
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResponse, setAiResponse] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  const handleDeepAnalysis = useCallback(async () => {
+    setAiLoading(true);
+    setAiError(null);
+    setAiResponse(null);
+    try {
+      const summary = habits
+        .filter((h) => !h.archived)
+        .map((h) => {
+          const completed = checkIns.filter((ci) => ci.habitId === h.id && ci.completed).length;
+          const total = checkIns.filter((ci) => ci.habitId === h.id).length;
+          const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
+          const best = h.bestStreak ?? 0;
+          const stacked = h.stackParent
+            ? `after: ${habits.find((p) => p.id === h.stackParent)?.name ?? '?'}`
+            : 'none';
+          return `${h.name}: ${completed}/${total} done (${rate}%), best streak ${best}, stack ${stacked}`;
+        })
+        .join('\n');
+      const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+      if (!isTauriEnv) {
+        setAiResponse('🤖 Deep Analysis requires the desktop app (Tauri). Ollama is not available in the browser.');
+        return;
+      }
+      const { invoke } = await import('@tauri-apps/api/core');
+      const response = await invoke<string>('analyze_habits', {
+        summaryJson: summary,
+        model: null,
+      });
+      setAiResponse(response);
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : 'AI analysis failed');
+    } finally {
+      setAiLoading(false);
+    }
+  }, [habits, checkIns]);
+
   const kindIcon: Record<RecKind, string> = {
     MISS_PATTERN: '📉',
     STACK_SUGGESTION: '🔗',
@@ -1197,9 +1298,27 @@ function InsightsView({
       <div className="insights-header">
         <h2>💡 Insights</h2>
         <span className="insights-subtitle">
-          {recommendations.length} recommendation{recommendations.length > 1 ? 's' : ''} — 100% local, zero cloud
+          {recommendations.length} recommendation{recommendations.length > 1 ? 's' : ''} — 100% local
         </span>
+        <button
+          className="btn btn-sm btn-ghost ai-analyze-btn"
+          onClick={handleDeepAnalysis}
+          disabled={aiLoading}
+          title="Run local AI analysis via Ollama"
+        >
+          {aiLoading ? '⏳ Analyzing...' : '🤖 Deep Analysis'}
+        </button>
       </div>
+
+      {aiError && <div className="ai-error">{aiError}</div>}
+
+      {aiResponse && (
+        <div className="ai-response-card">
+          <div className="ai-response-header">🤖 AI Analysis <span className="ai-badge">Ollama</span></div>
+          <div className="ai-response-body">{aiResponse}</div>
+        </div>
+      )}
+
       <div className="insights-list">
         {recommendations.map((rec, i) => {
           const habitNames = rec.habitIds

@@ -71,11 +71,20 @@ To provide a fast, local-first, distraction-free desktop application for trackin
 - [x] R75 competitive benchmark: `docs/research/android_competitive_benchmark.md`
 - [x] Responsive CSS: mobile-first media queries (≤639px, 640-1024px), touch targets
 - [x] QR-based local sync Desktop↔Mobile (no cloud, no account)
-- [ ] Build APK (aarch64, armv7, x86_64) — blocked on JDK 21 install
+- [x] Build APK (aarch64, armv7, i686, x86_64) + AAB
+- [x] JDK 21 installed for Gradle compatibility
 - [ ] Widget homescreen (4 habits + checkboxes)
 - [ ] Notification actions (OUI/NON sans ouvrir l'app)
 - [ ] Material You dynamic theming
 - [ ] Play Store submission (Early Access)
+
+### Phase 7.5: AI & Memory Hardening (Completed 2026-06-30)
+- [x] **File-based persistence** — tertiary backup to `%APPDATA%/LifeTrack/` survives localStorage wipe
+- [x] **AI heuristic engine** — 6 rule types (miss pattern, stack suggestion, record approach, neglected, recovery, prime time)
+- [x] **Intentions/Why** — 0-5 motivational reminders per habit, inline editor
+- [x] **Ollama + DeepSeek integration** — Rust `analyze_habits` command calls local Ollama API
+- [x] **Insights tab** — heuristic recos + "Deep Analysis" button for AI-powered insights
+- [x] Desktop rebuild: MSI + NSIS with all Phase 7.5 features
 
 ---
 

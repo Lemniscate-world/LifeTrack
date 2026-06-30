@@ -543,6 +543,14 @@ export function updateHabit(id: string, updates: Partial<Habit>): void {
       cleaned.chaosImpact = undefined;
       cleaned.chaosThresholdDays = undefined;
     }
+    // Validate why/intentions: trim, remove empty, cap at 5
+    if ('why' in cleaned && Array.isArray(cleaned.why)) {
+      cleaned.why = cleaned.why
+        .map((s) => (typeof s === 'string' ? s.trim() : ''))
+        .filter((s) => s.length > 0)
+        .slice(0, 5);
+      if (cleaned.why.length === 0) cleaned.why = undefined;
+    }
     data.habits[idx] = { ...data.habits[idx], ...cleaned };
     notify();
   }

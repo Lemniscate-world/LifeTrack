@@ -21,6 +21,10 @@ export interface Habit {
   // Habit stacking: if set, this habit is a "downstream" of the given parent.
   // Used to build routines like "after coffee → meditate". See computeStacks().
   stackParent?: string;       // id of the triggering habit, or undefined
+  // Intentions: 0-5 short reminders of WHY this habit matters.
+  // Displayed when checking in, to reinforce motivation.
+  // "Start with Why" — Simon Sinek / BJ Fogg "Tiny Habits" motivation anchor.
+  why?: string[];             // list of intention strings, max 5
 }
 
 export interface CheckIn {

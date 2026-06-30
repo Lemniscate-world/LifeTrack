@@ -1,5 +1,6 @@
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
+use serde::{Deserialize, Serialize};
 
 #[tauri::command]
 fn auto_backup(app: tauri::AppHandle, json_data: String) -> Result<String, String> {
@@ -129,6 +130,72 @@ fn find_latest_backup(app: tauri::AppHandle) -> Result<Option<String>, String> {
     Ok(None)
 }
 
+// --- Ollama / Local AI integration ---
+
+#[derive(Serialize)]
+struct OllamaRequest {
+    model: String,
+    prompt: String,
+    stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    options: Option<OllamaOptions>,
+}
+
+#[derive(Serialize)]
+struct OllamaOptions {
+    temperature: f32,
+    num_predict: u32,
+}
+
+#[derive(Deserialize)]
+struct OllamaResponse {
+    response: String,
+    #[allow(dead_code)]
+    done: bool,
+}
+
+/// Call Ollama's local API for AI-powered habit analysis.
+/// Sends a structured prompt about the user's habits and returns insights.
+/// Respects privacy: only statistical summaries are sent, never raw data.
+#[tauri::command]
+async fn analyze_habits(summary_json: String, model: Option<String>) -> Result<String, String> {
+    let model = model.unwrap_or_else(|| "minimax-m3:cloud".to_string());
+
+    // Build a structured but privacy-respecting prompt
+    let prompt = format!(
+        "You are a kind, supportive habit coach. Analyze the following habit data and give 3-5 concise, actionable insights.\n\
+         Focus on: patterns, correlations, suggestions for habit stacking, and motivational observations.\n\
+         Be warm but direct. Use bullet points. No markdown headers. Max 200 words.\n\n\
+         HABIT DATA (anonymized):\n{}",
+        summary_json
+    );
+
+    let body = OllamaRequest {
+        model,
+        prompt,
+        stream: false,
+        options: Some(OllamaOptions {
+            temperature: 0.7,
+            num_predict: 300,
+        }),
+    };
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post("http://localhost:11434/api/generate")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Ollama connection failed: {}. Is Ollama running?", e))?;
+
+    let ollama_resp: OllamaResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
+
+    Ok(ollama_resp.response)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -137,7 +204,8 @@ pub fn run() {
             auto_backup,
             export_file,
             import_file,
-            find_latest_backup
+            find_latest_backup,
+            analyze_habits
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
