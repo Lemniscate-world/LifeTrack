@@ -22,7 +22,7 @@ import {
   linkHabitToParent as linkHabitToParentStore,
   unlinkHabitFromParent as unlinkHabitFromParentStore,
 } from './store';
-import { computeStreakStats, computeCompletionRate, computeWeightedScore } from './stats';
+import { computeStreakStats, computeCompletionRate, computeWeightedScore, trackingStart } from './stats';
 import { Heatmap, Sparkline } from './Heatmap';
 import { HistoryView } from './HistoryView';
 import { StacksView } from './StacksView';
@@ -545,6 +545,11 @@ const MONTH_NAMES = [
       const completion90d = computeCompletionRate(habit, allCheckIns, 90, now);
       const completion365d = computeCompletionRate(habit, allCheckIns, 365, now);
       const score = computeWeightedScore(habit, allCheckIns, now);
+      // Days since tracking started (for reliability indicator)
+      const start = trackingStart(habit, allCheckIns);
+      const trackingDays = start
+        ? Math.max(1, Math.ceil((now.getTime() - start.getTime()) / 86400000))
+        : 0;
 
       return {
         habitId: habit.id,
@@ -559,6 +564,7 @@ const MONTH_NAMES = [
         completion90d,
         completion365d,
         score,
+        trackingDays,
       };
     });
   }, [habits, allCheckIns]);
@@ -1012,10 +1018,10 @@ const MONTH_NAMES = [
                       <td className="stats-number stats-gap">
                         {stat.longestGap > 0 ? `${stat.longestGap}d` : '—'}
                       </td>
-                      <td className="stats-number">{stat.completion7d}%</td>
-                      <td className="stats-number">{stat.completion30d}%</td>
-                      <td className="stats-number">{stat.completion90d}%</td>
-                      <td className="stats-number">{stat.completion365d}%</td>
+                      <td className="stats-number">{stat.trackingDays >= 7 ? `${stat.completion7d}%` : '—'}</td>
+                      <td className="stats-number">{stat.trackingDays >= 14 ? `${stat.completion30d}%` : '—'}</td>
+                      <td className="stats-number">{stat.trackingDays >= 30 ? `${stat.completion90d}%` : '—'}</td>
+                      <td className="stats-number">{stat.trackingDays >= 60 ? `${stat.completion365d}%` : '—'}</td>
                       <td className="stats-number">{stat.totalChecks}</td>
                     </tr>
                   ))}
