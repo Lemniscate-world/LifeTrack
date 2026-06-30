@@ -12,7 +12,8 @@ beforeEach(() => {
 describe('App component', () => {
   it('renders the app title and month selector', () => {
     render(<App />);
-    expect(screen.getByText('LifeTrack')).toBeInTheDocument();
+    expect(screen.getByText('Life')).toBeInTheDocument();
+    expect(screen.getByText('Track')).toBeInTheDocument();
     // Month label contains current month name
     const monthNames = [
       'January', 'February', 'March', 'April', 'May', 'June',

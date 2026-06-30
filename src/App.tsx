@@ -583,17 +583,38 @@ const MONTH_NAMES = [
       {/* Navbar — minimal */}
       <nav className="navbar">
         <span className="logo">
-          <svg className="logo-icon" width="22" height="22" viewBox="0 0 64 64" fill="none">
-            <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#logoGrad)"/>
+          <svg className="logo-icon" width="26" height="26" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            {/* Rounded square background */}
+            <rect x="2" y="2" width="44" height="44" rx="11" fill="url(#logoGrad)" />
+            {/* Rising streak line — represents progress, habit building */}
+            <path
+              d="M10 34 L16 28 L20 30 L26 20 L30 22 L36 12"
+              stroke="white"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+              opacity="0.7"
+            />
+            {/* Checkmark — represents completion */}
+            <polyline
+              points="12,24 18,30 28,18"
+              stroke="white"
+              strokeWidth="3.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+            />
             <defs>
               <linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#a78bfa"/>
-                <stop offset="100%" stopColor="#7c3aed"/>
+                <stop offset="0%" stopColor="#a78bfa" />
+                <stop offset="100%" stopColor="#6d28d9" />
               </linearGradient>
             </defs>
-            <polyline points="18,33 27,42 46,22" stroke="white" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
           </svg>
-          LifeTrack
+          <span className="logo-text">
+            <span className="logo-life">Life</span><span className="logo-track">Track</span>
+          </span>
         </span>
         <div className="nav-actions">
           <button className="btn-icon" onClick={cycleTheme} title={`Theme: ${themeLabels[themes.indexOf(theme)]}`}>
