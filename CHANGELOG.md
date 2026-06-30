@@ -4,6 +4,29 @@ All notable changes to LifeTrack are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-06-29
+
+### Added
+- **Habit stacking** — each habit can optionally have a `stackParent` (the triggering habit). Inspired by James Clear's "Atomic Habits" and Loop's "reminder anchoring".
+- New view tab **Stacks** showing every stack's progress for today (done / pending / blocked / untracked) with status glyphs (✓ • ⊘ ?) and a per-stack progress bar.
+- Per-row stack link icon (chain glyph) next to chaos and archive — opens an inline picker.
+- Inline badge in the grid: `↳ <parent name>`, clickable to focus the parent row.
+- "Up next" contextual suggestion banner in the Stacks view (first pending step whose parent is done).
+- Cycle detection in `linkHabitToParent`: refuses A→B→A or longer cycles.
+
+### Changed
+- New `Habit.stackParent` field. Existing data loads fine — field is optional.
+- `deleteHabit()` now clears `stackParent` references in remaining habits to avoid dangling pointers.
+
+### New modules
+- `src/stacks.ts` — pure graph logic: `linkHabitToParentInPlace`, `unlinkHabitInPlace`, `clearDanglingStackParentsInPlace`, `computeStacks`, `getNextStackSuggestion`. No side effects; everything takes habits+checkIns+today as args.
+- `src/StacksView.tsx` — read-only view that consumes the pure helpers above.
+- `docs/specs/stacks.md` — design spec (model, API, edge cases, scope).
+
+### Tests
+- 223 tests passing (was 191, +32).
+- New test files: `src/test/stacks.test.ts` (25 tests — link, unlink, cycle, archive, deletion cleanup, state propagation, suggestion), `src/test/stacks-ui.test.tsx` (7 tests — StacksView rendering, badge, blocked state).
+
 ## [0.1.2] — 2026-06-29
 
 ### Added
