@@ -1,13 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { computeChaosReport, subscribe } from './store';
 
 export default function ChaosView() {
-  const [, setTick] = useState(0);
-
+  // Bumped by the store subscription to force a re-render after mutations.
+  const [tick, setTick] = useState(0);
   useEffect(() => subscribe(() => setTick((t) => t + 1)), []);
 
-  // Recompute on every render (tick ensures re-render after store changes)
-  const { dimensions, overallPct, linkedHabitCount } = computeChaosReport();
+  // Memoize the chaos report: recompute only when something forces a re-render
+  // (the `tick` bump above). Without memoization, every render scans every
+  // habit's check-ins, which gets expensive past a few hundred checks.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const report = useMemo(() => computeChaosReport(), [tick]);
+  const { dimensions, overallPct, linkedHabitCount } = report;
 
   return (
     <div className="chaos-container">

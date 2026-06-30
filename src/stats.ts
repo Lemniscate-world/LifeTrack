@@ -75,9 +75,15 @@ export function trackingStart(habit: Habit, checkIns: CheckIn[]): Date | null {
   }
   for (const ci of checkIns) {
     if (ci.habitId !== habit.id) continue;
+    // Reject malformed dates (e.g. '2026-02-30', '2026-13-01') that JS would
+    // otherwise silently normalize to a different valid date.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ci.date)) continue;
     const [y, m, dd] = ci.date.split('-').map(Number);
-    if (!y || !m || !dd) continue;
+    if (!y || !m || !dd || m < 1 || m > 12 || dd < 1 || dd > 31) continue;
     const d = new Date(y, m - 1, dd);
+    // Belt-and-braces: if Date normalization happened (e.g. '2026-02-30' → Mar 2),
+    // verify the round-trip. If they differ, skip this entry.
+    if (d.getFullYear() !== y || d.getMonth() !== m - 1 || d.getDate() !== dd) continue;
     if (!start || d < start) start = d;
   }
   return start;

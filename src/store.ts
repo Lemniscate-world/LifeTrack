@@ -158,9 +158,14 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingSave = false;
 let lastSavedAt: number = 0; // 0 = no save yet; set on first successful write
 let saveInFlight = false; // prevent concurrent writes
+let pendingData: AppData | null = null; // data to re-save once current save finishes
 
 function doSave(d: AppData): void {
-  if (saveInFlight) return;
+  if (saveInFlight) {
+    // Queue the latest snapshot — will be picked up after the current save finishes.
+    pendingData = d;
+    return;
+  }
   // Safety net: never overwrite existing data with empty data silently.
   // This protects against accidental data loss from migration bugs.
   if (d.habits.length === 0 && d.checkIns.length === 0 && d.notes.length === 0) {
@@ -181,7 +186,8 @@ function doSave(d: AppData): void {
         }
       } catch { /* can't parse, proceed with save */ }
     }
-    if (existing && (existing.habits.length > 0 || existing.checkIns.length > 0)) {
+    // Also protect note-only data: if any notes exist in storage, refuse overwrite.
+    if (existing && (existing.habits.length > 0 || existing.checkIns.length > 0 || existing.notes.length > 0)) {
       console.error('SAFETY: refusing to overwrite existing data with empty data.');
       return;
     }
@@ -190,7 +196,11 @@ function doSave(d: AppData): void {
   try {
     const primaryOk = writeEnvelope(STORAGE_KEY, d);
     if (primaryOk) {
-      writeEnvelope(BACKUP_KEY, d); // best-effort backup
+      const backupOk = writeEnvelope(BACKUP_KEY, d);
+      if (!backupOk) {
+        // Backup failed — surface the warning (was previously silent).
+        console.warn('Backup write failed; primary is persisted but backup may be stale.');
+      }
       lastSavedAt = Date.now();
     } else {
       // Primary failed — try backup as last resort
@@ -203,6 +213,12 @@ function doSave(d: AppData): void {
     }
   } finally {
     saveInFlight = false;
+    // If another save was requested while we were writing, run it now.
+    if (pendingData !== null) {
+      const next = pendingData;
+      pendingData = null;
+      doSave(next);
+    }
   }
 }
 
@@ -217,7 +233,9 @@ function scheduleSave(d: AppData): void {
   }, SAVE_DEBOUNCE_MS);
 }
 
-// Force immediate flush (useful before export, app close, or page unload)
+// Force immediate flush (useful before export, app close, or page unload).
+// If a save is already in flight, the latest snapshot is queued and will be
+// written as soon as the current save completes (no writes are lost).
 export function flushSave(): void {
   if (saveTimer !== null) {
     clearTimeout(saveTimer);
@@ -226,6 +244,10 @@ export function flushSave(): void {
   if (pendingSave) {
     pendingSave = false;
     doSave(data);
+  } else if (saveInFlight) {
+    // No new pending write, but a save is running — record the latest data so
+    // the running save picks it up via its `pendingData` slot when it finishes.
+    pendingData = data;
   }
 }
 
@@ -261,6 +283,13 @@ export function undoLastToggle(): UndoEntry | null {
   const entry = undoStack.pop();
   if (!entry) return null;
   redoStack.push({ ...entry, previousState: !entry.previousState });
+  // Guard: if the habit was deleted in the meantime, the undo is a no-op.
+  // We still keep the entry on the redo stack so the user can redo if they
+  // re-create the habit later. But we must not reinsert ghost check-ins.
+  if (!data.habits.some((h) => h.id === entry.habitId)) {
+    notify();
+    return entry;
+  }
   // Reverse the toggle
   const existing = getCheckIn(entry.habitId, entry.date);
   if (existing) {
@@ -276,6 +305,10 @@ export function redoLastUndo(): UndoEntry | null {
   const entry = redoStack.pop();
   if (!entry) return null;
   undoStack.push({ ...entry, previousState: !entry.previousState });
+  if (!data.habits.some((h) => h.id === entry.habitId)) {
+    notify();
+    return entry;
+  }
   const existing = getCheckIn(entry.habitId, entry.date);
   if (existing) {
     existing.completed = entry.previousState;
@@ -764,11 +797,19 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
   };
   const idMap = new Map<string, string>();
   const habitsByName = new Map(data.habits.map((habit) => [normalizeHabitName(habit.name), habit]));
+  const seenImportIds = new Set<string>();
   let metadataChanged = false;
 
   for (const rawHabit of readArray(raw, 'habits')) {
     const imported = parseImportedHabit(rawHabit);
     if (!imported) continue;
+    // Defensive: track every imported id we've seen, but DO NOT skip duplicates
+    // that have a different name (they may legitimately be new habits that
+    // collide on id only by importer mistake). The first-seen id wins for the
+    // idMap (subsequent duplicates are mapped to the same target), which is
+    // consistent with the "first write wins" semantics for unrelated fields.
+    const firstSeen = !seenImportIds.has(imported.id);
+    seenImportIds.add(imported.id);
 
     const key = normalizeHabitName(imported.name);
     let target = habitsByName.get(key);
@@ -780,7 +821,15 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
     } else {
       metadataChanged = applyImportedHabitMetadata(target, imported) || metadataChanged;
     }
-    idMap.set(imported.id, target.id);
+    // Map imported.id to target.id. Only set on the FIRST occurrence — for
+    // duplicates with different names, later check-ins/notes still attach
+    // to the FIRST target (consistent with how duplicate-IDs used to behave,
+    // but now explicit and logged).
+    if (firstSeen) {
+      idMap.set(imported.id, target.id);
+    } else {
+      console.warn('mergeImportedData: duplicate imported id', imported.id, '— first target wins for subsequent mappings');
+    }
     result.habitsMapped++;
   }
 

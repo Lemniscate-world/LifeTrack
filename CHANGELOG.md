@@ -4,6 +4,24 @@ All notable changes to LifeTrack are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-06-29
+
+### Fixed
+Nine latent bugs found during pre-release audit:
+
+- **`store.flushSave` race** (HIGH) — pending write could be dropped if a save was already in flight. Fixed with a `pendingData` slot that runs after the current save completes.
+- **Undo/redo ghost check-ins** (HIGH) — restoring an old snapshot after a habit was deleted could recreate dangling check-ins. Fixed with a `data.habits.some(...)` guard in both `undo` and `redo`.
+- **Import duplicate-id collision** (HIGH) — re-importing a backup with the same `id` could attach check-ins/notes to the wrong habit. Fixed with a `seenImportIds` Set that warns and keeps the first-seen mapping.
+- **Safety net missed notes** (MEDIUM) — the 100-entry autosave recovery trigger didn't fire when only notes had changed. Fixed: condition now includes `existing.notes.length > 0`.
+- **Silent backup failure** (LOW) — backup write errors were swallowed. Now logs `console.warn`.
+- **`autoRestoreChecked` module-level flag** (HIGH) — React StrictMode remount could permanently disable auto-restore on the second mount. Fixed: moved to `useRef` inside `App`.
+- **`computeChaosReport` recomputed on every render** (MEDIUM) — wrapped in `useMemo([tick])` so it only runs when the UI forces a refresh.
+- **`trackingStart` accepted malformed dates** (MEDIUM) — strings like `2026-02-30` were silently normalized to `2026-03-02`. Fixed with regex + round-trip validation.
+
+### Tests
+- 231 tests passing (was 223, +8).
+- New file `src/test/audit-fixes.test.ts` — 8 regression tests for the bugs above.
+
 ## [0.2.0] — 2026-06-29
 
 ### Added

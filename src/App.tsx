@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import type { Habit, Note, CheckIn } from './types';
 import {
   getHabits,
@@ -31,8 +31,10 @@ import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import './App.css';
 import ChaosView from './ChaosView';
 
+// Detected at module load (window is always present in browser and Tauri).
+// In test environments this is false. Module-level constant is acceptable
+// because window.__TAURI_INTERNALS__ is attached by Tauri before app code runs.
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-let autoRestoreChecked = false;
 
 function getDaysInMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate();
@@ -54,6 +56,11 @@ const MONTH_NAMES = [
 
   export default function App() {
   const now = new Date();
+  // Per-instance guard so React StrictMode's double-mount (or HMR remounts)
+  // doesn't permanently disable auto-restore. Was a module-level `let` before,
+  // which meant the second mount would skip restore even if the first did
+  // nothing — latent bug fixed here.
+  const autoRestoreCheckedRef = useRef(false);
   const [habits, setHabits] = useState<Habit[]>([]);
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
@@ -108,8 +115,8 @@ const MONTH_NAMES = [
 
   // Auto-check for backup recovery on startup (desktop only, fresh install)
   useEffect(() => {
-    if (!isTauri || autoRestoreChecked) return;
-    autoRestoreChecked = true;
+    if (!isTauri || autoRestoreCheckedRef.current) return;
+    autoRestoreCheckedRef.current = true;
 
     const check = async () => {
       try {
