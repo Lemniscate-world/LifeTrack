@@ -31,6 +31,7 @@ import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import './App.css';
 import ChaosView from './ChaosView';
 import QRSync from './QRSync';
+import { generateInsights, type Recommendation, type RecKind } from './recommendations';
 
 // Detected at module load (window is always present in browser and Tauri).
 // In test environments this is false. Module-level constant is acceptable
@@ -96,7 +97,7 @@ const MONTH_NAMES = [
   const [editChaosThreshold, setEditChaosThreshold] = useState(2);
   // Stack parent picker (which habit triggers this one)
   const [editingStackParentId, setEditingStackParentId] = useState<string | null>(null);
-  const [view, setView] = useState<'grid' | 'stats' | 'history' | 'stacks' | 'chaos'>('grid');
+  const [view, setView] = useState<'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights'>('grid');
   const [savedMsg, setSavedMsg] = useState('');
   const [showQRSync, setShowQRSync] = useState(false);
 
@@ -652,6 +653,7 @@ const MONTH_NAMES = [
           <button className={`view-tab ${view === 'stats' ? 'active' : ''}`} onClick={() => setView('stats')}>Statistics</button>
           <button className={`view-tab ${view === 'history' ? 'active' : ''}`} onClick={() => setView('history')}>History</button>
           <button className={`view-tab ${view === 'stacks' ? 'active' : ''}`} onClick={() => setView('stacks')}>Stacks</button>
+          <button className={`view-tab ${view === 'insights' ? 'active' : ''}`} onClick={() => setView('insights')}>💡 Insights</button>
           <button className={`view-tab ${view === 'chaos' ? 'active' : ''}`} onClick={() => setView('chaos')}>Chaos</button>
         </div>
       </div>
@@ -974,6 +976,11 @@ const MONTH_NAMES = [
         <HistoryView checkIns={allCheckIns} habits={habits} />
       ) : view === 'stacks' ? (
         <StacksView checkIns={allCheckIns} habits={habits} />
+      ) : view === 'insights' ? (
+        <InsightsView habits={habits} checkIns={allCheckIns} onLink={(childId, parentId) => {
+          if (parentId) linkHabitToParentStore(childId, parentId);
+          else void unlinkHabitFromParentStore(childId);
+        }} onView={(newView) => setView(newView)} />
       ) : (
         <ChaosView />
       )}
@@ -1113,6 +1120,119 @@ const MONTH_NAMES = [
       )}
 
       <QRSync open={showQRSync} onClose={() => setShowQRSync(false)} />
+    </div>
+  );
+}
+
+// --- Insights View (inline component) ---
+function InsightsView({
+  habits,
+  checkIns,
+  onLink,
+  onView,
+}: {
+  habits: Habit[];
+  checkIns: CheckIn[];
+  // eslint-disable-next-line no-unused-vars
+  onLink: (childId: string, parentId: string | null) => void;
+  // eslint-disable-next-line no-unused-vars
+  onView: (_v: 'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights') => void;
+}) {
+  const { recommendations } = useMemo(
+    () => generateInsights(habits, checkIns),
+    // Recompute when checkIns length changes (new check-in), or habits change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [habits, checkIns.length],
+  );
+
+  const habitById = useMemo(() => {
+    const m = new Map<string, Habit>();
+    for (const h of habits) m.set(h.id, h);
+    return m;
+  }, [habits]);
+
+  const kindIcon: Record<RecKind, string> = {
+    MISS_PATTERN: '📉',
+    STACK_SUGGESTION: '🔗',
+    RECORD_APPROACH: '🔥',
+    CHAOS_CORRELATION: '🌀',
+    NEGLECTED: '⏰',
+    RECOVERY_PATTERN: '🔄',
+    PRIME_TIME: '⭐',
+  };
+
+  // eslint-disable-next-line no-unused-vars
+  const kindAction: Record<RecKind, (r: Recommendation) => void> = {
+    MISS_PATTERN: () => onView('history'),
+    STACK_SUGGESTION: (rec) => {
+      if (rec.habitIds.length >= 2) onLink(rec.habitIds[0], rec.habitIds[1]);
+    },
+    RECORD_APPROACH: () => onView('stats'),
+    CHAOS_CORRELATION: () => onView('chaos'),
+    NEGLECTED: () => onView('grid'),
+    RECOVERY_PATTERN: () => onView('history'),
+    PRIME_TIME: () => onView('stats'),
+  };
+
+  if (recommendations.length === 0) {
+    return (
+      <div className="insights-view">
+        <div className="insights-empty">
+          <span style={{ fontSize: 40, display: 'block', marginBottom: 16 }}>💡</span>
+          <h3>Not enough data yet</h3>
+          <p>
+            Track your habits consistently for a week, and I'll start surfacing
+            personalized insights — no cloud, no AI API, all local.
+          </p>
+          <button className="btn btn-primary" onClick={() => onView('grid')}>
+            Go to Grid
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="insights-view">
+      <div className="insights-header">
+        <h2>💡 Insights</h2>
+        <span className="insights-subtitle">
+          {recommendations.length} recommendation{recommendations.length > 1 ? 's' : ''} — 100% local, zero cloud
+        </span>
+      </div>
+      <div className="insights-list">
+        {recommendations.map((rec, i) => {
+          const habitNames = rec.habitIds
+            .map((id) => habitById.get(id)?.name ?? id)
+            .join(' → ');
+          return (
+            <div key={i} className={`insight-card insight-${rec.kind.toLowerCase()}`}>
+              <div className="insight-icon">{kindIcon[rec.kind]}</div>
+              <div className="insight-body">
+                <div className="insight-title">{rec.title}</div>
+                <div className="insight-detail">{rec.detail}</div>
+                <div className="insight-meta">
+                  <span
+                    className="insight-strength"
+                    style={{ '--pct': `${rec.strength}%` } as Record<string, string>}
+                  >
+                    Relevance {rec.strength}%
+                  </span>
+                  <span className="insight-habits">{habitNames}</span>
+                </div>
+              </div>
+              {rec.actionLabel && (
+                <button
+                  className="btn btn-sm btn-primary insight-action"
+                  onClick={() => kindAction[rec.kind](rec)}
+                >
+                  {rec.actionLabel}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

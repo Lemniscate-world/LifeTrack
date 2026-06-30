@@ -1750,6 +1750,143 @@ body {
   text-align: center;
 }
 
+/* ============ INSIGHTS VIEW ============ */
+.insights-view {
+  flex: 1;
+  overflow: auto;
+  padding: 20px 24px;
+}
+
+.insights-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.insights-header h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+
+.insights-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.insights-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.insights-empty h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 8px 0;
+}
+
+.insights-empty p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 380px;
+  line-height: 1.6;
+  margin: 0 0 20px 0;
+}
+
+.insights-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.insight-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  transition: box-shadow 0.15s;
+}
+
+.insight-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.insight-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+  width: 36px;
+  text-align: center;
+  line-height: 1;
+}
+
+.insight-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.insight-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+.insight-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+.insight-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.insight-strength {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  background: linear-gradient(
+    to right,
+    var(--primary) var(--pct, 0%),
+    var(--bg-alt) var(--pct, 0%)
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: var(--primary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background-color: var(--bg-alt);
+}
+
+.insight-habits {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.insight-action {
+  flex-shrink: 0;
+  align-self: center;
+  white-space: nowrap;
+}
+
 /* ============ RESPONSIVE – ANDROID MOBILE ============ */
 
 /* Breakpoint: phones in portrait (<640px) */

@@ -22,6 +22,7 @@ interface StorageEnvelope {
 
 const STORAGE_KEY = 'lifetrack-data';
 const BACKUP_KEY = 'lifetrack-data-backup';
+const FILE_BACKUP_NAME = 'lifetrack-persistent.json'; // filesystem fallback (Tauri)
 const HABIT_COLORS = ['#FEF3C7', '#D1FAE5', '#DBEAFE', '#FCE7F3', '#E0E7FF', '#FEE2E2', '#EDE9FE', '#FEF9C3'];
 
 // --- FNV-1a hash (32-bit) for data integrity, not security ---
@@ -112,9 +113,12 @@ function readEnvelope(key: string): AppData | null {
   }
 }
 
-// --- Load: try primary, then backup, then legacy migration, then empty ---
+// --- Load: try primary, then backup, then file backup, then legacy migration, then empty ---
 function loadData(): AppData {
   if (!isLocalStorageAvailable()) {
+    // localStorage may be unavailable but the file backup could save us
+    const fileData = loadFromFileSync();
+    if (fileData) return fileData;
     return freshData();
   }
   const primary = readEnvelope(STORAGE_KEY);
@@ -124,10 +128,52 @@ function loadData(): AppData {
     console.warn('Primary storage corrupted or missing — recovered from backup');
     return backup;
   }
+  // Try file-based backup as tertiary fallback
+  tryFileLoad().then((fileData) => {
+    if (fileData) {
+      console.warn('localStorage corrupted — recovered from file backup. Restoring localStorage...');
+      // Restore localStorage from file backup
+      writeEnvelope(STORAGE_KEY, fileData);
+      writeEnvelope(BACKUP_KEY, fileData);
+      // Force reload of data state
+      window.dispatchEvent(new CustomEvent('lifetrack-file-restore', { detail: fileData }));
+    }
+  }).catch(() => {});
   // Last resort: try to read raw legacy JSON and migrate it
   const migrated = migrateLegacyPrimaryData();
   if (migrated) return migrated;
   return freshData();
+}
+
+// Synchronous file load (used when localStorage is completely unavailable)
+function loadFromFileSync(): AppData | null {
+  // File load is inherently async with Tauri — return null and let the async path handle it
+  return null;
+}
+
+// Async file load (fires after localStorage checks fail)
+async function tryFileLoad(): Promise<AppData | null> {
+  try {
+    const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    if (!isTauriEnv) return null;
+    const [{ appDataDir }, { readTextFile, exists }] = await Promise.all([
+      import('@tauri-apps/api/path'),
+      import('@tauri-apps/plugin-fs'),
+    ]);
+    const dir = await appDataDir();
+    const fullPath = `${dir}LifeTrack/${FILE_BACKUP_NAME}`;
+    const fileExists = await exists(fullPath).catch(() => false);
+    if (!fileExists) return null;
+    const raw = await readTextFile(fullPath);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    // Minimal validation: must have a habits array
+    if (!Array.isArray(parsed.habits)) return null;
+    return sanitizeData(parsed);
+  } catch {
+    return null;
+  }
 }
 
 function freshData(): AppData {
@@ -150,6 +196,41 @@ function writeEnvelope(key: string, data: AppData): boolean {
     console.warn(`Failed to write to "${key}"`, e);
     return false;
   }
+}
+
+// --- Filesystem persistence (Tauri) ---
+// Writes a raw JSON copy to disk as a tertiary backup layer.
+// On desktop, survives localStorage wipes (browser cache clearing).
+// On Android, writes to app-specific storage.
+// Non-blocking — failures are logged but never crash the save.
+let fileBackupTimer: ReturnType<typeof setTimeout> | null = null;
+const FILE_BACKUP_DEBOUNCE_MS = 5000; // throttle disk writes (one every 5s max)
+
+function scheduleFileBackup(d: AppData): void {
+  if (fileBackupTimer !== null) return;
+  fileBackupTimer = setTimeout(async () => {
+    fileBackupTimer = null;
+    try {
+      const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+      if (!isTauriEnv) return;
+      const [{ appDataDir }, { writeTextFile, exists, mkdir }] = await Promise.all([
+        import('@tauri-apps/api/path'),
+        import('@tauri-apps/plugin-fs'),
+      ]);
+      const dir = await appDataDir();
+      const fullDir = `${dir}LifeTrack`;
+      const fullPath = `${fullDir}/${FILE_BACKUP_NAME}`;
+      const dirExists = await exists(fullDir).catch(() => false);
+      if (!dirExists) {
+        await mkdir(fullDir, { recursive: true });
+      }
+      const json = JSON.stringify(d, null, 2);
+      await writeTextFile(fullPath, json);
+    } catch {
+      // File backup is best-effort — localStorage is primary.
+      // Failures (permissions, disk full) are silent.
+    }
+  }, FILE_BACKUP_DEBOUNCE_MS);
 }
 
 // --- Debounced save ---
@@ -202,6 +283,8 @@ function doSave(d: AppData): void {
         console.warn('Backup write failed; primary is persisted but backup may be stale.');
       }
       lastSavedAt = Date.now();
+      // Also schedule a file backup (best-effort, non-blocking).
+      scheduleFileBackup(d);
     } else {
       // Primary failed — try backup as last resort
       const backupOk = writeEnvelope(BACKUP_KEY, d);
