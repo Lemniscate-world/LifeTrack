@@ -2,6 +2,114 @@
 
 All notable changes to LifeTrack are documented in this file.
 
+## [Unreleased]
+
+## [0.2.1] — 2026-06-29
+
+### Fixed
+Nine latent bugs found during pre-release audit:
+
+- **`store.flushSave` race** (HIGH) — pending write could be dropped if a save was already in flight. Fixed with a `pendingData` slot that runs after the current save completes.
+- **Undo/redo ghost check-ins** (HIGH) — restoring an old snapshot after a habit was deleted could recreate dangling check-ins. Fixed with a `data.habits.some(...)` guard in both `undo` and `redo`.
+- **Import duplicate-id collision** (HIGH) — re-importing a backup with the same `id` could attach check-ins/notes to the wrong habit. Fixed with a `seenImportIds` Set that warns and keeps the first-seen mapping.
+- **Safety net missed notes** (MEDIUM) — the 100-entry autosave recovery trigger didn't fire when only notes had changed. Fixed: condition now includes `existing.notes.length > 0`.
+- **Silent backup failure** (LOW) — backup write errors were swallowed. Now logs `console.warn`.
+- **`autoRestoreChecked` module-level flag** (HIGH) — React StrictMode remount could permanently disable auto-restore on the second mount. Fixed: moved to `useRef` inside `App`.
+- **`computeChaosReport` recomputed on every render** (MEDIUM) — wrapped in `useMemo([tick])` so it only runs when the UI forces a refresh.
+- **`trackingStart` accepted malformed dates** (MEDIUM) — strings like `2026-02-30` were silently normalized to `2026-03-02`. Fixed with regex + round-trip validation.
+
+### Tests
+- 231 tests passing (was 223, +8).
+- New file `src/test/audit-fixes.test.ts` — 8 regression tests for the bugs above.
+
+## [0.2.0] — 2026-06-29
+
+### Added
+- **Habit stacking** — each habit can optionally have a `stackParent` (the triggering habit). Inspired by James Clear's "Atomic Habits" and Loop's "reminder anchoring".
+- New view tab **Stacks** showing every stack's progress for today (done / pending / blocked / untracked) with status glyphs (✓ • ⊘ ?) and a per-stack progress bar.
+- Per-row stack link icon (chain glyph) next to chaos and archive — opens an inline picker.
+- Inline badge in the grid: `↳ <parent name>`, clickable to focus the parent row.
+- "Up next" contextual suggestion banner in the Stacks view (first pending step whose parent is done).
+- Cycle detection in `linkHabitToParent`: refuses A→B→A or longer cycles.
+
+### Changed
+- New `Habit.stackParent` field. Existing data loads fine — field is optional.
+- `deleteHabit()` now clears `stackParent` references in remaining habits to avoid dangling pointers.
+
+### New modules
+- `src/stacks.ts` — pure graph logic: `linkHabitToParentInPlace`, `unlinkHabitInPlace`, `clearDanglingStackParentsInPlace`, `computeStacks`, `getNextStackSuggestion`. No side effects; everything takes habits+checkIns+today as args.
+- `src/StacksView.tsx` — read-only view that consumes the pure helpers above.
+- `docs/specs/stacks.md` — design spec (model, API, edge cases, scope).
+
+### Tests
+- 223 tests passing (was 191, +32).
+- New test files: `src/test/stacks.test.ts` (25 tests — link, unlink, cycle, archive, deletion cleanup, state propagation, suggestion), `src/test/stacks-ui.test.tsx` (7 tests — StacksView rendering, badge, blocked state).
+
+## [0.1.2] — 2026-06-29
+
+### Added
+- **Drag-and-drop habit reordering** in the grid view — pick up any habit row and drop it at a new position. Whole row is the drag handle (`cursor: grab` on hover).
+- `@hello-pangea/dnd` 18.0.1 already in deps; now actually wired up.
+- New component: `src/components/DraggableHabitRow.tsx` — wraps each row in a `<Draggable>` from the lib.
+
+### Changed
+- `store.ts` exports a new `reorderHabits(sourceIndex, destIndex)` function that follows the `@hello-pangea/dnd` convention (`destIndex` is the target slot AFTER the source has been removed, clamped to valid range).
+- Order field is now renumbered sequentially (0, 1, 2, ...) after every reorder — archived habits get the highest orders so they sort last if ever unarchived. No more fractional gaps accumulating over time.
+- Grid cursor now shows `grab` on hover for reorderable rows (and `grabbing` while dragging) for discoverability.
+
+### Tests
+- 191 tests passing (was 171, +20).
+- New test files: `src/test/reorder.test.ts` (14 tests covering basic moves, guards, archived habits, order hygiene, save/reload cycle), `src/test/dnd.test.tsx` (6 UI integration smoke tests for draggable IDs, droppable, handle propagation).
+
+### Fixed
+- `store.test.ts` had a stale assertion (`longestGapAt` hard-coded to `2026-06-27`) which broke as soon as real-time advanced. Now uses runtime date.
+
+## [0.1.1] — 2026-06-27
+
+### Added
+- **`src/stats.ts`** — new pure-functions core: `computeStreakStats()`, `computeCompletionRate()`, `computeWeightedScore()`, `trackingStart()`. 29 unit tests.
+- **Persistent personal records** on `Habit`: `bestStreak`, `bestStreakAt`, `longestGap`, `longestGapAt`, `totalCompleted`. Recalculated on every mutation and on legacy data load (`recalculateHabitRecords()` in `notify()`, backfill on `resetStore()`).
+- **Statistics view — Gap column** + ★ tag on all-time best streak.
+- **365-day GitHub-style heatmap** per habit (pure SVG, no dependencies). Shows past 365 days, marks today, grey-pales days before tracking start.
+- **30-day rolling sparkline** per habit (7-day completion window).
+- **History tab** — reverse-chronological timeline of all check-ins, grouped by day, with habit filter and "show misses" toggle.
+- **Enriched CSV export** — now 9 columns: `date, habit, habit_id, completed, current_streak_at_date, best_streak_at_date, completion_rate_30d, total_completed, chaos_dimension`. Backward-compatible header change (was 3 columns).
+
+### Changed
+- `App.tsx` statistics calculation refactored to use `src/stats.ts` (single source of truth for streaks and rates).
+- Statistics view now reads the **persistent** `bestStreak` field instead of recomputing on every render — much faster on large datasets.
+- Habit colors no longer default to "no color" if palette exhausted (fallback to modulo rotation).
+
+### Tests
+- 171 tests passing (was 113, +58).
+- New test files: `src/test/stats.test.ts` (29), `src/test/Heatmap.test.tsx` (11), `src/test/HistoryView.test.tsx` (8).
+- `src/test/store.test.ts`: +10 tests for record persistence, backfill, and save/reload cycle.
+
+## [Unreleased-pre-sprint]
+
+### Added
+- Chaos dashboard with full linked-habit visibility, healthy/triggered states, and dimension pressure summaries.
+- Regression coverage for Chaos missed-streak behavior, keyboard focus, import hardening, and undo/redo shortcuts.
+
+### Changed
+- Improved Chaos design and grid iconography.
+- Refactored restore-from-backup to reuse the safer import merge path.
+- Updated Tauri backup detection to parse backup JSON instead of relying on file length.
+
+### Fixed
+- Freshly-created habits now correctly enter Chaos when recent past days are marked missed.
+- Weekday headers now use the displayed year/month instead of a hardcoded reference date.
+- Keyboard focus now highlights the correct habit row.
+- `Ctrl+Shift+Z` redo is handled correctly.
+- Imported/stored check-ins now reject invalid dates and invalid completion values.
+- Imported metadata on existing habits is persisted even when no check-ins are restored.
+- Notes retrieval no longer mutates internal store order.
+- Tauri import/export paths no longer use avoidable `unwrap()` calls.
+
+### Removed
+- Stale `src/App.tsx.bak` source backup.
+- Tracked coverage artifacts from the repository.
+
 ## [0.1.0] — 2026-06-23
 
 ### Added

@@ -1,9 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
-import type { Habit, Note } from './types';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import type { Habit, Note, CheckIn } from './types';
 import {
   getHabits,
   getMonthCheckIns,
-  getCheckInsForHabit,
   toggleCheckIn,
   subscribe,
   addHabit,
@@ -18,17 +17,32 @@ import {
   getLastSaved,
   undoLastToggle,
   redoLastUndo,
+  mergeImportedData,
+  reorderHabits,
+  linkHabitToParent as linkHabitToParentStore,
+  unlinkHabitFromParent as unlinkHabitFromParentStore,
 } from './store';
+import { computeStreakStats, computeCompletionRate, computeWeightedScore } from './stats';
+import { Heatmap, Sparkline } from './Heatmap';
+import { HistoryView } from './HistoryView';
+import { StacksView } from './StacksView';
+import { DraggableHabitRow } from './components/DraggableHabitRow';
+import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import './App.css';
+import ChaosView from './ChaosView';
+
+// Detected at module load (window is always present in browser and Tauri).
+// In test environments this is false. Module-level constant is acceptable
+// because window.__TAURI_INTERNALS__ is attached by Tauri before app code runs.
+const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 function getDaysInMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate();
 }
 
-function getDayLetter(day: number): string {
-  const d = new Date(2025, 0, 5 + day); // Jan 5 2025 = Sunday
+function getDayLetter(year: number, month: number, day: number): string {
   const letters = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-  return letters[d.getDay()];
+  return letters[new Date(year, month, day).getDay()];
 }
 
 function parseDateStr(year: number, month: number, day: number): string {
@@ -40,15 +54,28 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-export default function App() {
+  export default function App() {
   const now = new Date();
+  // Per-instance guard so React StrictMode's double-mount (or HMR remounts)
+  // doesn't permanently disable auto-restore. Was a module-level `let` before,
+  // which meant the second mount would skip restore even if the first did
+  // nothing — latent bug fixed here.
+  const autoRestoreCheckedRef = useRef(false);
   const [habits, setHabits] = useState<Habit[]>([]);
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
   const [editingHabitId, setEditingHabitId] = useState<string | null>(null);
   const [newHabitName, setNewHabitName] = useState('');
   const [showNewHabitInput, setShowNewHabitInput] = useState(false);
+  // Per-habit chaos config (optional)
+  const [newHabitChaosEnabled, setNewHabitChaosEnabled] = useState(false);
+  const [newHabitChaosDimension, setNewHabitChaosDimension] = useState<string>('physical');
+  const [newHabitChaosImpact, setNewHabitChaosImpact] = useState<number>(50);
+  const [newHabitChaosThreshold, setNewHabitChaosThreshold] = useState<number>(2);
   const [checkIns, setCheckIns] = useState<Map<string, Map<number, boolean>>>(new Map());
+  // All check-ins across all months/habits — needed by the Statistics view to
+  // compute lifetime streaks (best, longest gap, etc.).
+  const [allCheckIns, setAllCheckIns] = useState<CheckIn[]>([]);
   const [darkMode, setDarkMode] = useState(() => {
     // Persist dark mode preference across sessions
     try {
@@ -62,7 +89,13 @@ export default function App() {
   const [showNewNoteInput, setShowNewNoteInput] = useState(false);
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editingGoalValue, setEditingGoalValue] = useState('');
-  const [view, setView] = useState<'grid' | 'stats'>('grid');
+  const [editingChaosHabitId, setEditingChaosHabitId] = useState<string | null>(null);
+  const [editChaosDim, setEditChaosDim] = useState('physical');
+  const [editChaosImpact, setEditChaosImpact] = useState(50);
+  const [editChaosThreshold, setEditChaosThreshold] = useState(2);
+  // Stack parent picker (which habit triggers this one)
+  const [editingStackParentId, setEditingStackParentId] = useState<string | null>(null);
+  const [view, setView] = useState<'grid' | 'stats' | 'history' | 'stacks' | 'chaos'>('grid');
   const [savedMsg, setSavedMsg] = useState('');
 
   // Periodically refresh the "last saved" display
@@ -80,16 +113,50 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
+  // Auto-check for backup recovery on startup (desktop only, fresh install)
+  useEffect(() => {
+    if (!isTauri || autoRestoreCheckedRef.current) return;
+    autoRestoreCheckedRef.current = true;
+
+    const check = async () => {
+      try {
+        const existing = getHabits().filter(h => !h.archived);
+        if (existing.length > 0) return; // Already has data, skip auto-restore
+
+        const { invoke } = await import('@tauri-apps/api/core');
+        const backup = await invoke<string | null>('find_latest_backup');
+        if (!backup) return;
+
+        const parsed = JSON.parse(backup);
+        if (!parsed?.habits?.length) return;
+
+        const ok = window.confirm(
+          `A backup with ${parsed.habits.length} habits and ${parsed.checkIns?.length || 0} check-ins was found.\n\nRestore it now?`
+        );
+        if (!ok) return;
+
+        const result = mergeImportedData(parsed);
+        alert(`Restore successful: ${result.habitsCreated} habits added, ${result.checkInsRestored} check-ins restored.`);
+      } catch (e) {
+        console.error('auto-restore failed:', e);
+      }
+    };
+    const t = setTimeout(check, 500);
+    return () => clearTimeout(t);
+  }, []);
+
   // Auto-backup to app data directory every 30 minutes (desktop only)
   useEffect(() => {
+    if (!isTauri) return;
+
     const runBackup = async () => {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
         const allData = exportAllData();
         const path = await invoke<string>('auto_backup', { jsonData: JSON.stringify(allData, null, 2) });
         console.log('Auto-backup saved to', path);
-      } catch {
-        // Not running in Tauri (dev browser) — skip silently
+      } catch (e) {
+        console.error('auto_backup failed:', e);
       }
     };
     // Run once on mount, then every 30 min
@@ -137,13 +204,14 @@ export default function App() {
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
       const ctrl = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
 
-      if (ctrl && e.key === 'z') {
+      if (ctrl && key === 'z' && !e.shiftKey) {
         e.preventDefault();
         undoLastToggle();
         return;
       }
-      if (ctrl && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+      if (ctrl && (key === 'y' || (key === 'z' && e.shiftKey))) {
         e.preventDefault();
         redoLastUndo();
         return;
@@ -196,6 +264,8 @@ export default function App() {
       }
       setCheckIns(ci);
       setNotes(getNotes());
+      // Refresh the lifetime check-in cache so Stats view shows fresh records.
+      setAllCheckIns(exportAllData().checkIns);
     }
     update();
     return subscribe(update);
@@ -226,10 +296,25 @@ export default function App() {
 
   function handleAddHabit() {
     if (newHabitName.trim()) {
-      addHabit(newHabitName.trim());
-      setNewHabitName('');
-      setShowNewHabitInput(false);
+      const chaosOpts = newHabitChaosEnabled
+        ? {
+            chaosDimension: newHabitChaosDimension,
+            chaosImpact: newHabitChaosImpact,
+            chaosThresholdDays: newHabitChaosThreshold,
+          }
+        : undefined;
+      addHabit(newHabitName.trim(), chaosOpts);
+      resetNewHabitForm();
     }
+  }
+
+  function resetNewHabitForm() {
+    setNewHabitName('');
+    setNewHabitChaosEnabled(false);
+    setNewHabitChaosDimension('physical');
+    setNewHabitChaosImpact(50);
+    setNewHabitChaosThreshold(2);
+    setShowNewHabitInput(false);
   }
 
   function handleHabitNameSave(habitId: string, name: string) {
@@ -237,6 +322,34 @@ export default function App() {
       updateHabit(habitId, { name: name.trim() });
     }
     setEditingHabitId(null);
+  }
+
+  function openChaosEditor(habit: Habit) {
+    setEditingChaosHabitId(habit.id);
+    // Use ?? (nullish coalescing) to preserve empty string for "None"
+    setEditChaosDim(habit.chaosDimension ?? 'physical');
+    setEditChaosImpact(habit.chaosImpact ?? 50);
+    setEditChaosThreshold(habit.chaosThresholdDays ?? 2);
+  }
+
+  function saveChaosEditor() {
+    if (editingChaosHabitId) {
+      if (editChaosDim === '' || editChaosDim === null) {
+        // Fully unlink: clear all three chaos fields
+        updateHabit(editingChaosHabitId, {
+          chaosDimension: undefined,
+          chaosImpact: undefined,
+          chaosThresholdDays: undefined,
+        });
+      } else {
+        updateHabit(editingChaosHabitId, {
+          chaosDimension: editChaosDim,
+          chaosImpact: editChaosImpact,
+          chaosThresholdDays: editChaosThreshold,
+        });
+      }
+      setEditingChaosHabitId(null);
+    }
   }
 
   // Track new note content per keystroke, no intermediate state needed beyond newNoteContent
@@ -282,121 +395,152 @@ export default function App() {
   function handleExportJSON() {
     const allData = exportAllData();
     const json = JSON.stringify(allData, null, 2);
-    const stamp = new Date().toISOString().slice(0, 10);
-    downloadBlob(json, `lifetrack-export-${stamp}.json`, 'application/json');
+    // Try Tauri native save dialog first, fall back to browser download
+    import('@tauri-apps/api/core').then(({ invoke }) =>
+      invoke('export_file', { jsonData: json }).catch(() => {
+        // Fallback: browser download
+        downloadBlob(json, `lifetrack-export-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
+      })
+    ).catch(() => {
+      downloadBlob(json, `lifetrack-export-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
+    });
   }
 
   function handleExportCSV() {
     const allData = exportAllData();
-    const habitMap = new Map(allData.habits.map((h) => [h.id, h.name]));
+    const habitById = new Map(allData.habits.map((h) => [h.id, h]));
+    // Per-habit lifetime stats (using the same persistent records)
+    const lifetimeStats = new Map<string, {
+      current: number; best: number; rate30: number; total: number;
+    }>();
+    const allCheckIns = allData.checkIns;
+    const now = new Date();
+    for (const habit of allData.habits) {
+      const stats = computeStreakStats(habit, allCheckIns, now);
+      const rate30 = computeCompletionRate(habit, allCheckIns, 30, now);
+      lifetimeStats.set(habit.id, {
+        current: stats.current,
+        best: stats.best,
+        rate30,
+        total: stats.totalCompleted,
+      });
+    }
 
-    // Build CSV: date, habit, completed
-    const header = 'date,habit,completed';
+    const quote = (v: string) =>
+      /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+
+    const header = [
+      'date',
+      'habit',
+      'habit_id',
+      'completed',
+      'current_streak_at_date',
+      'best_streak_at_date',
+      'completion_rate_30d',
+      'total_completed',
+      'chaos_dimension',
+    ].join(',');
+
     const rows = allData.checkIns.map((ci) => {
-      const habitName = habitMap.get(ci.habitId) || ci.habitId;
-      // Escape habit names containing commas or quotes
-      const safeName = habitName.includes(',') || habitName.includes('"')
-        ? `"${habitName.replace(/"/g, '""')}"`
-        : habitName;
-      return `${ci.date},${safeName},${ci.completed ? '1' : '0'}`;
+      const habit = habitById.get(ci.habitId);
+      const ls = lifetimeStats.get(ci.habitId);
+      const cols = [
+        quote(ci.date),
+        quote(habit?.name ?? ci.habitId),
+        quote(ci.habitId),
+        ci.completed ? '1' : '0',
+        ls ? String(ls.current) : '',
+        ls ? String(ls.best) : '',
+        ls ? String(ls.rate30) : '',
+        ls ? String(ls.total) : '',
+        quote(habit?.chaosDimension ?? ''),
+      ];
+      return cols.join(',');
     });
-
     const csv = [header, ...rows].join('\n');
-    const stamp = new Date().toISOString().slice(0, 10);
-    downloadBlob(csv, `lifetrack-export-${stamp}.csv`, 'text/csv;charset=utf-8');
+    downloadBlob(csv, `lifetrack-export-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv;charset=utf-8');
+  }
+
+  function performBrowserImport() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const raw = evt.target?.result as string;
+        try {
+          const parsed = JSON.parse(raw);
+          if (!parsed || typeof parsed !== 'object') {
+            alert('Invalid file format.');
+            return;
+          }
+          const result = mergeImportedData(parsed);
+          alert(`Import successful: ${result.habitsCreated} habits added, ${result.checkInsRestored} check-ins restored.`);
+        } catch {
+          alert('Failed to parse the file.');
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  }
+
+  function handleImportJSON() {
+    if (isTauri) {
+      import('@tauri-apps/api/core').then(({ invoke }) =>
+        invoke<string>('import_file').then((raw) => {
+          try {
+            const parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed !== 'object') {
+              alert('Invalid file format.');
+              return;
+            }
+            const result = mergeImportedData(parsed);
+            alert(`Import successful: ${result.habitsCreated} habits added, ${result.checkInsRestored} check-ins restored.`);
+          } catch {
+            alert('Failed to parse the file.');
+          }
+        }).catch((e) => {
+          if (e !== 'Cancelled') alert('Import failed: ' + e);
+        })
+      ).catch(() => {
+        performBrowserImport();
+      });
+    } else {
+      performBrowserImport();
+    }
   }
 
   // --- Streak & Statistics helpers ---
+//
+// Stats are computed from the persistent, persisted `bestStreak` / `longestGap`
+// fields on each Habit (kept up-to-date by store.recalculateHabitRecords()).
+// That avoids re-scanning every check-in on every render. We still call
+// computeStreakStats() to derive the rolling-window rates (7d / 30d / …)
+// and the weighted score.
 
-  // Build a sorted array of date strings (YYYY-MM-DD) for which a habit was checked.
-  function getCheckedDates(habitId: string): string[] {
-    const checks = getCheckInsForHabit(habitId).filter((c) => c.completed);
-    const dates = checks.map((c) => c.date);
-    dates.sort();
-    return dates;
-  }
-
-  // Count consecutive days ending at endDate (inclusive), going backwards.
-  // endDate is a Date object representing the last day to count from.
-  function streakBackwards(dates: Set<string>, endDate: Date): number {
-    let count = 0;
-    const d = new Date(endDate);
-    while (true) {
-      const key = parseDateStr(d.getFullYear(), d.getMonth(), d.getDate());
-      if (dates.has(key)) {
-        count++;
-        d.setDate(d.getDate() - 1);
-      } else {
-        break;
-      }
-    }
-    return count;
-  }
-
-  // Compute the longest streak from a sorted array of date strings.
-  function longestStreak(dates: string[]): number {
-    if (dates.length === 0) return 0;
-    let max = 1;
-    let current = 1;
-    for (let i = 1; i < dates.length; i++) {
-      const prev = new Date(dates[i - 1]);
-      const curr = new Date(dates[i]);
-      const diffMs = curr.getTime() - prev.getTime();
-      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-      if (diffDays === 1) {
-        current++;
-        max = Math.max(max, current);
-      } else {
-        current = 1;
-      }
-    }
-    return max;
-  }
-
-  // Compute stats for all habits: current streak, longest streak, completion rates, score.
+  // Compute stats for all habits: current/best streak, longest gap, completion
+  // rates for 7/30/90/365-day windows, and a weighted score.
   const habitStats = useMemo(() => {
+    const now = new Date();
     return habits.map((habit) => {
-      const checked = getCheckedDates(habit.id);
-      const dateSet = new Set(checked);
-      const todayDate = new Date();
-      const current = streakBackwards(dateSet, todayDate);
-      const longest = longestStreak(checked);
+      // Prefer the persisted record (kept in sync by store) to stay consistent
+      // with what gets shown after a reload. Fall back to a live compute when
+      // the record hasn't been written yet (shouldn't happen in practice).
+      const stats = computeStreakStats(habit, allCheckIns, now);
+      const current = stats.current;
+      const longest = stats.best;
+      const longestGap = stats.longestGap;
+      const totalChecks = stats.totalCompleted;
 
-      // Completion rates for different periods
-      const now = new Date();
-      const periods = [7, 30, 90, 365] as const;
-      const rates: Record<number, number> = {};
-      for (const days of periods) {
-        let possible = 0;
-        let done = 0;
-        for (let i = 0; i < days; i++) {
-          const d = new Date(now);
-          d.setDate(d.getDate() - i);
-          const key = parseDateStr(d.getFullYear(), d.getMonth(), d.getDate());
-          possible++;
-          if (dateSet.has(key)) done++;
-        }
-        rates[days] = possible > 0 ? Math.round((done / possible) * 100) : 0;
-      }
-
-      // Weighted habit score (Loop-style exponential moving average).
-      // Scores recent completions more heavily using a decay factor.
-      // Window: 90 days. Frequency factor: 0.95 (today=1, yesterday=0.95, etc.).
-      const SCORE_WINDOW = 90;
-      const SCORE_FREQ = 0.95;
-      let weightedSum = 0;
-      let weightTotal = 0;
-      for (let i = 0; i < SCORE_WINDOW; i++) {
-        const d = new Date(now);
-        d.setDate(d.getDate() - i);
-        const key = parseDateStr(d.getFullYear(), d.getMonth(), d.getDate());
-        const weight = Math.pow(SCORE_FREQ, i);
-        weightTotal += weight;
-        if (dateSet.has(key)) {
-          weightedSum += weight;
-        }
-      }
-      const score = weightTotal > 0 ? Math.round((weightedSum / weightTotal) * 100) : 0;
+      const completion7d = computeCompletionRate(habit, allCheckIns, 7, now);
+      const completion30d = computeCompletionRate(habit, allCheckIns, 30, now);
+      const completion90d = computeCompletionRate(habit, allCheckIns, 90, now);
+      const completion365d = computeCompletionRate(habit, allCheckIns, 365, now);
+      const score = computeWeightedScore(habit, allCheckIns, now);
 
       return {
         habitId: habit.id,
@@ -404,20 +548,30 @@ export default function App() {
         habitColor: habit.color,
         currentStreak: current,
         longestStreak: longest,
-        totalChecks: checked.length,
-        completion7d: rates[7],
-        completion30d: rates[30],
-        completion90d: rates[90],
-        completion365d: rates[365],
+        longestGap,
+        totalChecks,
+        completion7d,
+        completion30d,
+        completion90d,
+        completion365d,
         score,
       };
     });
-  }, [habits]);
+  }, [habits, allCheckIns]);
+
+  // --- Drag and drop (habit reordering) ---
+  // We pass DropResult through @hello-pangea/dnd's onDragEnd. If the user drops
+  // outside any droppable (e.g. dragging onto the bottom-bar), destination is
+  // null — we ignore that.
+  function handleDragEnd(result: { source: { index: number }; destination?: { index: number } | null }) {
+    if (!result.destination) return;
+    reorderHabits(result.source.index, result.destination.index);
+  }
 
   // Days headers with letters
   const dayHeaders: { day: number; letter: string }[] = [];
   for (let d = 1; d <= daysInMonth; d++) {
-    dayHeaders.push({ day: d, letter: getDayLetter(d) });
+    dayHeaders.push({ day: d, letter: getDayLetter(year, month, d) });
   }
 
   return (
@@ -452,6 +606,22 @@ export default function App() {
             <div className="export-menu">
               <button className="export-item" onClick={handleExportJSON}>Export JSON</button>
               <button className="export-item" onClick={handleExportCSV}>Export CSV</button>
+              <div className="export-sep"></div>
+              <button className="export-item" onClick={handleImportJSON}>Import JSON</button>
+              <button className="export-item" onClick={() => {
+                import('@tauri-apps/api/core').then(({ invoke }) =>
+                  invoke<string | null>('find_latest_backup').then((backup) => {
+                    if (!backup) { alert('No backup found.'); return; }
+                    const parsed = JSON.parse(backup);
+                    const habitCount = parsed?.habits?.length || 0;
+                    const checkinCount = parsed?.checkIns?.length || 0;
+                    if (!habitCount) { alert('Backup is empty.'); return; }
+                    if (!window.confirm(`Restore ${habitCount} habits + ${checkinCount} check-ins from backup?\n\nExisting habits with the same name will be merged, not duplicated.`)) return;
+                    const result = mergeImportedData(parsed);
+                    alert(`Restore successful: ${result.habitsCreated} habits added, ${result.checkInsRestored} check-ins restored.`);
+                  }).catch((e) => alert('Restore failed: ' + e))
+                ).catch((e) => alert('Restore failed: ' + e));
+              }}>Restore from Backup</button>
             </div>
           </div>
           <button className="btn-icon" onClick={() => setDarkMode(!darkMode)} title="Toggle dark mode">
@@ -476,6 +646,9 @@ export default function App() {
         <div className="view-tabs">
           <button className={`view-tab ${view === 'grid' ? 'active' : ''}`} onClick={() => setView('grid')}>Grid</button>
           <button className={`view-tab ${view === 'stats' ? 'active' : ''}`} onClick={() => setView('stats')}>Statistics</button>
+          <button className={`view-tab ${view === 'history' ? 'active' : ''}`} onClick={() => setView('history')}>History</button>
+          <button className={`view-tab ${view === 'stacks' ? 'active' : ''}`} onClick={() => setView('stacks')}>Stacks</button>
+          <button className={`view-tab ${view === 'chaos' ? 'active' : ''}`} onClick={() => setView('chaos')}>Chaos</button>
         </div>
       </div>
 
@@ -487,6 +660,7 @@ export default function App() {
               <p className="empty-hint">Click the button below or press <kbd>Ctrl+N</kbd> to add your first habit.</p>
             </div>
           ) : (
+          <DragDropContext onDragEnd={handleDragEnd}>
           <div className="table-scroll">
             <table className="habit-grid">
               <thead>
@@ -505,9 +679,14 @@ export default function App() {
                   <th className="col-achieved">Achieved</th>
                 </tr>
               </thead>
-              <tbody>
-                {habits.map((habit) => {
-                  const habitChecks = checkIns.get(habit.id) || new Map();
+              <Droppable droppableId="habit-list">
+                {(dropProvided) => (
+                  <tbody
+                    ref={dropProvided.innerRef}
+                    {...dropProvided.droppableProps}
+                  >
+                    {habits.map((habit, habitIdx) => {
+                      const habitChecks = checkIns.get(habit.id) || new Map();
                   let completedCount = 0;
                   for (let d = 1; d <= daysInMonth; d++) {
                     if (habitChecks.get(d)) completedCount++;
@@ -515,7 +694,7 @@ export default function App() {
                   const goal = habit.goal || daysInMonth;
 
                   return (
-                    <tr key={habit.id}>
+                    <DraggableHabitRow habitId={habit.id} index={habitIdx}>
                       <td className="col-habits">
                         <div className="habit-row">
                           {editingHabitId === habit.id ? (
@@ -538,6 +717,18 @@ export default function App() {
                               {habit.name}
                             </span>
                           )}
+                          {habit.stackParent && (() => {
+                            const parent = habits.find((h) => h.id === habit.stackParent);
+                            return parent ? (
+                              <span
+                                className="habit-stack-badge"
+                                title={`Triggered by: ${parent.name}`}
+                                onClick={() => setFocusHabitIdx(habits.findIndex((h) => h.id === parent.id))}
+                              >
+                                ↳ {parent.name}
+                              </span>
+                            ) : null;
+                          })()}
                           <button
                             className="habit-archive"
                             onClick={() => archiveHabit(habit.id)}
@@ -547,12 +738,88 @@ export default function App() {
                               <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
                             </svg>
                           </button>
+                          <button
+                            className={`habit-chaos-btn ${habit.chaosDimension ? 'linked' : ''}`}
+                            onClick={() => openChaosEditor(habit)}
+                            title={habit.chaosDimension ? `Chaos: ${habit.chaosDimension} +${habit.chaosImpact}%` : 'Link to chaos'}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+                              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                            </svg>
+                          </button>
+                          <button
+                            className={`habit-stack-btn ${habit.stackParent ? 'linked' : ''}`}
+                            onClick={() => setEditingStackParentId(editingStackParentId === habit.id ? null : habit.id)}
+                            title={habit.stackParent ? `After: ${habits.find((h) => h.id === habit.stackParent)?.name ?? '?'}` : 'Add to a stack (after another habit)'}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                            </svg>
+                          </button>
                         </div>
+                        {editingChaosHabitId === habit.id && (
+                          <div className="habit-chaos-edit">
+                            <select value={editChaosDim} onChange={(e) => setEditChaosDim(e.target.value)} className="chaos-select-sm">
+                              <option value="">— None (unlink) —</option>
+                              <option value="physical">Physical</option>
+                              <option value="financial">Financial</option>
+                              <option value="social">Social</option>
+                              <option value="structural">Structural</option>
+                              <option value="spiritual">Spiritual</option>
+                            </select>
+                            <input type="number" min="1" max="100" value={Number.isFinite(editChaosImpact) ? editChaosImpact : ''} onChange={(e) => {
+                              const raw = e.target.value;
+                              if (raw === '') { setEditChaosImpact(NaN); return; }
+                              setEditChaosImpact(parseInt(raw, 10));
+                            }} className="chaos-input-sm" title="Impact %" />
+                            <span className="chaos-edit-label">if missed ≥</span>
+                            <input type="number" min="1" max="90" value={Number.isFinite(editChaosThreshold) ? editChaosThreshold : ''} onChange={(e) => {
+                              const raw = e.target.value;
+                              if (raw === '') { setEditChaosThreshold(NaN); return; }
+                              setEditChaosThreshold(parseInt(raw, 10));
+                            }} className="chaos-input-sm" title="Days" />
+                            <span className="chaos-edit-label">days</span>
+                            <button className="btn btn-sm btn-primary" onClick={saveChaosEditor}>OK</button>
+                            <button className="btn btn-sm btn-ghost" onClick={() => setEditingChaosHabitId(null)}>Cancel</button>
+                          </div>
+                        )}
+                        {editingStackParentId === habit.id && (
+                          <div className="habit-stack-edit">
+                            <span className="stack-edit-label">Triggered by:</span>
+                            <select
+                              className="stack-select-sm"
+                              value={habit.stackParent ?? ''}
+                              onChange={(e) => {
+                                const newParent = e.target.value;
+                                if (newParent === '') {
+                                  unlinkHabitFromParentStore(habit.id);
+                                } else {
+                                  linkHabitToParentStore(habit.id, newParent);
+                                }
+                              }}
+                            >
+                              <option value="">— None (remove from stack) —</option>
+                              {habits
+                                .filter((h) => h.id !== habit.id && !h.archived)
+                                .sort((a, b) => a.name.localeCompare(b.name))
+                                .map((h) => (
+                                  <option key={h.id} value={h.id}>{h.name}</option>
+                                ))}
+                            </select>
+                            <button
+                              className="btn btn-sm btn-ghost"
+                              onClick={() => setEditingStackParentId(null)}
+                            >
+                              Done
+                            </button>
+                          </div>
+                        )}
                       </td>
-                      {dayHeaders.map((h, dayIdx) => {
+                      {dayHeaders.map((h) => {
                         const checked = habitChecks.get(h.day) || false;
                         const isToday = isCurrentMonth && h.day === todayDay;
-                        const isFocused = keyboardUsed && focusDay === h.day && focusHabitIdx === dayIdx;
+                        const isFocused = keyboardUsed && focusDay === h.day && focusHabitIdx === habitIdx;
                         return (
                           <td
                             key={h.day}
@@ -599,15 +866,19 @@ export default function App() {
                       <td className="col-achieved">
                         <span className="achieved-number">{completedCount}</span>
                       </td>
-                    </tr>
+                    </DraggableHabitRow>
                   );
                 })}
-              </tbody>
+                    {dropProvided.placeholder}
+                  </tbody>
+                )}
+              </Droppable>
             </table>
           </div>
+          </DragDropContext>
           )}
         </div>
-      ) : (
+      ) : view === 'stats' ? (
         <>
           {/* Statistics View */}
           <div className="stats-container">
@@ -619,8 +890,9 @@ export default function App() {
                   <tr>
                     <th>Habit</th>
                     <th>Score</th>
-                    <th>Streak</th>
+                    <th>Current</th>
                     <th>Best</th>
+                    <th>Gap</th>
                     <th>7d</th>
                     <th>30d</th>
                     <th>90d</th>
@@ -648,7 +920,15 @@ export default function App() {
                           <span className="streak-zero">--</span>
                         )}
                       </td>
-                      <td className="stats-number">{stat.longestStreak}d</td>
+                      <td className="stats-number">
+                        {stat.longestStreak}d
+                        {stat.longestStreak > 0 && (
+                          <span className="stats-best-tag" title="All-time best">★</span>
+                        )}
+                      </td>
+                      <td className="stats-number stats-gap">
+                        {stat.longestGap > 0 ? `${stat.longestGap}d` : '—'}
+                      </td>
                       <td className="stats-number">{stat.completion7d}%</td>
                       <td className="stats-number">{stat.completion30d}%</td>
                       <td className="stats-number">{stat.completion90d}%</td>
@@ -659,14 +939,46 @@ export default function App() {
                 </tbody>
               </table>
             )}
+
+            {/* Per-habit heatmaps + sparklines for visual context */}
+            {habits.length > 0 && (
+              <div className="stats-heatmaps">
+                <h3 className="stats-section-title">Activity (last 365 days)</h3>
+                <p className="stats-section-hint">
+                  Pastel cells = completed days. Grey outline = explicit miss. Pale = before tracking started.
+                </p>
+                {habits.map((habit) => (
+                  <div key={habit.id} className="stats-heatmap-row">
+                    <div className="stats-heatmap-label">
+                      <span
+                        className="stats-color-dot"
+                        style={{ backgroundColor: habit.color }}
+                      />
+                      <span className="stats-heatmap-name">{habit.name}</span>
+                    </div>
+                    <div className="stats-heatmap-and-spark">
+                      <Heatmap habit={habit} checkIns={allCheckIns} />
+                      <Sparkline habit={habit} checkIns={allCheckIns} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </>
+      ) : view === 'history' ? (
+        <HistoryView checkIns={allCheckIns} habits={habits} />
+      ) : view === 'stacks' ? (
+        <StacksView checkIns={allCheckIns} habits={habits} />
+      ) : (
+        <ChaosView />
       )}
 
       {/* Bottom bar: add habit + notes toggle */}
       <div className="bottom-bar">
         <div className="add-section">
           {showNewHabitInput ? (
+            <div className="add-habit-form-wrap">
             <div className="add-habit-form">
               <input
                 className="new-habit-input"
@@ -676,11 +988,60 @@ export default function App() {
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleAddHabit();
-                  if (e.key === 'Escape') { setShowNewHabitInput(false); setNewHabitName(''); }
+                  if (e.key === 'Escape') { resetNewHabitForm(); }
                 }}
               />
               <button className="btn btn-sm btn-primary" onClick={handleAddHabit}>Add</button>
-              <button className="btn btn-sm btn-ghost" onClick={() => { setShowNewHabitInput(false); setNewHabitName(''); }}>Cancel</button>
+              <button className="btn btn-sm btn-ghost" onClick={resetNewHabitForm}>Cancel</button>
+            </div>
+            <div className="new-habit-chaos">
+              <label className="chaos-toggle">
+                <input
+                  type="checkbox"
+                  checked={newHabitChaosEnabled}
+                  onChange={(e) => setNewHabitChaosEnabled(e.target.checked)}
+                />
+                <span>Link to chaos dimension</span>
+              </label>
+              {newHabitChaosEnabled && (
+                <div className="chaos-config">
+                  <select
+                    className="chaos-select"
+                    value={newHabitChaosDimension}
+                    onChange={(e) => setNewHabitChaosDimension(e.target.value)}
+                  >
+                    <option value="physical">Physical</option>
+                    <option value="financial">Financial</option>
+                    <option value="social">Social</option>
+                    <option value="structural">Structural</option>
+                    <option value="spiritual">Spiritual</option>
+                  </select>
+                  <label className="chaos-field">
+                    Impact %
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={newHabitChaosImpact}
+                      onChange={(e) => setNewHabitChaosImpact(Math.max(1, Math.min(100, parseInt(e.target.value || '1', 10))))}
+                    />
+                  </label>
+                  <label className="chaos-field">
+                    Missed ≥ days
+                    <input
+                      type="number"
+                      min={1}
+                      max={90}
+                      value={newHabitChaosThreshold}
+                      onChange={(e) => setNewHabitChaosThreshold(Math.max(1, Math.min(90, parseInt(e.target.value || '1', 10))))}
+                    />
+                  </label>
+                  <span className="chaos-hint">
+                    Missing this habit for {newHabitChaosThreshold} day{newHabitChaosThreshold > 1 ? 's' : ''} adds +{newHabitChaosImpact}% to {newHabitChaosDimension}.
+                  </span>
+                </div>
+              )}
+            </div>
             </div>
           ) : (
             <button className="btn btn-ghost" onClick={() => setShowNewHabitInput(true)}>

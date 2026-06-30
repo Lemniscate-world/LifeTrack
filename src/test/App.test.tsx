@@ -193,11 +193,12 @@ describe('App component', () => {
     // Switch to stats
     await user.click(screen.getByText('Statistics'));
 
-    // Should show the habit name
-    expect(screen.getByText('Gym')).toBeInTheDocument();
-    // Should show streak headers
-    expect(screen.getByText('Streak')).toBeInTheDocument();
+    // Should show the habit name in the stats table
+    expect(screen.getAllByText('Gym').length).toBeGreaterThan(0);
+    // Should show the new column headers: Current / Best / Gap
+    expect(screen.getByText('Current')).toBeInTheDocument();
     expect(screen.getByText('Best')).toBeInTheDocument();
+    expect(screen.getByText('Gap')).toBeInTheDocument();
   });
 
   it('can switch back to Grid view from Statistics', async () => {
@@ -327,5 +328,44 @@ describe('App component', () => {
     expect(document.documentElement.classList.contains('dark')).toBe(true);
     await user.click(darkBtn);
     expect(document.documentElement.classList.contains('dark')).toBe(false);
+  });
+
+  it('keyboard focus highlights a cell in the correct habit row', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    // Two habits so row index and day-column index cannot coincidentally match
+    await user.click(screen.getByText('+ New Habit'));
+    await user.type(screen.getByPlaceholderText('Habit name...'), 'First');
+    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ New Habit'));
+    await user.type(screen.getByPlaceholderText('Habit name...'), 'Second');
+    await user.click(screen.getByText('Add'));
+
+    // ArrowDown moves focus to the second habit row (day stays on day 1)
+    await user.keyboard('{ArrowDown}');
+
+    const focused = document.querySelectorAll('td.focused');
+    expect(focused).toHaveLength(1);
+    const row = focused[0].closest('tr');
+    expect(row?.querySelector('.habit-name')?.textContent).toBe('Second');
+  });
+
+  it('keyboard shortcuts support undo and redo with Ctrl+Z / Ctrl+Shift+Z', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByText('+ New Habit'));
+    await user.type(screen.getByPlaceholderText('Habit name...'), 'Read');
+    await user.click(screen.getByText('Add'));
+
+    await user.keyboard(' ');
+    expect(document.querySelectorAll('.check-icon')).toHaveLength(1);
+
+    await user.keyboard('{Control>}z{/Control}');
+    expect(document.querySelectorAll('.check-icon')).toHaveLength(0);
+
+    await user.keyboard('{Control>}{Shift>}z{/Shift}{/Control}');
+    expect(document.querySelectorAll('.check-icon')).toHaveLength(1);
   });
 });

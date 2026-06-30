@@ -16,9 +16,17 @@ Requirements: Node.js 22+, Rust 1.77+
 ## Development
 
 ```sh
-npm test           # 38 tests (Vitest + React Testing Library)
+npm test           # 113 tests (Vitest + React Testing Library)
 npm run lint       # ESLint
 npm run package    # build .exe + .msi installer
+```
+
+Rust/Tauri checks:
+
+```sh
+cd src-tauri
+cargo fmt --check
+cargo check --quiet
 ```
 
 ## Commit Convention
@@ -43,8 +51,9 @@ Protected files (never commit): `PLAN.md`, `SESSION_SUMMARY.md`, `.env`, `*.key`
 
 1. Run `npm test` and ensure all tests pass
 2. Run `npm run lint` with no errors
-3. Update `CHANGELOG.md` under `[Unreleased]`
-4. Request review from @Lemniscate
+3. Run `cargo fmt --check` and `cargo check --quiet` when touching `src-tauri/`
+4. Update `CHANGELOG.md` under `[Unreleased]`
+5. Request review from @Lemniscate
 
 ## Architecture
 
