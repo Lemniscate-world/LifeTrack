@@ -1,6 +1,14 @@
+use std::sync::LazyLock;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 use serde::{Deserialize, Serialize};
+
+static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .expect("Failed to build HTTP client")
+});
 
 #[tauri::command]
 fn auto_backup(app: tauri::AppHandle, json_data: String) -> Result<String, String> {
@@ -180,7 +188,7 @@ async fn analyze_habits(summary_json: String, model: Option<String>) -> Result<S
         }),
     };
 
-    let client = reqwest::Client::new();
+    let client = &*HTTP_CLIENT;
     let resp = client
         .post("http://localhost:11434/api/generate")
         .json(&body)
@@ -200,6 +208,7 @@ async fn analyze_habits(summary_json: String, model: Option<String>) -> Result<S
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             auto_backup,
             export_file,

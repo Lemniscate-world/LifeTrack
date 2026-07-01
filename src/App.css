@@ -147,6 +147,11 @@ body {
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
+  transition: background-color var(--transition), color var(--transition);
+}
+
+* {
+  transition: background-color var(--transition), border-color var(--transition), color 0.15s ease;
 }
 
 .app {
@@ -161,13 +166,36 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 16px;
+  padding: 10px 20px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   background: var(--bg);
+  backdrop-filter: blur(8px);
 }
 
-.logo {
+.btn-icon {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, transform 0.1s;
+}
+
+.btn-icon:hover {
+  background: var(--bg-alt);
+  color: var(--text);
+  transform: scale(1.05);
+}
+
+.btn-icon:active {
+  transform: scale(0.95);
+}
   font-size: 16px;
   font-weight: 700;
   color: var(--text);
@@ -329,7 +357,7 @@ body {
 }
 
 .view-tab {
-  padding: 5px 14px;
+  padding: 6px 14px;
   border: none;
   background: transparent;
   color: var(--text-secondary);
@@ -337,8 +365,9 @@ body {
   font-weight: 500;
   font-family: var(--font);
   cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.15s;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+  position: relative;
 }
 
 .view-tab:hover {
@@ -349,6 +378,21 @@ body {
 .view-tab.active {
   background: var(--primary);
   color: white;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
+}
+
+/* Ripple-like indicator on active tab */
+.view-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 3px;
+  background: var(--primary);
+  border-radius: 0 0 3px 3px;
+  opacity: 0;
 }
 
 /* ============ GRID AREA ============ */
@@ -1841,11 +1885,13 @@ body {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 10px;
-  transition: box-shadow 0.15s;
+  transition: box-shadow 0.2s ease, transform 0.15s ease, border-color 0.2s ease;
 }
 
 .insight-card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-md);
+  border-color: var(--primary-light);
+  transform: translateY(-1px);
 }
 
 .insight-icon {

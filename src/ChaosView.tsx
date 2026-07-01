@@ -4,7 +4,10 @@ import { computeChaosReport, subscribe } from './store';
 export default function ChaosView() {
   // Bumped by the store subscription to force a re-render after mutations.
   const [tick, setTick] = useState(0);
-  useEffect(() => subscribe(() => setTick((t) => t + 1)), []);
+  useEffect(() => {
+    const unsub = subscribe(() => setTick((t) => t + 1));
+    return unsub;
+  }, []);
 
   // Memoize the chaos report: recompute only when something forces a re-render
   // (the `tick` bump above). Without memoization, every render scans every

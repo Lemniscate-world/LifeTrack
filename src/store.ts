@@ -302,7 +302,8 @@ export function flushSave(): void {
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', () => flushSave());
   // Periodic save every 15s as safety net for long sessions
-  setInterval(() => { if (pendingSave) flushSave(); }, 15000);
+  const _flushInterval = setInterval(() => { if (pendingSave) flushSave(); }, 15000);
+  window.addEventListener('beforeunload', () => { clearInterval(_flushInterval); flushSave(); });
 }
 
 // --- Last saved timestamp (for UI feedback) ---
