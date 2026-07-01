@@ -1,9 +1,9 @@
 /**
  * Targeted App tests for covering specific uncovered lines.
- * Lines: 1312, 1325-1383 (InsightsView rendering, kindAction buttons, theme cycle)
+ * Includes Insights with seeded data, stack interactions, and stats.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { resetStore, addHabit, toggleCheckIn } from '../store';
 import App from '../App';
@@ -13,43 +13,63 @@ beforeEach(() => {
   resetStore();
 });
 
-/** Create 7 days of check-ins for a habit to generate insights */
-function seedHabitWithChecks(name: string, days: number) {
-  addHabit(name);
-  const exported = (window as any).__lifetrackExport?.();
-  // Alternative: use toggleCheckIn via App render
-}
-
-describe('Insights view with data', () => {
-  it('renders Insights tab and shows recommendations with enough data', async () => {
+describe('Insights with seeded data', () => {
+  it('shows NEGLECTED recommendation for habit with no check-ins', async () => {
     const user = userEvent.setup();
+    // Seed habit BEFORE rendering App so initial state includes it
+    addHabit('Journal');
     render(<App />);
 
-    // Add habits with check-ins to trigger insights
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Exercise');
-    await user.click(screen.getByText('Add'));
-
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Meditate');
-    await user.click(screen.getByText('Add'));
-
-    // Check some days to create data
-    const day1 = screen.getAllByText('1')[0];
-    await user.click(day1);
-    // Navigate to previous month if needed, click more days
-    const arrows = document.querySelectorAll('.month-arrow');
-    await user.click(arrows[0]); // go back one month
-    const day15 = screen.queryByText('15');
-    if (day15) await user.click(day15);
-    await user.click(arrows[1]); // go forward
-
-    // Navigate to Insights
     await user.click(screen.getByText('💡 Insights'));
 
-    // Should show either recommendations or empty state
-    const body = document.body.textContent || '';
-    expect(body.length).toBeGreaterThan(0);
+    // Should show NEGLECTED: "Journal" has no check-ins yet (appears in title + detail)
+    const journalTexts = screen.getAllByText(/Journal/);
+    expect(journalTexts.length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/no check-ins yet/)).toBeInTheDocument();
+    // Action button
+    expect(screen.getByText('Track now')).toBeInTheDocument();
+  });
+
+  it('NEGLECTED action button works', async () => {
+    const user = userEvent.setup();
+    addHabit('Read');
+    render(<App />);
+
+    await user.click(screen.getByText('💡 Insights'));
+    // Click the action button for the NEGLECTED recommendation
+    await user.click(screen.getByText('Track now'));
+    // Should navigate to grid (InsightsView's NEGLECTED action: onView('grid'))
+    const gridBtn = screen.getByRole('button', { name: 'Grid' });
+    expect(gridBtn.className).toContain('active');
+  });
+
+  it('shows recommendation with kindIcon', async () => {
+    const user = userEvent.setup();
+    addHabit('Yoga');
+    render(<App />);
+    await user.click(screen.getByText('💡 Insights'));
+
+    // Recommendation card renders with title
+    const yogaTexts = screen.getAllByText(/Yoga/);
+    expect(yogaTexts.length).toBeGreaterThanOrEqual(2);
+    // The insight-icon span exists
+    const iconSpans = document.querySelectorAll('.insight-icon');
+    expect(iconSpans.length).toBeGreaterThanOrEqual(1);
+    // NEGLECTED has priority 0 so it should be first
+    const firstIcon = iconSpans[0].textContent?.codePointAt(0)?.toString(16);
+    // Just verify it's non-empty
+    expect(iconSpans[0].textContent?.length).toBeGreaterThan(0);
+  });
+});
+
+describe('Insights empty state interaction', () => {
+  it('empty state button navigates to grid', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByText('💡 Insights'));
+    const goToGrid = screen.getByText('Go to Grid');
+    await user.click(goToGrid);
+    expect(screen.getByText('Grid').className).toContain('active');
   });
 });
 
@@ -57,12 +77,9 @@ describe('Theme cycling', () => {
   it('cycles through themes', async () => {
     const user = userEvent.setup();
     render(<App />);
-
     const themeBtn = document.querySelector('[title*="Theme"]');
     expect(themeBtn).toBeInTheDocument();
     await user.click(themeBtn!);
-
-    // Theme should have changed (html should have a theme class or title updated)
     const newTitle = themeBtn!.getAttribute('title');
     expect(newTitle).toBeTruthy();
     expect(newTitle).not.toBe('Theme: Default');
@@ -76,23 +93,20 @@ describe('Grid interactions', () => {
     await user.click(screen.getByText('+ New Habit'));
     await user.type(screen.getByPlaceholderText('Habit name...'), 'Test');
     await user.click(screen.getByText('Add'));
-
-    // Day numbers 1-31 should appear
     expect(screen.getByText('1')).toBeInTheDocument();
   });
 
-  it('shows goal column', async () => {
+  it('shows goal column header', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByText('+ New Habit'));
     await user.type(screen.getByPlaceholderText('Habit name...'), 'Test');
     await user.click(screen.getByText('Add'));
-
     expect(screen.getByText('Goal')).toBeInTheDocument();
   });
 });
 
-describe('Export dropdown visibility', () => {
+describe('Export dropdown', () => {
   it('shows Restore from Backup option', async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -103,7 +117,7 @@ describe('Export dropdown visibility', () => {
 });
 
 describe('Chaos tab', () => {
-  it('renders Chaos view', async () => {
+  it('renders Chaos view from tab', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByText('Chaos'));
@@ -112,14 +126,49 @@ describe('Chaos tab', () => {
 });
 
 describe('Stats view table', () => {
-  it('renders stats headers', async () => {
+  it('renders stats table headers', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByText('+ New Habit'));
     await user.type(screen.getByPlaceholderText('Habit name...'), 'Test');
     await user.click(screen.getByText('Add'));
     await user.click(screen.getByText('Statistics'));
-
     expect(screen.getByText('Habit')).toBeInTheDocument();
+  });
+});
+
+describe('Multiple habits in grid', () => {
+  it('renders multiple habit rows', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    
+    for (const name of ['A', 'B', 'C']) {
+      await user.click(screen.getByText('+ New Habit'));
+      await user.type(screen.getByPlaceholderText('Habit name...'), name);
+      await user.click(screen.getByText('Add'));
+    }
+
+    expect(screen.getByText('A')).toBeInTheDocument();
+    expect(screen.getByText('B')).toBeInTheDocument();
+    expect(screen.getByText('C')).toBeInTheDocument();
+  });
+});
+
+describe('All views accessible after adding habits', () => {
+  it('can visit all tabs after seeding data', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByText('+ New Habit'));
+    await user.type(screen.getByPlaceholderText('Habit name...'), 'Test');
+    await user.click(screen.getByText('Add'));
+
+    const tabs = ['Grid', 'Statistics', 'History', 'Stacks', 'Chaos', '💡 Insights'];
+    for (const t of tabs) {
+      // click the tab button (use role=button to avoid text collisions)
+      const btns = screen.getAllByRole('button', { name: new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) });
+      if (btns.length > 0) await user.click(btns[0]);
+    }
+    // verify we're rendering content (Insights shows h2 heading)
+    expect(screen.getByRole('heading', { name: /insights/i })).toBeInTheDocument();
   });
 });

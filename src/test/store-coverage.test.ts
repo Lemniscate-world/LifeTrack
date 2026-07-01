@@ -111,3 +111,47 @@ describe('getCheckInsForHabit', () => {
     expect(result[0].date).toBe('2026-07-01');
   });
 });
+
+describe('chaos dimensions reinit', () => {
+  it('getChaosDimensions reinitializes empty array', async () => {
+    const { getChaosDimensions, resetStore } = await import('../store');
+    resetStore();
+    const dims = getChaosDimensions();
+    expect(dims.length).toBe(5);
+  });
+
+  it('toggleChaosTrigger returns early on nonexistent dimension', async () => {
+    const { toggleChaosTrigger, resetStore } = await import('../store');
+    resetStore();
+    // No trigger exists, but toggleChaosTrigger should not throw
+    expect(() => toggleChaosTrigger('nonexistent', 'nonexistent')).not.toThrow();
+  });
+});
+
+describe('recomputeHabitRecords', () => {
+  it('recomputes records and triggers save', async () => {
+    const { addHabit, recomputeHabitRecords, resetStore } = await import('../store');
+    resetStore();
+    const h = addHabit('Test');
+    // Should not throw and should update habit records
+    recomputeHabitRecords(h.id);
+    // Verify habit was updated (bestStreak set by recompute)
+    expect(h.bestStreak).toBe(0); // no check-ins, so streak is 0
+    expect(h.totalCompleted).toBe(0);
+  });
+
+  it('recomputeHabitRecords no-ops on archived habit', async () => {
+    const { addHabit, archiveHabit, recomputeHabitRecords, resetStore } = await import('../store');
+    resetStore();
+    const h = addHabit('Test');
+    archiveHabit(h.id);
+    // Should not throw
+    recomputeHabitRecords(h.id);
+  });
+
+  it('recomputeHabitRecords no-ops on nonexistent habit', async () => {
+    const { recomputeHabitRecords, resetStore } = await import('../store');
+    resetStore();
+    expect(() => recomputeHabitRecords('nonexistent')).not.toThrow();
+  });
+});

@@ -1,7 +1,7 @@
 // src/test/stacks-ui.test.tsx
 // UI smoke tests for StacksView + inline badge in the grid.
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
@@ -10,6 +10,7 @@ import {
   toggleCheckIn,
   resetStore,
   exportAllData,
+  archiveHabit,
 } from '../store';
 import { computeStacks } from '../stacks';
 import { StacksView } from '../StacksView';
@@ -29,6 +30,14 @@ function habitsAndChecks() {
 }
 
 describe('StacksView', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TODAY);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   it('shows empty state when no stacks exist', () => {
     addHabit('Solo');
     const { habits, checkIns } = habitsAndChecks();
@@ -81,6 +90,64 @@ describe('StacksView', () => {
     const { habits, checkIns } = habitsAndChecks();
     const stacks = computeStacks(habits, checkIns, TODAY);
     expect(stacks[0].blockedCount).toBe(1);
+  });
+
+  it('renders stack cards with progress bar and step states', () => {
+    const a = addHabit('Coffee');
+    const b = addHabit('Meditate');
+    linkHabitToParent(b.id, a.id);
+    const { habits, checkIns } = habitsAndChecks();
+    render(<StacksView habits={habits} checkIns={checkIns} />);
+    // stack card header uses h3
+    expect(screen.getByRole('heading', { name: 'Coffee' })).toBeInTheDocument();
+    // progress text
+    expect(screen.getByText(/0 \/ 2 done/)).toBeInTheDocument();
+    // step names — getAllByText returns multiple
+    expect(screen.getAllByText('Coffee').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('Meditate')).toBeInTheDocument();
+    // blocked glyph
+    expect(screen.getByText('⊘')).toBeInTheDocument();    // parent relationship label
+    expect(screen.getByText(/after: Coffee/)).toBeInTheDocument();  });
+
+  it('shows complete message when all steps done', () => {
+    const a = addHabit('Exercise');
+    const b = addHabit('Stretch');
+    linkHabitToParent(b.id, a.id);
+    toggleCheckIn(a.id, TODAY_KEY);
+    toggleCheckIn(b.id, TODAY_KEY);
+    const { habits, checkIns } = habitsAndChecks();
+    render(<StacksView habits={habits} checkIns={checkIns} />);
+    expect(screen.getByText(/Stack complete/)).toBeInTheDocument();
+    // progress should be 2/2, not 1/2
+    expect(screen.getByText(/2 \/ 2 done/)).toBeInTheDocument();
+  });
+
+  it('renders done and pending glyphs', () => {
+    const a = addHabit('Tea');
+    const b = addHabit('Walk');
+    linkHabitToParent(b.id, a.id);
+    toggleCheckIn(a.id, TODAY_KEY);
+    const { habits, checkIns } = habitsAndChecks();
+    render(<StacksView habits={habits} checkIns={checkIns} />);
+    // root Tea is done → glyph ✓
+    expect(screen.getByText('✓')).toBeInTheDocument();
+    // child Walk is pending (parent done, child not checked in) → glyph •
+    expect(screen.getByText('•')).toBeInTheDocument();
+  });
+
+  it('renders untracked glyph for archived children in chain', () => {
+    const a = addHabit('Root');
+    const b = addHabit('Active');
+    const c = addHabit('Archived');
+    linkHabitToParent(b.id, a.id);
+    linkHabitToParent(c.id, b.id);
+    // Archive c but keep it in the chain
+    archiveHabit(c.id);
+    const { habits, checkIns } = habitsAndChecks();
+    render(<StacksView habits={habits} checkIns={checkIns} />);
+    // The archived habit should show untracked glyph
+    expect(screen.getByText('?')).toBeInTheDocument();
+    expect(screen.getByText('Archived')).toBeInTheDocument();
   });
 });
 
