@@ -137,7 +137,26 @@ function loadData(): AppData {
   // Last resort: try to read raw legacy JSON and migrate it
   const migrated = migrateLegacyPrimaryData();
   if (migrated) return migrated;
+  // If we got here, all localStorage is empty or corrupt.
+  // The file backup at %APPDATA%/LifeTrack/ may have data from a
+  // previous install or browser session. Schedule an async check.
+  scheduleFileRecoveryAttempt();
   return freshData();
+}
+
+// Signal that a file recovery should be attempted on next Tauri startup.
+let fileRecoveryNeeded = false;
+
+function scheduleFileRecoveryAttempt(): void {
+  fileRecoveryNeeded = true;
+}
+
+export function isFileRecoveryNeeded(): boolean {
+  return fileRecoveryNeeded;
+}
+
+export function clearFileRecoveryFlag(): void {
+  fileRecoveryNeeded = false;
 }
 
 function freshData(): AppData {
@@ -897,14 +916,14 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
   for (const rawCheckIn of readArray(raw, 'checkIns')) {
     const imported = parseImportedCheckIn(rawCheckIn);
     const habitId = imported ? idMap.get(imported.habitId) : undefined;
-    if (!imported || !habitId || !imported.completed) {
+    if (!imported || !habitId) {
       result.skippedCheckIns++;
       continue;
     }
 
     const existing = getCheckIn(habitId, imported.date);
     if (!existing) {
-      data.checkIns.push({ habitId, date: imported.date, completed: true });
+      data.checkIns.push({ habitId, date: imported.date, completed: imported.completed ?? false });
       result.checkInsRestored++;
     } else if (!existing.completed) {
       existing.completed = true;
