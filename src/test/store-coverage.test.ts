@@ -11,6 +11,11 @@ import {
   resetStore,
   getStorageStatus,
   forceMigrateLegacyData,
+  recomputeHabitRecords,
+  toggleChaosTrigger,
+  exportAllData,
+  getCheckInsForHabit,
+  getHabits,
 } from '../store';
 
 beforeEach(() => {
@@ -37,19 +42,72 @@ describe('getStorageStatus', () => {
 });
 
 describe('forceMigrateLegacyData', () => {
-  it('handles null/empty without crashing', () => {
-    // forceMigrateLegacyData handles non-legacy data gracefully
-    addHabit('Modern Habit');
-    toggleCheckIn('00000000-0000-0000-0000-000000000000', '2026-06-01');
-    // Just verify it doesn't throw
+  it('handles empty store gracefully', () => {
     expect(() => forceMigrateLegacyData()).not.toThrow();
+  });
+
+  it('returns boolean', () => {
+    const result = forceMigrateLegacyData();
+    expect(typeof result).toBe('boolean');
   });
 });
 
-describe('fileRecovery flag', () => {
-  it('isFileRecoveryNeeded can be imported', async () => {
-    const { isFileRecoveryNeeded, clearFileRecoveryFlag } = await import('../store');
-    expect(typeof isFileRecoveryNeeded).toBe('function');
-    expect(typeof clearFileRecoveryFlag).toBe('function');
+describe('recomputeHabitRecords', () => {
+  it('handles non-existent habit id', () => {
+    expect(() => recomputeHabitRecords('nonexistent')).not.toThrow();
+  });
+
+  it('recomputes records for existing habit with check-ins', () => {
+    addHabit('Test Habit');
+    const habits = getHabits();
+    const habitId = habits[0].id;
+    toggleCheckIn(habitId, '2026-06-15');
+    toggleCheckIn(habitId, '2026-06-16');
+    recomputeHabitRecords(habitId);
+    const updated = getHabits().find((h) => h.id === habitId);
+    expect(updated?.totalCompleted).toBe(2);
+    expect(updated?.bestStreak).toBe(2);
+  });
+});
+
+describe('toggleChaosTrigger', () => {
+  it('does not throw for non-existent dimension', () => {
+    expect(() => toggleChaosTrigger('nonexistent', 'trigger1')).not.toThrow();
+  });
+});
+
+describe('exportAllData', () => {
+  it('returns data with correct structure', () => {
+    addHabit('Any');
+    const exported = exportAllData();
+    expect(exported.habits.length).toBeGreaterThanOrEqual(1);
+    expect(Array.isArray(exported.checkIns)).toBe(true);
+    expect(Array.isArray(exported.notes)).toBe(true);
+    expect(Array.isArray(exported.chaosDimensions)).toBe(true);
+  });
+
+  it('includes check-ins', () => {
+    addHabit('Test');
+    const habits = getHabits();
+    toggleCheckIn(habits[0].id, '2026-07-01');
+    const exported = exportAllData();
+    expect(exported.checkIns.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('getCheckInsForHabit', () => {
+  it('returns empty array for non-existent habit', () => {
+    const result = getCheckInsForHabit('nonexistent');
+    expect(Array.isArray(result)).toBe(true);
+    expect(result.length).toBe(0);
+  });
+
+  it('returns check-ins for existing habit', () => {
+    addHabit('Test');
+    const habits = getHabits();
+    toggleCheckIn(habits[0].id, '2026-07-01');
+    const result = getCheckInsForHabit(habits[0].id);
+    expect(result.length).toBeGreaterThanOrEqual(1);
+    expect(result[0].date).toBe('2026-07-01');
   });
 });
