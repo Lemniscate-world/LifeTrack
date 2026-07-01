@@ -324,19 +324,24 @@ describe('Edge cases', () => {
 // CORRELATION — same-day habit pairs
 // ============================================================================
 describe('CORRELATION detection', () => {
-  it('detects when two habits often occur on the same day', () => {
+  it('detects when two habits are genuinely correlated (lift > 1.3)', () => {
     const habits = [
       makeHabit('h1', 'Exercise'),
       makeHabit('h2', 'Meditate'),
     ];
-    // 20 days where both are done, 5 where only Exercise
+    // 30 days: Exercise done 20 days. Meditate done 15 days total,
+    // but 14 of those 15 are on Exercise days.
+    // P(Meditate|Exercise) = 14/20 = 70%, P(Meditate overall) = 15/30 = 50%
+    // lift = 1.4 → detected
     const checks: CheckIn[] = [];
-    for (let d = 0; d < 25; d++) {
+    for (let d = 0; d < 30; d++) {
       const date = new Date(NOW);
       date.setUTCDate(date.getUTCDate() - d);
       const ds = date.toISOString().slice(0, 10);
-      checks.push(makeCheckIn('h1', ds, true)); // Exercise always done
-      checks.push(makeCheckIn('h2', ds, d < 20)); // Meditate only first 20
+      const exDone = d < 20;
+      checks.push(makeCheckIn('h1', ds, exDone));
+      const medDone = exDone ? (d < 14) : (d === 22);
+      checks.push(makeCheckIn('h2', ds, medDone));
     }
     const result = generateInsights(habits, checks, NOW);
     const corr = result.recommendations.filter((r) => r.kind === 'CORRELATION');
@@ -345,20 +350,31 @@ describe('CORRELATION detection', () => {
     expect(corr[0].habitIds).toContain('h2');
   });
 
-  it('does NOT flag correlation below 70%', () => {
+  it('does NOT flag when habits are independent (lift near 1.0)', () => {
     const habits = [
       makeHabit('h1', 'A'),
       makeHabit('h2', 'B'),
     ];
     const checks: CheckIn[] = [];
-    for (let d = 0; d < 20; d++) {
+    for (let d = 0; d < 30; d++) {
       const date = new Date(NOW);
       date.setUTCDate(date.getUTCDate() - d);
       const ds = date.toISOString().slice(0, 10);
-      checks.push(makeCheckIn('h1', ds, true));
-      checks.push(makeCheckIn('h2', ds, d < 8)); // only 40%
+      checks.push(makeCheckIn('h1', ds, d < 20)); // A done 20/30 = 67%
+      checks.push(makeCheckIn('h2', ds, d < 14)); // B done 14/30 = 47%
+      // P(B|A) = 14/20 = 70%, P(B) = 14/30 = 47%, lift = 1.5
+      // Actually this IS correlated... let me fix: B done equally regardless of A
     }
-    const result = generateInsights(habits, checks, NOW);
+    // Better test: A and B are independent
+    const checks2: CheckIn[] = [];
+    for (let d = 0; d < 30; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      const ds = date.toISOString().slice(0, 10);
+      checks2.push(makeCheckIn('h1', ds, d < 15)); // A done 15/30
+      checks2.push(makeCheckIn('h2', ds, d % 2 === 0)); // B done 15/30, unrelated
+    }
+    const result = generateInsights(habits, checks2, NOW);
     const corr = result.recommendations.filter((r) => r.kind === 'CORRELATION');
     expect(corr.length).toBe(0);
   });

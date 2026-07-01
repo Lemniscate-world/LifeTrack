@@ -144,7 +144,7 @@ function detectMissPatterns(
         .map((ci) => ci.date),
     );
     for (let w = 0; w < weeksToScan; w++) {
-      for (let d = 0; d < 7; d++) {
+      for (let d = 1; d < 7; d++) { // skip d=0 (today, may not be complete yet)
         const date = new Date(now);
         date.setUTCDate(date.getUTCDate() - w * 7 - d);
         const ds = date.toISOString().slice(0, 10);
@@ -267,7 +267,7 @@ function detectNeglected(
         title: `"${habit.name}" has no check-ins yet`,
         detail: 'Start tracking this habit to build momentum. Even a single check-in counts.',
         habitIds: [habit.id],
-        strength: 100,
+        strength: 60, // lower than genuinely neglected habits so they appear first
         actionLabel: 'Track now',
       });
       continue;
@@ -354,7 +354,7 @@ function detectPrimeTime(
         title: `"${habit.name}" prime days: ${bestDays.join(', ')}`,
         detail: `Over your tracking history, you complete "${habit.name}" most consistently on ${bestDays.join(' and ')}. These are the days where your routine is strongest — protect them.`,
         habitIds: [habit.id],
-        strength: Math.round((max / completedDates.length) * 7 * 100),
+        strength: Math.min(100, Math.round((max / completedDates.length) * 7 * 100)),
       });
     }
   }
@@ -372,8 +372,11 @@ function detectCorrelations(
   if (activeHabits.length < 2) return recs;
 
   // Build a map: date -> set of completed habit IDs
+  // Also track ALL dates (including days with no completions) for base rate
   const byDate = new Map<string, Set<string>>();
+  const allDatesSet = new Set<string>();
   for (const ci of checkIns) {
+    allDatesSet.add(ci.date);
     if (!ci.completed) continue;
     let set = byDate.get(ci.date);
     if (!set) {
@@ -383,9 +386,18 @@ function detectCorrelations(
     set.add(ci.habitId);
   }
 
-  // For each pair (A, B): on days where A is done, what % also have B done?
-  const days = Array.from(byDate.keys());
-  if (days.length < 10) return recs; // need enough data
+  const totalDays = allDatesSet.size;
+  if (totalDays < 14) return recs;
+
+  // Compute base rate over ALL days (including days with zero completions)
+  const baseRate = new Map<string, number>();
+  for (const h of activeHabits) {
+    let count = 0;
+    for (const [, habits] of byDate) {
+      if (habits.has(h.id)) count++;
+    }
+    baseRate.set(h.id, count / totalDays);
+  }
 
   for (let i = 0; i < activeHabits.length; i++) {
     for (let j = i + 1; j < activeHabits.length; j++) {
@@ -400,18 +412,21 @@ function detectCorrelations(
         }
       }
       if (aDays < 10) continue;
-      const rate = Math.round((bothDays / aDays) * 100);
-      if (rate >= 70) {
-        const anchor = rate >= 90 ? 'almost always' : rate >= 80 ? 'usually' : 'often';
-        recs.push({
-          kind: 'CORRELATION',
-          title: `"${a.name}" → "${b.name}" (${rate}% same-day)`,
-          detail: `On days you complete "${a.name}", you ${anchor} also complete "${b.name}" (${bothDays} of ${aDays} days). This is a naturally reinforcing pair.`,
-          habitIds: [a.id, b.id],
-          strength: rate,
-          actionLabel: 'Link now',
-        });
-      }
+      const pBgivenA = bothDays / aDays;
+      const pB = baseRate.get(b.id) ?? 0;
+      if (pB === 0) continue;
+      const lift = pBgivenA / pB;
+      if (lift < 1.3) continue;
+      const rate = Math.round(pBgivenA * 100);
+      const anchor = rate >= 90 ? 'almost always' : rate >= 80 ? 'usually' : 'often';
+      recs.push({
+        kind: 'CORRELATION',
+        title: `"${a.name}" → "${b.name}" (${rate}% same-day)`,
+        detail: `On days you complete "${a.name}", you ${anchor} also complete "${b.name}" (${bothDays} of ${aDays} days, ${Math.round(lift * 10) / 10}x base rate). This is a naturally reinforcing pair.`,
+        habitIds: [a.id, b.id],
+        strength: Math.min(100, Math.round(lift * 50)),
+        actionLabel: 'Link now',
+      });
     }
   }
   recs.sort((a, b) => b.strength - a.strength);
@@ -428,22 +443,22 @@ function detectTrends(
   const recs: Recommendation[] = [];
   for (const habit of habits) {
     if (habit.archived) continue;
-    // This month (last 30 days) vs last month (30-60 days ago)
-    const thisMonth = new Date(now);
-    thisMonth.setUTCDate(thisMonth.getUTCDate() - 30);
-    const thisMonthStr = thisMonth.toISOString().slice(0, 10);
-    const lastMonthStart = new Date(now);
-    lastMonthStart.setUTCDate(lastMonthStart.getUTCDate() - 60);
-    const lastMonthStartStr = lastMonthStart.toISOString().slice(0, 10);
-    const lastMonthEnd = new Date(now);
-    lastMonthEnd.setUTCDate(lastMonthEnd.getUTCDate() - 31);
-    const lastMonthEndStr = lastMonthEnd.toISOString().slice(0, 10);
+    // Use equal 30-day windows for fair comparison
+    const thisStart = new Date(now);
+    thisStart.setUTCDate(thisStart.getUTCDate() - 29);
+    const thisStartStr = thisStart.toISOString().slice(0, 10);
+    const lastEnd = new Date(now);
+    lastEnd.setUTCDate(lastEnd.getUTCDate() - 30);
+    const lastEndStr = lastEnd.toISOString().slice(0, 10);
+    const lastStart = new Date(now);
+    lastStart.setUTCDate(lastStart.getUTCDate() - 59);
+    const lastStartStr = lastStart.toISOString().slice(0, 10);
 
     const thisPeriod = checkIns.filter(
-      (ci) => ci.habitId === habit.id && ci.date >= thisMonthStr,
+      (ci) => ci.habitId === habit.id && ci.date >= thisStartStr,
     );
     const lastPeriod = checkIns.filter(
-      (ci) => ci.habitId === habit.id && ci.date >= lastMonthStartStr && ci.date <= lastMonthEndStr,
+      (ci) => ci.habitId === habit.id && ci.date >= lastStartStr && ci.date <= lastEndStr,
     );
 
     const thisRate = thisPeriod.length > 0

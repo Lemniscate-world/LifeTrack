@@ -65,6 +65,12 @@ function sanitizeData(raw: unknown): AppData {
     }
     if (h.chaosImpact !== undefined && (typeof h.chaosImpact !== 'number' || !Number.isFinite(h.chaosImpact))) return false;
     if (h.chaosThresholdDays !== undefined && (typeof h.chaosThresholdDays !== 'number' || h.chaosThresholdDays < 1 || !Number.isFinite(h.chaosThresholdDays))) return false;
+    // Validate why/intentions: if present, must be an array of strings, max 5
+    if (h.why !== undefined) {
+      if (!Array.isArray(h.why)) return false;
+      if (h.why.length > 5) return false;
+      if (h.why.some((s: unknown) => typeof s !== 'string')) return false;
+    }
     return true;
   }
   function isValidCheckIn(x: unknown): x is CheckIn {
@@ -113,12 +119,12 @@ function readEnvelope(key: string): AppData | null {
   }
 }
 
-// --- Load: try primary, then backup, then file backup, then legacy migration, then empty ---
+// --- Load: try primary, then backup, then legacy migration, then empty ---
 function loadData(): AppData {
   if (!isLocalStorageAvailable()) {
-    // localStorage may be unavailable but the file backup could save us
-    const fileData = loadFromFileSync();
-    if (fileData) return fileData;
+    // localStorage unavailable (private browsing, storage full).
+    // The file backup at %APPDATA%/LifeTrack/ can be imported manually
+    // via the Import JSON button in the export menu.
     return freshData();
   }
   const primary = readEnvelope(STORAGE_KEY);
@@ -128,52 +134,10 @@ function loadData(): AppData {
     console.warn('Primary storage corrupted or missing — recovered from backup');
     return backup;
   }
-  // Try file-based backup as tertiary fallback
-  tryFileLoad().then((fileData) => {
-    if (fileData) {
-      console.warn('localStorage corrupted — recovered from file backup. Restoring localStorage...');
-      // Restore localStorage from file backup
-      writeEnvelope(STORAGE_KEY, fileData);
-      writeEnvelope(BACKUP_KEY, fileData);
-      // Force reload of data state
-      window.dispatchEvent(new CustomEvent('lifetrack-file-restore', { detail: fileData }));
-    }
-  }).catch(() => {});
   // Last resort: try to read raw legacy JSON and migrate it
   const migrated = migrateLegacyPrimaryData();
   if (migrated) return migrated;
   return freshData();
-}
-
-// Synchronous file load (used when localStorage is completely unavailable)
-function loadFromFileSync(): AppData | null {
-  // File load is inherently async with Tauri — return null and let the async path handle it
-  return null;
-}
-
-// Async file load (fires after localStorage checks fail)
-async function tryFileLoad(): Promise<AppData | null> {
-  try {
-    const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-    if (!isTauriEnv) return null;
-    const [{ appDataDir }, { readTextFile, exists }] = await Promise.all([
-      import('@tauri-apps/api/path'),
-      import('@tauri-apps/plugin-fs'),
-    ]);
-    const dir = await appDataDir();
-    const fullPath = `${dir}LifeTrack/${FILE_BACKUP_NAME}`;
-    const fileExists = await exists(fullPath).catch(() => false);
-    if (!fileExists) return null;
-    const raw = await readTextFile(fullPath);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return null;
-    // Minimal validation: must have a habits array
-    if (!Array.isArray(parsed.habits)) return null;
-    return sanitizeData(parsed);
-  } catch {
-    return null;
-  }
 }
 
 function freshData(): AppData {
@@ -544,12 +508,17 @@ export function updateHabit(id: string, updates: Partial<Habit>): void {
       cleaned.chaosThresholdDays = undefined;
     }
     // Validate why/intentions: trim, remove empty, cap at 5
-    if ('why' in cleaned && Array.isArray(cleaned.why)) {
-      cleaned.why = cleaned.why
-        .map((s) => (typeof s === 'string' ? s.trim() : ''))
-        .filter((s) => s.length > 0)
-        .slice(0, 5);
-      if (cleaned.why.length === 0) cleaned.why = undefined;
+    if ('why' in cleaned) {
+      if (Array.isArray(cleaned.why)) {
+        cleaned.why = cleaned.why
+          .map((s) => (typeof s === 'string' ? s.trim() : ''))
+          .filter((s) => s.length > 0)
+          .slice(0, 5);
+        if (cleaned.why.length === 0) cleaned.why = undefined;
+      } else {
+        // Non-array value — discard it to avoid corrupting the habit
+        delete cleaned.why;
+      }
     }
     data.habits[idx] = { ...data.habits[idx], ...cleaned };
     notify();

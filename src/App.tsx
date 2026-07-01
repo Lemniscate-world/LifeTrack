@@ -792,8 +792,9 @@ const MONTH_NAMES = [
                           <button
                             className={`habit-why-btn ${(habit.why?.length ?? 0) > 0 ? 'has-intentions' : ''}`}
                             onClick={() => {
-                              setEditingWhyHabitId(editingWhyHabitId === habit.id ? null : habit.id);
-                              setEditWhyText('');
+                              const isOpening = editingWhyHabitId !== habit.id;
+                              setEditingWhyHabitId(isOpening ? habit.id : null);
+                              setEditWhyText(''); // always reset when toggling
                             }}
                             title={(habit.why?.length ?? 0) > 0 ? `${habit.why!.length} intention(s)` : 'Add intentions (why?)'}
                           >
