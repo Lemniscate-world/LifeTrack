@@ -592,8 +592,10 @@ const MONTH_NAMES = [
 
   return (
     <div className="app">
+      {/* Skip link for keyboard users */}
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       {/* Navbar — minimal */}
-      <nav className="navbar">
+      <nav className="navbar" aria-label="Main navigation">
         <span className="logo">
           <svg className="logo-icon" width="26" height="26" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
             {/* Rounded square background */}
@@ -629,14 +631,14 @@ const MONTH_NAMES = [
           </span>
         </span>
         <div className="nav-actions">
-          <button className="btn-icon" onClick={cycleTheme} title={`Theme: ${themeLabels[themes.indexOf(theme)]}`}>
+          <button className="btn-icon" onClick={cycleTheme} title={`Theme: ${themeLabels[themes.indexOf(theme)]}`} aria-label={`Current theme: ${themeLabels[themes.indexOf(theme)]}. Click to switch.`}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
             </svg>
           </button>
           <div className="export-dropdown">
-            <button className="btn-icon" title="Export data">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <button className="btn-icon" title="Export data" aria-label="Export or restore data">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
               </svg>
             </button>
@@ -661,8 +663,8 @@ const MONTH_NAMES = [
               }}>Restore from Backup</button>
             </div>
           </div>
-          <button className="btn-icon" onClick={() => setDarkMode(!darkMode)} title="Toggle dark mode">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <button className="btn-icon" onClick={() => setDarkMode(!darkMode)} title="Toggle dark mode" aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
             </svg>
           </button>
@@ -670,23 +672,23 @@ const MONTH_NAMES = [
       </nav>
 
       {/* Toolbar: month selector + tabs */}
-      <div className="toolbar">
+      <div className="toolbar" id="main-content">
         <div className="month-selector">
-          <button className="month-arrow" onClick={prevMonth}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
+          <button className="month-arrow" onClick={prevMonth} title="Previous month" aria-label="Previous month">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
-          <span className="month-label">{MONTH_NAMES[month]}, {year}</span>
-          <button className="month-arrow" onClick={nextMonth}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+          <span className="month-label" aria-live="polite">{MONTH_NAMES[month]}, {year}</span>
+          <button className="month-arrow" onClick={nextMonth} title="Next month" aria-label="Next month">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
         </div>
-        <div className="view-tabs">
-          <button className={`view-tab ${view === 'grid' ? 'active' : ''}`} onClick={() => setView('grid')}>Grid</button>
-          <button className={`view-tab ${view === 'stats' ? 'active' : ''}`} onClick={() => setView('stats')}>Statistics</button>
-          <button className={`view-tab ${view === 'history' ? 'active' : ''}`} onClick={() => setView('history')}>History</button>
-          <button className={`view-tab ${view === 'stacks' ? 'active' : ''}`} onClick={() => setView('stacks')}>Stacks</button>
-          <button className={`view-tab ${view === 'insights' ? 'active' : ''}`} onClick={() => setView('insights')}>💡 Insights</button>
-          <button className={`view-tab ${view === 'chaos' ? 'active' : ''}`} onClick={() => setView('chaos')}>Chaos</button>
+        <div className="view-tabs" role="tablist" aria-label="View selector">
+          <button role="tab" aria-selected={view === 'grid'} className={`view-tab ${view === 'grid' ? 'active' : ''}`} onClick={() => setView('grid')}>Grid</button>
+          <button role="tab" aria-selected={view === 'stats'} className={`view-tab ${view === 'stats' ? 'active' : ''}`} onClick={() => setView('stats')}>Statistics</button>
+          <button role="tab" aria-selected={view === 'history'} className={`view-tab ${view === 'history' ? 'active' : ''}`} onClick={() => setView('history')}>History</button>
+          <button role="tab" aria-selected={view === 'stacks'} className={`view-tab ${view === 'stacks' ? 'active' : ''}`} onClick={() => setView('stacks')}>Stacks</button>
+          <button role="tab" aria-selected={view === 'insights'} className={`view-tab ${view === 'insights' ? 'active' : ''}`} onClick={() => setView('insights')}>💡 Insights</button>
+          <button role="tab" aria-selected={view === 'chaos'} className={`view-tab ${view === 'chaos' ? 'active' : ''}`} onClick={() => setView('chaos')}>Chaos</button>
         </div>
       </div>
 

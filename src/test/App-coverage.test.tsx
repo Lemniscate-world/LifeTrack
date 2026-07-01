@@ -39,7 +39,7 @@ describe('Insights with seeded data', () => {
     // Click the action button for the NEGLECTED recommendation
     await user.click(screen.getByText('Track now'));
     // Should navigate to grid (InsightsView's NEGLECTED action: onView('grid'))
-    const gridBtn = screen.getByRole('button', { name: 'Grid' });
+    const gridBtn = screen.getByRole('tab', { name: 'Grid' });
     expect(gridBtn.className).toContain('active');
   });
 
@@ -233,8 +233,8 @@ describe('All views accessible after adding habits', () => {
 
     const tabs = ['Grid', 'Statistics', 'History', 'Stacks', 'Chaos', '💡 Insights'];
     for (const t of tabs) {
-      // click the tab button (use role=button to avoid text collisions)
-      const btns = screen.getAllByRole('button', { name: new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) });
+      // click the tab button (use role=tab)
+      const btns = screen.getAllByRole('tab', { name: new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) });
       if (btns.length > 0) await user.click(btns[0]);
     }
     // verify we're rendering content (Insights shows h2 heading)
