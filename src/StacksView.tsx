@@ -34,7 +34,8 @@ export function StacksView({ habits, checkIns }: Props) {
 
   if (stacks.length === 0) {
     return (
-      <div className="stacks-container">
+      <div className="stacks-container" role="region" aria-label="Habit stacks">
+
         <h2 className="stacks-title">Habit Stacks</h2>
         <p className="stacks-empty">
           No stacks yet. Click the link icon on any habit row to anchor it to another
@@ -45,7 +46,7 @@ export function StacksView({ habits, checkIns }: Props) {
   }
 
   return (
-    <div className="stacks-container">
+    <div className="stacks-container" role="region" aria-label="Habit stacks">
       <h2 className="stacks-title">Habit Stacks</h2>
       <p className="stacks-hint">
         Children are <em>blocked</em> until their parent is checked for today. Use the

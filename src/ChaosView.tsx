@@ -17,9 +17,9 @@ export default function ChaosView() {
   const { dimensions, overallPct, linkedHabitCount } = report;
 
   return (
-    <div className="chaos-container">
+    <div className="chaos-container" aria-label="Chaos pressure dashboard">
       <div className="chaos-header">
-        <div className="chaos-gauge">
+        <div className="chaos-gauge" role="meter" aria-valuenow={overallPct} aria-valuemin={0} aria-valuemax={100} aria-label={`Chaos pressure: ${overallPct} percent`}>
           <svg viewBox="0 0 120 120" className="chaos-ring">
             <circle cx="60" cy="60" r="50" fill="none" stroke="var(--border)" strokeWidth="10" />
             <circle

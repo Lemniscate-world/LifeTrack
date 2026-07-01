@@ -77,7 +77,7 @@ export function HistoryView({ checkIns, habits, today = new Date(), dayWindow = 
   }
 
   return (
-    <div className="history-container">
+    <div className="history-container" role="region" aria-label="Check-in history timeline">
       <div className="history-controls">
         <label className="history-filter">
           <span>Habit:</span>
