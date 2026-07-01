@@ -253,6 +253,28 @@ const MONTH_NAMES = [
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [view, habits, focusDay, focusHabitIdx, year, month, daysInMonth]);
 
+  // Global keyboard shortcuts (tab switching, save) — active in all views
+  useEffect(() => {
+    function onGlobalKey(e: KeyboardEvent) {
+      const ctrl = e.ctrlKey || e.metaKey;
+      // Tab switching: Ctrl+1..6
+      if (ctrl && e.key >= '1' && e.key <= '6') {
+        e.preventDefault();
+        const tabs: Array<'grid' | 'stats' | 'history' | 'stacks' | 'insights' | 'chaos'> = ['grid', 'stats', 'history', 'stacks', 'insights', 'chaos'];
+        const idx = parseInt(e.key, 10) - 1;
+        if (idx < tabs.length) setView(tabs[idx]);
+      }
+      // Ctrl+S: save indicator (already auto-saved, but gives user confidence)
+      if (ctrl && e.key === 's') {
+        e.preventDefault();
+        flushSave();
+        setSavedMsg('Saved just now');
+      }
+    }
+    window.addEventListener('keydown', onGlobalKey);
+    return () => window.removeEventListener('keydown', onGlobalKey);
+  }, []);
+
   useEffect(() => {
     if (darkMode) {
       document.documentElement.classList.add('dark');
