@@ -3,7 +3,7 @@
  * Covers the previously 0%-coverage chaos visualization.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import {
   addHabit,
   getChaosTriggersForDimension,
@@ -14,6 +14,7 @@ import {
   getDefaultChaosDimensions,
   resetStore,
 } from '../store';
+import ChaosView from '../ChaosView';
 
 beforeEach(() => {
   resetStore();
@@ -77,5 +78,26 @@ describe('Chaos linkage', () => {
     resetChaos();
     const triggers = getChaosTriggersForDimension('physical');
     expect(triggers.length).toBe(0);
+  });
+});
+
+describe('ChaosView UI', () => {
+  it('renders with no linked habits', () => {
+    render(<ChaosView />);
+    expect(screen.getByText('Chaos Pressure')).toBeInTheDocument();
+    expect(screen.getByText('No habits linked yet')).toBeInTheDocument();
+  });
+
+  it('renders habit names when habits are linked to chaos', () => {
+    addHabit('Gym', { chaosDimension: 'physical', chaosImpact: 30, chaosThresholdDays: 3 });
+    addHabit('Budget', { chaosDimension: 'financial', chaosImpact: 40, chaosThresholdDays: 5 });
+    render(<ChaosView />);
+    // Habit names should appear in dimension lists
+    const gymTexts = screen.getAllByText('Gym');
+    expect(gymTexts.length).toBeGreaterThanOrEqual(1);
+    const budgetTexts = screen.getAllByText('Budget');
+    expect(budgetTexts.length).toBeGreaterThanOrEqual(1);
+    // Linked count
+    expect(screen.getByText('2 habits tracked across dimensions')).toBeInTheDocument();
   });
 });
