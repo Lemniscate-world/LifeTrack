@@ -298,6 +298,42 @@ function scheduleFileBackup(d: AppData): void {
   }, FILE_BACKUP_DEBOUNCE_MS);
 }
 
+// --- Periodic auto-backup (every 15 min) ---
+// Guarantees a disk copy even if the user is idle and no saves are triggered.
+// Only active in Tauri (desktop); no-op in browser.
+const PERIODIC_BACKUP_MS = 15 * 60 * 1000; // 15 minutes
+let periodicBackupTimer: ReturnType<typeof setInterval> | null = null;
+
+function startPeriodicBackup(): void {
+  if (periodicBackupTimer !== null) return;
+  const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+  if (!isTauriEnv) return;
+  periodicBackupTimer = setInterval(() => {
+    try {
+      // Only write if data has changed since last save.
+      // We reuse scheduleFileBackup which has its own debounce.
+      scheduleFileBackup(data);
+    } catch {
+      // Best-effort — silent failure.
+    }
+  }, PERIODIC_BACKUP_MS);
+}
+
+function stopPeriodicBackup(): void {
+  if (periodicBackupTimer !== null) {
+    clearInterval(periodicBackupTimer);
+    periodicBackupTimer = null;
+  }
+}
+
+// Start periodic backup at module init; clean up on page unload.
+if (typeof window !== 'undefined') {
+  startPeriodicBackup();
+  window.addEventListener('beforeunload', () => {
+    stopPeriodicBackup();
+  });
+}
+
 // --- Debounced save ---
 const SAVE_DEBOUNCE_MS = 100; // fast save to minimize data loss window
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
