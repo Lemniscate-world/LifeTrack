@@ -134,13 +134,19 @@ const MONTH_NAMES = [
         const parsed = JSON.parse(backup);
         if (!parsed?.habits?.length) return;
 
-        const ok = window.confirm(
-          `A backup with ${parsed.habits.length} habits and ${parsed.checkIns?.length || 0} check-ins was found.\n\nRestore it now?`
-        );
-        if (!ok) return;
-
+        // Auto-restore silently — no prompt. User opted in via "I want them at reinstall".
         const result = mergeImportedData(parsed);
-        alert(`Restore successful: ${result.habitsCreated} habits added, ${result.checkInsRestored} check-ins restored.`);
+        console.info(
+          `[LifeTrack] Auto-restored from backup: ${result.habitsCreated} habits, ${result.checkInsRestored} check-ins, ${result.notesCreated} notes.`
+        );
+        if (result.habitsCreated > 0 || result.checkInsRestored > 0) {
+          alert(
+            `Backup restored automatically:\n` +
+            `• ${result.habitsCreated} habits added\n` +
+            `• ${result.checkInsRestored} check-ins restored\n` +
+            `• ${result.notesCreated} notes restored`
+          );
+        }
       } catch (e) {
         console.error('auto-restore failed:', e);
       }
@@ -613,8 +619,8 @@ const MONTH_NAMES = [
             />
             <defs>
               <linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#a78bfa" />
-                <stop offset="100%" stopColor="#6d28d9" />
+                <stop offset="0%" stopColor="#94a3b8" />
+                <stop offset="100%" stopColor="#475569" />
               </linearGradient>
             </defs>
           </svg>

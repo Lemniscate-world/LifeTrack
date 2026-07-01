@@ -9,6 +9,7 @@
  */
 
 import type { Habit, CheckIn } from './types';
+import { computeStreakStats } from './stats';
 
 // --- Recommendation types ---
 
@@ -69,48 +70,6 @@ function habitCheckDates(habitId: string, checkIns: CheckIn[]): string[] {
   }
   dates.sort();
   return dates;
-}
-
-function currentStreak(habitId: string, checkIns: CheckIn[], now: Date): number {
-  let streak = 0;
-  // Start from yesterday — today may not be complete yet.
-  const cursor = new Date(now);
-  cursor.setUTCHours(0, 0, 0, 0);
-  cursor.setUTCDate(cursor.getUTCDate() - 1);
-  const completedSet = new Set(habitCheckDates(habitId, checkIns));
-  while (true) {
-    const ds = cursor.toISOString().slice(0, 10);
-    if (completedSet.has(ds)) {
-      streak++;
-      cursor.setUTCDate(cursor.getUTCDate() - 1);
-    } else {
-      break;
-    }
-  }
-  return streak;
-}
-
-function bestStreakFromCheckIns(habitId: string, checkIns: CheckIn[]): number {
-  const dates = habitCheckDates(habitId, checkIns);
-  if (dates.length === 0) return 0;
-  const dateSet = new Set(dates);
-  let best = 0;
-  let run = 0;
-  // Iterate from earliest to latest
-  const minDate = new Date(dates[0] + 'T00:00:00Z');
-  const maxDate = new Date(dates[dates.length - 1] + 'T00:00:00Z');
-  const cursor = new Date(minDate);
-  while (cursor <= maxDate) {
-    const ds = cursor.toISOString().slice(0, 10);
-    if (dateSet.has(ds)) {
-      run++;
-      if (run > best) best = run;
-    } else {
-      run = 0;
-    }
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-  return best;
 }
 
 // --- Rule 1: Miss pattern detection ---
@@ -180,7 +139,6 @@ function detectStackSuggestions(
   habits: Habit[],
   checkIns: CheckIn[],
 ): Recommendation[] {
-  const recs: Recommendation[] = [];
   const activeHabits = habits.filter((h) => !h.archived);
   const stacked = new Set(habits.filter((h) => h.stackParent).map((h) => h.id));
 
@@ -198,6 +156,11 @@ function detectStackSuggestions(
     rate30.set(habit.id, total >= 7 ? completed / total : 0);
   }
 
+  // Track best parent per child so the same habit isn't suggested as a stack
+  // target multiple times (e.g. "stack Read after Coffee" and "stack Read
+  // after Gym" — only the strongest parent wins).
+  const bestPerChild = new Map<string, Recommendation>();
+
   for (const child of activeHabits) {
     if (stacked.has(child.id)) continue; // already stacked
     for (const parent of activeHabits) {
@@ -206,17 +169,22 @@ function detectStackSuggestions(
       const parentRate = rate30.get(parent.id) ?? 0;
       const childRate = rate30.get(child.id) ?? 0;
       if (parentRate >= STACK_CORRELATION_MIN && childRate < parentRate) {
-        recs.push({
+        const candidate: Recommendation = {
           kind: 'STACK_SUGGESTION',
           title: `Stack "${child.name}" after "${parent.name}"`,
           detail: `"${parent.name}" has a ${Math.round(parentRate * 100)}% completion rate over the last 30 days, while "${child.name}" is at ${Math.round(childRate * 100)}%. Linking them could anchor the new habit to an existing strong routine.`,
           habitIds: [child.id, parent.id],
           strength: Math.round(parentRate * 100),
           actionLabel: 'Link now',
-        });
+        };
+        const existing = bestPerChild.get(child.id);
+        if (!existing || candidate.strength > existing.strength) {
+          bestPerChild.set(child.id, candidate);
+        }
       }
     }
   }
+  const recs = Array.from(bestPerChild.values());
   // Only return top 2
   recs.sort((a, b) => b.strength - a.strength);
   return recs.slice(0, 2);
@@ -232,9 +200,13 @@ function detectRecordApproaches(
   const recs: Recommendation[] = [];
   for (const habit of habits) {
     if (habit.archived) continue;
-    const best = habit.bestStreak ?? bestStreakFromCheckIns(habit.id, checkIns);
+    // Use computeStreakStats from stats.ts to stay consistent with the rest
+    // of the app. This ensures the streak shown in "X days from your record"
+    // matches what the user sees in the streak stats UI.
+    const stats = computeStreakStats(habit, checkIns, now);
+    const best = habit.bestStreak ?? stats.best;
     if (best < 5) continue; // only flag meaningful streaks
-    const current = currentStreak(habit.id, checkIns, now);
+    const current = stats.current;
     const gap = best - current;
     if (gap > 0 && gap <= RECORD_PROXIMITY_DAYS) {
       recs.push({
@@ -322,7 +294,9 @@ function detectRecoveryPatterns(
       strength: Math.min(100, Math.round((7 - Math.min(avgGap, 7)) / 7 * 100)),
     });
   }
-  return recs;
+  // Cap to top 3 to avoid drowning other recommendations on big habit lists
+  recs.sort((a, b) => b.strength - a.strength);
+  return recs.slice(0, 3);
 }
 
 // --- Rule 6: Prime time ---
@@ -412,6 +386,10 @@ function detectCorrelations(
         }
       }
       if (aDays < 10) continue;
+      // Require at least 3 co-occurrences to avoid spurious "high lift" from
+      // a single lucky day (e.g. 1 co-occurrence out of 10 A-days vs base 0.05
+      // = 2.0x lift looks impressive but is meaningless).
+      if (bothDays < 3) continue;
       const pBgivenA = bothDays / aDays;
       const pB = baseRate.get(b.id) ?? 0;
       if (pB === 0) continue;

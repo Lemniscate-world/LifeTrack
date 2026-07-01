@@ -92,6 +92,84 @@ function sanitizeData(raw: unknown): AppData {
   };
 }
 
+// --- Deduplicate habits in place ---
+// Defensive cleanup for data that may have been corrupted by older versions
+// of the import flow that did not deduplicate by name. Groups habits by
+// normalized name, keeps the primary (first by order) for each group, and
+// remaps all check-ins and notes from duplicate IDs to the primary. Orphan
+// check-ins (referencing deleted/missing habits) are kept but logged so the
+// data is not silently destroyed.
+export function deduplicateDataInPlace(d: AppData): { removed: number; remappedCheckIns: number; remappedNotes: number; orphanCheckIns: number; orphanNotes: number } {
+  const result = { removed: 0, remappedCheckIns: 0, remappedNotes: 0, orphanCheckIns: 0, orphanNotes: 0 };
+  if (!d.habits || d.habits.length === 0) return result;
+
+  // Group habits by normalized name, preserving insertion order
+  const groups = new Map<string, Habit[]>();
+  for (const habit of d.habits) {
+    const key = normalizeHabitName(habit.name);
+    const list = groups.get(key);
+    if (list) list.push(habit);
+    else groups.set(key, [habit]);
+  }
+
+  // Build id -> primary id map for duplicates
+  const idRemap = new Map<string, string>();
+  const survivors: Habit[] = [];
+  for (const [, list] of groups) {
+    if (list.length === 1) {
+      survivors.push(list[0]);
+      continue;
+    }
+    // Primary = first by order, tiebreak by createdAt ascending
+    const sorted = [...list].sort((a, b) => {
+      if (a.order !== b.order) return a.order - b.order;
+      return (a.createdAt || '').localeCompare(b.createdAt || '');
+    });
+    const primary = sorted[0];
+    survivors.push(primary);
+    for (const dup of sorted.slice(1)) {
+      idRemap.set(dup.id, primary.id);
+      result.removed++;
+    }
+  }
+
+  d.habits = survivors;
+
+  // Remap check-ins: known duplicates -> primary; orphans stay but are logged
+  if (d.checkIns) {
+    for (const ci of d.checkIns) {
+      const remapped = idRemap.get(ci.habitId);
+      if (remapped) {
+        ci.habitId = remapped;
+        result.remappedCheckIns++;
+      } else if (!survivors.find((h) => h.id === ci.habitId)) {
+        result.orphanCheckIns++;
+      }
+    }
+  }
+
+  // Remap notes similarly
+  if (d.notes) {
+    for (const note of d.notes) {
+      if (!note.habitId) continue;
+      const remapped = idRemap.get(note.habitId);
+      if (remapped) {
+        note.habitId = remapped;
+        result.remappedNotes++;
+      } else if (!survivors.find((h) => h.id === note.habitId)) {
+        result.orphanNotes++;
+      }
+    }
+  }
+
+  if (result.removed > 0 || result.orphanCheckIns > 0 || result.orphanNotes > 0) {
+    console.info(
+      `[LifeTrack] Dedupe: removed ${result.removed} duplicate habits, remapped ${result.remappedCheckIns} check-ins, ${result.remappedNotes} notes. Orphaned: ${result.orphanCheckIns} check-ins, ${result.orphanNotes} notes.`
+    );
+  }
+  return result;
+}
+
 // --- Read envelope from a key, verifying checksum ---
 function readEnvelope(key: string): AppData | null {
   if (!isLocalStorageAvailable()) return null;
@@ -128,10 +206,14 @@ function loadData(): AppData {
     return freshData();
   }
   const primary = readEnvelope(STORAGE_KEY);
-  if (primary) return primary;
+  if (primary) {
+    deduplicateDataInPlace(primary);
+    return primary;
+  }
   const backup = readEnvelope(BACKUP_KEY);
   if (backup) {
     console.warn('Primary storage corrupted or missing — recovered from backup');
+    deduplicateDataInPlace(backup);
     return backup;
   }
   // Last resort: try to read raw legacy JSON and migrate it

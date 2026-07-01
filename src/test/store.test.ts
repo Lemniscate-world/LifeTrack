@@ -28,6 +28,7 @@ import {
   computeChaosReport,
   mergeImportedData,
   recomputeHabitRecords,
+  deduplicateDataInPlace,
 } from '../store';
 
 // Reset store state between tests for full isolation
@@ -1273,5 +1274,141 @@ describe('Persistent habit records (bestStreak, longestGap, totalCompleted)', ()
     const h = getHabits().find((x) => x.id === 'legacy-1');
     expect(h).toBeDefined();
     expect(h!.bestStreak).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('deduplicateDataInPlace', () => {
+  it('keeps a single habit untouched', () => {
+    const data = {
+      habits: [
+        { id: 'h1', name: 'Gym', color: '#fff', goal: 0, createdAt: '2026-01-01T00:00:00.000Z', archived: false, order: 0 },
+      ],
+      checkIns: [],
+      notes: [],
+      chaosDimensions: [],
+    };
+    const result = deduplicateDataInPlace(data);
+    expect(result.removed).toBe(0);
+    expect(data.habits).toHaveLength(1);
+    expect(data.habits[0].id).toBe('h1');
+  });
+
+  it('removes duplicate habits by normalized name', () => {
+    const data = {
+      habits: [
+        { id: 'gym-1', name: 'Gym', color: '#fff', goal: 0, createdAt: '2026-01-01T00:00:00.000Z', archived: false, order: 0 },
+        { id: 'gym-2', name: 'gym', color: '#fff', goal: 0, createdAt: '2026-01-02T00:00:00.000Z', archived: false, order: 1 },
+        { id: 'gym-3', name: ' GYM ', color: '#fff', goal: 0, createdAt: '2026-01-03T00:00:00.000Z', archived: false, order: 2 },
+        { id: 'run-1', name: 'Run', color: '#fff', goal: 0, createdAt: '2026-01-04T00:00:00.000Z', archived: false, order: 3 },
+      ],
+      checkIns: [],
+      notes: [],
+      chaosDimensions: [],
+    };
+    const result = deduplicateDataInPlace(data);
+    expect(result.removed).toBe(2);
+    expect(data.habits).toHaveLength(2);
+    // First by order wins (gym-1)
+    expect(data.habits.find((h) => h.id === 'gym-1')).toBeDefined();
+    expect(data.habits.find((h) => h.id === 'gym-2')).toBeUndefined();
+    expect(data.habits.find((h) => h.id === 'gym-3')).toBeUndefined();
+  });
+
+  it('remaps check-ins from duplicate habit IDs to the surviving primary', () => {
+    const data = {
+      habits: [
+        { id: 'gym-1', name: 'Gym', color: '#fff', goal: 0, createdAt: '2026-01-01T00:00:00.000Z', archived: false, order: 0 },
+        { id: 'gym-2', name: 'Gym', color: '#fff', goal: 0, createdAt: '2026-01-02T00:00:00.000Z', archived: false, order: 1 },
+        { id: 'run-1', name: 'Run', color: '#fff', goal: 0, createdAt: '2026-01-03T00:00:00.000Z', archived: false, order: 2 },
+      ],
+      checkIns: [
+        { habitId: 'gym-2', date: '2026-06-15', completed: true },
+        { habitId: 'gym-2', date: '2026-06-16', completed: false },
+        { habitId: 'gym-1', date: '2026-06-14', completed: true },
+        { habitId: 'run-1', date: '2026-06-15', completed: true },
+      ],
+      notes: [],
+      chaosDimensions: [],
+    };
+    const result = deduplicateDataInPlace(data);
+    expect(result.removed).toBe(1);
+    expect(result.remappedCheckIns).toBe(2);
+    // All Gym check-ins should now point to gym-1
+    const gymCheckIns = data.checkIns.filter((c) => c.habitId === 'gym-1');
+    expect(gymCheckIns).toHaveLength(3);
+    expect(data.checkIns.find((c) => c.date === '2026-06-15' && c.habitId === 'gym-1')).toBeDefined();
+  });
+
+  it('remaps notes from duplicate habit IDs to the surviving primary', () => {
+    const data = {
+      habits: [
+        { id: 'h1', name: 'Gym', color: '#fff', goal: 0, createdAt: '2026-01-01T00:00:00.000Z', archived: false, order: 0 },
+        { id: 'h2', name: 'Gym', color: '#fff', goal: 0, createdAt: '2026-01-02T00:00:00.000Z', archived: false, order: 1 },
+      ],
+      checkIns: [],
+      notes: [
+        { id: 'n1', habitId: 'h2', content: 'note on duplicate', createdAt: '2026-06-01' },
+        { id: 'n2', habitId: 'h1', content: 'note on primary', createdAt: '2026-06-02' },
+        { id: 'n3', habitId: 'orphan', content: 'orphan note', createdAt: '2026-06-03' },
+      ],
+      chaosDimensions: [],
+    };
+    const result = deduplicateDataInPlace(data);
+    expect(result.remappedNotes).toBe(1);
+    expect(result.orphanNotes).toBe(1);
+    // n1 remapped to h1
+    expect(data.notes.find((n) => n.id === 'n1')!.habitId).toBe('h1');
+    // n3 kept but flagged as orphan
+    expect(data.notes.find((n) => n.id === 'n3')).toBeDefined();
+  });
+
+  it('counts but keeps orphan check-ins referencing missing habits', () => {
+    const data = {
+      habits: [
+        { id: 'h1', name: 'Gym', color: '#fff', goal: 0, createdAt: '2026-01-01T00:00:00.000Z', archived: false, order: 0 },
+      ],
+      checkIns: [
+        { habitId: 'h1', date: '2026-06-15', completed: true },
+        { habitId: 'ghost-1', date: '2026-06-16', completed: true },
+        { habitId: 'ghost-2', date: '2026-06-17', completed: false },
+      ],
+      notes: [],
+      chaosDimensions: [],
+    };
+    const result = deduplicateDataInPlace(data);
+    expect(result.orphanCheckIns).toBe(2);
+    // Orphans are preserved (not destroyed)
+    expect(data.checkIns.find((c) => c.habitId === 'ghost-1')).toBeDefined();
+    expect(data.checkIns.find((c) => c.habitId === 'ghost-2')).toBeDefined();
+  });
+
+  it('handles a realistic corrupt backup: 326 habits -> 9 survivors', () => {
+    // Simulate the real-world corruption from the production backup file
+    const names = ['Sprint', 'No PMO', 'Coffee Control', 'Fasting', 'Gym', 'Deload', 'Meditation', 'Training In The Rain', 'Saving Routine'];
+    const habits: { id: string; name: string; color: string; goal: number; createdAt: string; archived: boolean; order: number }[] = [];
+    let order = 0;
+    for (const name of names) {
+      const copies = (name === 'Sprint') ? 66 : (name === 'Deload' || name === 'Meditation' || name === 'Training In The Rain' || name === 'Saving Routine') ? 1 : 64;
+      for (let i = 0; i < copies; i++) {
+        habits.push({ id: `${name.toLowerCase().replace(/\s+/g, '-')}-${i}`, name, color: '#fff', goal: 0, createdAt: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00.000Z`, archived: false, order: order++ });
+      }
+    }
+    const data = { habits, checkIns: [], notes: [], chaosDimensions: [] };
+    expect(data.habits).toHaveLength(326);
+
+    const result = deduplicateDataInPlace(data);
+    expect(data.habits).toHaveLength(9);
+    expect(result.removed).toBe(317);
+    // Each name appears exactly once
+    for (const name of names) {
+      expect(data.habits.filter((h) => h.name === name)).toHaveLength(1);
+    }
+  });
+
+  it('handles empty data without throwing', () => {
+    const data = { habits: [], checkIns: [], notes: [], chaosDimensions: [] };
+    const result = deduplicateDataInPlace(data);
+    expect(result.removed).toBe(0);
+    expect(data.habits).toHaveLength(0);
   });
 });

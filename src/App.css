@@ -6,9 +6,9 @@
   --text-secondary: #6b7280;
   --text-muted: #9ca3af;
   --border: #e5e7eb;
-  --primary: #7c3aed;
-  --primary-light: #a78bfa;
-  --primary-dark: #6d28d9;
+  --primary: #64748b;
+  --primary-light: #94a3b8;
+  --primary-dark: #475569;
   --accent: #06b6d4;
   --accent-light: #67e8f9;
   --surface: #ffffff;
@@ -469,7 +469,7 @@ body {
 }
 
 .col-day.today {
-  background: #ede9fe;
+  background: #f1f5f9;
 }
 
 .dark .col-day.today {
@@ -500,7 +500,7 @@ body {
 
 .dark .col-day.today .day-letter,
 .dark .col-day.today .day-number {
-  color: #c4b5fd;
+  color: #cbd5e1;
 }
 
 /* Goal and Achieved columns */
@@ -896,7 +896,7 @@ body {
 }
 
 .btn-primary:hover {
-  background: #7c3aed;
+  background: #475569;
 }
 
 .btn-ghost {
@@ -1275,7 +1275,7 @@ body {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--primary, #7c3aed);
+  background: var(--primary, #64748b);
 }
 
 .history-day-header {
@@ -1369,8 +1369,8 @@ body {
 }
 
 .habit-stack-badge:hover {
-  background: var(--primary-light, #ede9fe);
-  color: var(--primary, #7c3aed);
+  background: var(--primary-light, #f1f5f9);
+  color: var(--primary, #64748b);
 }
 
 .dark .habit-stack-badge {
@@ -1379,8 +1379,8 @@ body {
 }
 
 .dark .habit-stack-badge:hover {
-  background: rgba(167, 139, 250, 0.2);
-  color: #c4b5fd;
+  background: rgba(148, 163, 184, 0.2);
+  color: #cbd5e1;
 }
 
 /* Stack-link icon button (next to chaos & archive icons) */
@@ -1402,7 +1402,7 @@ body {
 }
 
 .habit-stack-btn.linked {
-  color: var(--primary, #7c3aed);
+  color: var(--primary, #64748b);
 }
 
 .dark .habit-stack-btn:hover {
@@ -1523,7 +1523,7 @@ body {
 
 .stack-progress-fill {
   height: 100%;
-  background: var(--primary, #7c3aed);
+  background: var(--primary, #64748b);
   transition: width 0.2s ease;
 }
 
@@ -1637,21 +1637,21 @@ body {
   gap: 8px;
   padding: 10px 14px;
   margin-bottom: 12px;
-  background: var(--primary-light, #f5f3ff);
-  border: 1px solid var(--primary, #c4b5fd);
+  background: var(--primary-light, #f8fafc);
+  border: 1px solid var(--primary, #cbd5e1);
   border-radius: 8px;
   font-size: 13px;
   color: var(--text);
 }
 
 .dark .stack-next-suggestion {
-  background: rgba(167, 139, 250, 0.15);
-  border-color: rgba(167, 139, 250, 0.4);
+  background: rgba(148, 163, 184, 0.15);
+  border-color: rgba(148, 163, 184, 0.4);
 }
 
 .next-suggestion-label {
   font-weight: 600;
-  color: var(--primary, #7c3aed);
+  color: var(--primary, #64748b);
 }
 
 .next-suggestion-dot {

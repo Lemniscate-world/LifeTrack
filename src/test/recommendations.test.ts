@@ -119,6 +119,28 @@ describe('STACK_SUGGESTION detection', () => {
     const hasReadStack = stacks.some((r) => r.habitIds.includes('h2'));
     expect(hasReadStack).toBe(false);
   });
+
+  it('does NOT suggest the same child multiple times with different parents', () => {
+    // Bug fix: previously a single low-performer could appear in multiple
+    // STACK_SUGGESTION recs (one per high-performer parent), which is noisy.
+    // The fix: each child gets at most ONE suggestion — against its strongest
+    // parent.
+    const habits = [
+      makeHabit('h1', 'Coffee'),       // ~83% (skip Sun)
+      makeHabit('h2', 'Gym'),          // ~83% (skip Sun)
+      makeHabit('h3', 'Read', {}),     // ~13% (skip Mon-Sat, only Sun)
+    ];
+    const checks = [
+      ...dailyChecks('h1', '2026-06-29', 30, [0]),
+      ...dailyChecks('h2', '2026-06-29', 30, [0]),
+      ...dailyChecks('h3', '2026-06-29', 30, [1, 2, 3, 4, 5, 6]),
+    ];
+    const result = generateInsights(habits, checks, NOW);
+    const stacksForRead = result.recommendations
+      .filter((r) => r.kind === 'STACK_SUGGESTION' && r.habitIds.includes('h3'));
+    // At most one suggestion for Read (against its strongest parent)
+    expect(stacksForRead.length).toBeLessThanOrEqual(1);
+  });
 });
 
 // ============================================================================
@@ -129,14 +151,28 @@ describe('RECORD_APPROACH detection', () => {
     const habits = [
       makeHabit('h1', 'Meditate', { bestStreak: 8 }),
     ];
-    // Current streak of 5 days
-    const checks = dailyChecks('h1', '2026-06-29', 5);
+    // Current streak of 5 days INCLUDING today (so today must be checked)
+    const checks = dailyChecks('h1', '2026-06-30', 5);
     const result = generateInsights(habits, checks, NOW);
     const records = result.recommendations.filter((r) => r.kind === 'RECORD_APPROACH');
     expect(records.length).toBe(1);
     expect(records[0].title).toContain('3 days');
     expect(records[0].title).toContain('Meditate');
     expect(records[0].strength).toBeGreaterThan(50);
+  });
+
+  it('does NOT flag when streak is broken (today not checked)', () => {
+    // If the user already missed today, the streak is broken — saying "X
+    // days from your record" would be misleading. Use the strict stats.ts
+    // logic: a streak only counts if it ends at today.
+    const habits = [
+      makeHabit('h1', 'Meditate', { bestStreak: 8 }),
+    ];
+    // 5 consecutive days ending YESTERDAY (today is missed)
+    const checks = dailyChecks('h1', '2026-06-29', 5);
+    const result = generateInsights(habits, checks, NOW);
+    const records = result.recommendations.filter((r) => r.kind === 'RECORD_APPROACH');
+    expect(records.length).toBe(0);
   });
 
   it('does NOT flag if gap is too large (>5 days)', () => {
@@ -219,6 +255,26 @@ describe('RECOVERY_PATTERN detection', () => {
     expect(recovery[0].title).toContain('recovery');
     // Gaps alternate between 1 and 2 days; avg should be ~1.5-2
     expect(recovery[0].detail).toMatch(/\d/);
+  });
+
+  it('caps RECOVERY_PATTERN recs to top 3 to avoid noise on big habit lists', () => {
+    // Bug fix: previously every habit with recovery data got its own rec.
+    // With 9+ habits, that could flood the recommendations. Now capped to 3.
+    const habits: Habit[] = [];
+    const checks: CheckIn[] = [];
+    for (let i = 0; i < 6; i++) {
+      const id = `h${i}`;
+      habits.push(makeHabit(id, `Habit ${i}`));
+      // 5 check-ins with 2-3 day gaps (typical recovery pattern)
+      checks.push(makeCheckIn(id, '2026-06-15', true));
+      checks.push(makeCheckIn(id, '2026-06-18', true));
+      checks.push(makeCheckIn(id, '2026-06-21', true));
+      checks.push(makeCheckIn(id, '2026-06-23', true));
+      checks.push(makeCheckIn(id, '2026-06-25', true));
+    }
+    const result = generateInsights(habits, checks, NOW);
+    const recovery = result.recommendations.filter((r) => r.kind === 'RECOVERY_PATTERN');
+    expect(recovery.length).toBeLessThanOrEqual(3);
   });
 });
 
@@ -375,6 +431,34 @@ describe('CORRELATION detection', () => {
       checks2.push(makeCheckIn('h2', ds, d % 2 === 0)); // B done 15/30, unrelated
     }
     const result = generateInsights(habits, checks2, NOW);
+    const corr = result.recommendations.filter((r) => r.kind === 'CORRELATION');
+    expect(corr.length).toBe(0);
+  });
+
+  it('rejects spurious high-lift correlations based on too few co-occurrences', () => {
+    // Bug fix: previously, a single co-occurrence day (1 out of 10 A-days)
+    // could trigger a "2x lift" correlation with a low-base-rate habit. That
+    // looks impressive but is statistically meaningless. The fix: require
+    // at least 3 co-occurrence days.
+    const habits = [
+      makeHabit('h1', 'A'),
+      makeHabit('h2', 'B'),
+    ];
+    const checks: CheckIn[] = [];
+    // A: done 10 days in last 60
+    // B: done 1 day in last 60 (very low base rate)
+    // Co-occurrence: 1 day (the 1 B-day is also an A-day)
+    // P(B|A) = 1/10 = 0.10, P(B) = 1/60 ≈ 0.017, lift = 6.0 (huge but nonsense)
+    for (let d = 0; d < 60; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      const ds = date.toISOString().slice(0, 10);
+      // A: done on exactly 10 specific days
+      checks.push(makeCheckIn('h1', ds, d === 0 || d === 5 || d === 10 || d === 15 || d === 20 || d === 25 || d === 30 || d === 35 || d === 40 || d === 45));
+      // B: done on exactly 1 day (day 0 — same as A)
+      checks.push(makeCheckIn('h2', ds, d === 0));
+    }
+    const result = generateInsights(habits, checks, NOW);
     const corr = result.recommendations.filter((r) => r.kind === 'CORRELATION');
     expect(corr.length).toBe(0);
   });
