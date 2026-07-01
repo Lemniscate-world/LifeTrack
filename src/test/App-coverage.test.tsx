@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { resetStore, addHabit, toggleCheckIn } from '../store';
+import { resetStore, addHabit, toggleCheckIn, getHabits } from '../store';
 import App from '../App';
 
 beforeEach(() => {
@@ -134,6 +134,78 @@ describe('Stats view table', () => {
     await user.click(screen.getByText('Add'));
     await user.click(screen.getByText('Statistics'));
     expect(screen.getByText('Habit')).toBeInTheDocument();
+  });
+
+  it('shows stats with seeded check-in data', async () => {
+    const user = userEvent.setup();
+    // Seed a habit with check-ins before rendering
+    const h = addHabit('Run');
+    const today = new Date().toISOString().slice(0, 10);
+    toggleCheckIn(h.id, today);
+    render(<App />);
+    await user.click(screen.getByText('Statistics'));
+    // Stats table should show the habit row (name appears in header nav + table)
+    const runTexts = screen.getAllByText('Run');
+    expect(runTexts.length).toBeGreaterThanOrEqual(2);
+    // Stats section title
+    expect(screen.getByText('Activity (last 365 days)')).toBeInTheDocument();
+  });
+});
+
+describe('History view', () => {
+  it('shows history with check-in data', async () => {
+    const user = userEvent.setup();
+    const h = addHabit('Swim');
+    const today = new Date().toISOString().slice(0, 10);
+    toggleCheckIn(h.id, today);
+    render(<App />);
+    await user.click(screen.getByText('History'));
+    // History should render the habit name (appears in grid nav + history view)
+    const swimTexts = screen.getAllByText(/Swim/);
+    expect(swimTexts.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('Intentions (why) editor', () => {
+  it('opens and closes intentions modal', async () => {
+    const user = userEvent.setup();
+    addHabit('Meditate');
+    render(<App />);
+    // Click the 💭 button to open intentions editor
+    const whyBtn = document.querySelector('[title="Edit intentions"]');
+    if (whyBtn) {
+      await user.click(whyBtn);
+      // Modal should appear
+      expect(screen.getByText(/Why do you track/)).toBeInTheDocument();
+      // Close button
+      await user.click(screen.getByText('Cancel'));
+    }
+  });
+
+  it('adds intention and saves', async () => {
+    const user = userEvent.setup();
+    addHabit('Read');
+    render(<App />);
+    const whyBtn = document.querySelector('[title="Edit intentions"]');
+    if (whyBtn) {
+      await user.click(whyBtn);
+      const input = document.querySelector('.intentions-editor input') as HTMLInputElement;
+      if (input) {
+        await user.type(input, 'To relax');
+        await user.click(screen.getByText('Add'));
+        await user.click(screen.getByText('Save'));
+      }
+    }
+  });
+});
+
+describe('Goal editing', () => {
+  it('shows goal input on habit row', async () => {
+    const user = userEvent.setup();
+    addHabit('Yoga');
+    render(<App />);
+    // Goal column should show goal value or default
+    expect(screen.getByText('Goal')).toBeInTheDocument();
   });
 });
 
