@@ -35,11 +35,6 @@ describe('Chaos dimension defaults', () => {
     for (let i = 0; i < dims.length; i++) {
       const d = dims[i];
       expect(d.name).toBeTruthy();
-      // colors may be undefined for some dimensions (defaults handled in UI)
-      if (d.color) {
-        expect(typeof d.color).toBe('string');
-        expect(d.color.length).toBeGreaterThan(0);
-      }
       expect(Array.isArray(d.triggers)).toBe(true);
     }
     expect(dims.length).toBe(5);

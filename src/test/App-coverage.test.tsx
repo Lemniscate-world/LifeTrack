@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { resetStore, addHabit, toggleCheckIn, getHabits } from '../store';
+import { resetStore, addHabit, toggleCheckIn } from '../store';
 import App from '../App';
 
 beforeEach(() => {
@@ -55,9 +55,7 @@ describe('Insights with seeded data', () => {
     // The insight-icon span exists
     const iconSpans = document.querySelectorAll('.insight-icon');
     expect(iconSpans.length).toBeGreaterThanOrEqual(1);
-    // NEGLECTED has priority 0 so it should be first
-    const firstIcon = iconSpans[0].textContent?.codePointAt(0)?.toString(16);
-    // Just verify it's non-empty
+    // Verify icon is non-empty
     expect(iconSpans[0].textContent?.length).toBeGreaterThan(0);
   });
 });
@@ -201,7 +199,6 @@ describe('Intentions (why) editor', () => {
 
 describe('Goal editing', () => {
   it('shows goal input on habit row', async () => {
-    const user = userEvent.setup();
     addHabit('Yoga');
     render(<App />);
     // Goal column should show goal value or default
