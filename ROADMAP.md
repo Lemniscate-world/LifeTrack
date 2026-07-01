@@ -49,8 +49,8 @@ To provide a fast, local-first, distraction-free **desktop** application for tra
 - [x] **365-day heatmap + sparkline** per habit in Statistics view.
 - [x] **History tab** with reverse-chronological timeline.
 - [x] **Enriched CSV export** (9 columns incl. lifetime streak stats).
-- [ ] Accessibility audit (focus rings, ARIA roles, and screen-reader friendliness). → v0.3.0
-- [ ] Performance audit (Lighthouse performance target > 95). → v0.3.0
+- [x] Accessibility audit (focus rings, ARIA roles, and screen-reader friendliness).
+- [x] Performance audit — N/A for Tauri desktop (native performance).
 
 ### Phase 5.5: Insight Saturation (Completed 2026-06-27)
 - [x] `src/stats.ts` — pure functions module for streak / rate / score calculations.
@@ -125,13 +125,12 @@ To provide a fast, local-first, distraction-free **desktop** application for tra
 
 ---
 
-## v0.3.0 — Desktop Polish (Planned)
-- [ ] Accessibility audit (focus rings, ARIA roles, screen-reader)
-- [ ] Performance audit (Lighthouse > 95)
-- [ ] Advanced keyboard shortcuts
-- [ ] Periodic auto-backup
-- [ ] Cleanup Android dead code (`src-tauri/gen/android/`)
-- [ ] Linux build target (Tauri supports it natively)
+## v0.3.0 — Desktop Polish (Completed 2026-07-01)
+- [x] Accessibility audit (ARIA roles, focus-visible, skip link, screen-reader landmarks)
+- [x] Periodic auto-backup to disk every 15 min
+- [x] Advanced keyboard shortcuts (Ctrl+1..6 tab switching, Ctrl+S save)
+- [x] Linux build config (deb + AppImage targets)
+- [x] Cleanup Android dead code (`src-tauri/gen/android/`, 4 Rust targets, APK, research doc) — 7.4 GB freed
 
 ---
 
