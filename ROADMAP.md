@@ -5,7 +5,7 @@ LifeTrack is a premium Windows desktop habit tracker (a Loop Habit Tracker clone
 ---
 
 ## Vision
-To provide a fast, local-first, distraction-free desktop application for tracking daily habits, streaks, and progress with advanced habit scoring (exponential moving average frequency decay) and custom life-quality indicators (Chaos levels).
+To provide a fast, local-first, distraction-free **desktop** application for tracking daily habits, streaks, and progress with advanced habit scoring (exponential moving average frequency decay) and custom life-quality indicators (Chaos levels). **Desktop-only — no mobile.**
 
 ---
 
@@ -49,8 +49,8 @@ To provide a fast, local-first, distraction-free desktop application for trackin
 - [x] **365-day heatmap + sparkline** per habit in Statistics view.
 - [x] **History tab** with reverse-chronological timeline.
 - [x] **Enriched CSV export** (9 columns incl. lifetime streak stats).
-- [ ] Accessibility audit (focus rings, ARIA roles, and screen-reader friendliness).
-- [ ] Performance audit (Lighthouse performance target > 95).
+- [ ] Accessibility audit (focus rings, ARIA roles, and screen-reader friendliness). → v0.3.0
+- [ ] Performance audit (Lighthouse performance target > 95). → v0.3.0
 
 ### Phase 5.5: Insight Saturation (Completed 2026-06-27)
 - [x] `src/stats.ts` — pure functions module for streak / rate / score calculations.
@@ -65,18 +65,14 @@ To provide a fast, local-first, distraction-free desktop application for trackin
 - [x] Cycle detection: refuses A→B→A and longer cycles.
 - [x] Stack state propagation: blocked when parent incomplete, done when both done.
 
-### Phase 7: Android Mobile App (In Progress 2026-06-30)
+### Phase 7: Android Mobile App (Abandoned — desktop-only recentrage)
 - [x] Tauri Android target initialized (`npx tauri android init`)
 - [x] Android SDK + NDK 27 installed
 - [x] R75 competitive benchmark: `docs/research/android_competitive_benchmark.md`
 - [x] Responsive CSS: mobile-first media queries (≤639px, 640-1024px), touch targets
-- [x] QR-based local sync Desktop↔Mobile (no cloud, no account)
 - [x] Build APK (aarch64, armv7, i686, x86_64) + AAB
 - [x] JDK 21 installed for Gradle compatibility
-- [ ] Widget homescreen (4 habits + checkboxes)
-- [ ] Notification actions (OUI/NON sans ouvrir l'app)
-- [ ] Material You dynamic theming
-- [ ] Play Store submission (Early Access)
+- [~] Widget, notifications, Material You, Play Store → **ABANDONNÉ**
 
 ### Phase 7.5: AI & Memory Hardening (Completed 2026-06-30)
 - [x] **File-based persistence** — tertiary backup to `%APPDATA%/LifeTrack/` survives localStorage wipe
@@ -125,6 +121,17 @@ To provide a fast, local-first, distraction-free desktop application for trackin
 - Cloud synchronization or remote database storage.
 - Authentication, logins, or social features.
 - Cross-device syncing (LifeTrack is strictly local-first).
+- Mobile apps (Android/iOS) — desktop-only.
+
+---
+
+## v0.3.0 — Desktop Polish (Planned)
+- [ ] Accessibility audit (focus rings, ARIA roles, screen-reader)
+- [ ] Performance audit (Lighthouse > 95)
+- [ ] Advanced keyboard shortcuts
+- [ ] Periodic auto-backup
+- [ ] Cleanup Android dead code (`src-tauri/gen/android/`)
+- [ ] Linux build target (Tauri supports it natively)
 
 ---
 
