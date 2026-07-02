@@ -1253,9 +1253,7 @@ function InsightsView({
 }) {
   const { recommendations } = useMemo(
     () => generateInsights(habits, checkIns),
-    // Recompute when checkIns length changes (new check-in), or habits change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [habits, checkIns.length],
+    [habits, checkIns],
   );
 
   const habitById = useMemo(() => {

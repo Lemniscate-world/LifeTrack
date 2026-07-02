@@ -2,9 +2,17 @@
  * Tests for the local heuristic recommendation engine.
  * Verifies each rule type independently with controlled fixtures.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { generateInsights } from '../recommendations';
 import type { Habit, CheckIn } from '../types';
+import {
+  addHabit,
+  linkHabitToParent,
+  toggleCheckIn,
+  resetStore,
+  getHabits,
+  exportAllData,
+} from '../store';
 
 // --- Helpers ---
 
@@ -543,5 +551,49 @@ describe('WEEKLY_SUMMARY', () => {
     const result = generateInsights(habits, checks, NOW);
     const weekly = result.recommendations.filter((r) => r.kind === 'WEEKLY_SUMMARY');
     expect(weekly.length).toBe(0);
+  });
+});
+
+// ============================================================================
+// Integration: store → linkHabitToParent → generateInsights (real data path)
+// ============================================================================
+describe('STACK_SUGGESTION integration (store)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetStore();
+  });
+
+  it('does NOT suggest stacking already-linked habits (store path)', () => {
+    // Simulate the exact user scenario: add habits, link them, then generate insights
+    const gym = addHabit('Gym');
+    const noPmo = addHabit('No PMO');
+    const fasting = addHabit('Fasting');
+
+    // Add enough check-ins so rates are computed
+    const today = '2026-07-02';
+    for (const h of [gym, noPmo, fasting]) {
+      for (let d = 0; d < 14; d++) {
+        const date = new Date(today);
+        date.setUTCDate(date.getUTCDate() - d);
+        const ds = date.toISOString().slice(0, 10);
+        toggleCheckIn(h.id, ds);
+      }
+    }
+
+    // Link No PMO and Fasting to Gym
+    expect(linkHabitToParent(noPmo.id, gym.id)).toBe(true);
+    expect(linkHabitToParent(fasting.id, gym.id)).toBe(true);
+
+    // Read habits through the SAME path the app uses
+    const habits = getHabits();
+    const checkIns = exportAllData().checkIns;
+    const result = generateInsights(habits, checkIns);
+
+    // No PMO and Fasting should NOT appear in STACK_SUGGESTION
+    const stacks = result.recommendations.filter((r) => r.kind === 'STACK_SUGGESTION');
+    const suggestsNoPmo = stacks.some((r) => r.habitIds.includes(noPmo.id));
+    const suggestsFasting = stacks.some((r) => r.habitIds.includes(fasting.id));
+    expect(suggestsNoPmo).toBe(false);
+    expect(suggestsFasting).toBe(false);
   });
 });
