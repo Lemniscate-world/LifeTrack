@@ -54,8 +54,8 @@ function daysSince(dateStr: string, now: Date): number {
   return Math.floor((now.getTime() - d.getTime()) / 86400000);
 }
 
-function dateStrDaysAgo(daysAgo: number): string {
-  const d = new Date();
+function dateStrDaysAgo(daysAgo: number, now: Date = new Date()): string {
+  const d = new Date(now);
   d.setUTCHours(0, 0, 0, 0);
   d.setUTCDate(d.getUTCDate() - daysAgo);
   return d.toISOString().slice(0, 10);
@@ -102,12 +102,14 @@ function detectMissPatterns(
         .filter((ci) => ci.habitId === habit.id && ci.completed)
         .map((ci) => ci.date),
     );
+    const trackingStart = myDates[0]; // first completed date — ignore days before this
     for (let w = 0; w < weeksToScan; w++) {
       for (let d = 1; d < 7; d++) { // skip d=0 (today, may not be complete yet)
         const date = new Date(now);
         date.setUTCDate(date.getUTCDate() - w * 7 - d);
         const ds = date.toISOString().slice(0, 10);
         if (ds > now.toISOString().slice(0, 10)) continue;
+        if (ds < trackingStart) continue; // before habit existed — don't count as miss
         const dayIdx = date.getUTCDay(); // 0=Sun...6=Sat
         dayTotal[dayIdx]++;
         if (!completedSet.has(ds)) {
@@ -138,6 +140,7 @@ function detectMissPatterns(
 function detectStackSuggestions(
   habits: Habit[],
   checkIns: CheckIn[],
+  now: Date,
 ): Recommendation[] {
   const activeHabits = habits.filter((h) => !h.archived);
   const stacked = new Set(habits.filter((h) => h.stackParent).map((h) => h.id));
@@ -145,7 +148,7 @@ function detectStackSuggestions(
   // Compute completion rate per habit over last 30 days
   const rate30 = new Map<string, number>();
   for (const habit of activeHabits) {
-    const thirtyAgo = dateStrDaysAgo(30);
+    const thirtyAgo = dateStrDaysAgo(30, now);
     const total = checkIns.filter(
       (ci) => ci.habitId === habit.id && ci.date >= thirtyAgo,
     ).length;
@@ -328,7 +331,7 @@ function detectPrimeTime(
         title: `"${habit.name}" prime days: ${bestDays.join(', ')}`,
         detail: `Over your tracking history, you complete "${habit.name}" most consistently on ${bestDays.join(' and ')}. These are the days where your routine is strongest — protect them.`,
         habitIds: [habit.id],
-        strength: Math.min(100, Math.round((max / completedDates.length) * 7 * 100)),
+        strength: Math.min(100, Math.round((max / completedDates.length) * 100)),
       });
     }
   }
@@ -363,14 +366,21 @@ function detectCorrelations(
   const totalDays = allDatesSet.size;
   if (totalDays < 14) return recs;
 
-  // Compute base rate over ALL days (including days with zero completions)
+  // Compute base rate per habit over its own tracking window (not global days).
+  // Using global totalDays would artificially deflate pB for newer habits,
+  // inflating the lift ratio.
   const baseRate = new Map<string, number>();
   for (const h of activeHabits) {
-    let count = 0;
-    for (const [, habits] of byDate) {
-      if (habits.has(h.id)) count++;
+    const habitDates = new Set<string>();
+    for (const ci of checkIns) {
+      if (ci.habitId === h.id) habitDates.add(ci.date);
     }
-    baseRate.set(h.id, count / totalDays);
+    if (habitDates.size === 0) { baseRate.set(h.id, 0); continue; }
+    let completed = 0;
+    for (const [, habits] of byDate) {
+      if (habits.has(h.id)) completed++;
+    }
+    baseRate.set(h.id, completed / habitDates.size);
   }
 
   for (let i = 0; i < activeHabits.length; i++) {
@@ -539,7 +549,7 @@ export function generateInsights(
 
   const allRecs: Recommendation[] = [
     ...detectMissPatterns(activeHabits, checkIns, now),
-    ...detectStackSuggestions(activeHabits, checkIns),
+    ...detectStackSuggestions(activeHabits, checkIns, now),
     ...detectRecordApproaches(habits, checkIns, now),
     ...detectNeglected(activeHabits, checkIns, now),
     ...detectRecoveryPatterns(activeHabits, checkIns),
