@@ -210,14 +210,14 @@ function detectRecordApproaches(
     const best = habit.bestStreak ?? stats.best;
     if (best < 5) continue; // only flag meaningful streaks
     const current = stats.current;
-    const gap = best - current;
-    if (gap > 0 && gap <= RECORD_PROXIMITY_DAYS) {
+    const toBeat = best - current + 1; // days needed to EXCEED the record, not just tie it
+    if (toBeat > 1 && toBeat <= RECORD_PROXIMITY_DAYS + 1) {
       recs.push({
         kind: 'RECORD_APPROACH',
-        title: `🔥 ${gap} day${gap > 1 ? 's' : ''} from your record on "${habit.name}"`,
-        detail: `Your current streak is ${current} days. Your all-time best is ${best} days. Stay consistent for ${gap} more day${gap > 1 ? 's' : ''} to beat it!`,
+        title: `🔥 ${toBeat} day${toBeat > 1 ? 's' : ''} from a new record on "${habit.name}"`,
+        detail: `Your current streak is ${current} days. Your all-time best is ${best} days. Stay consistent for ${toBeat} more day${toBeat > 1 ? 's' : ''} to set a new personal record!`,
         habitIds: [habit.id],
-        strength: Math.round((current / best) * 100),
+        strength: Math.min(100, Math.round(((best - toBeat + 1) / best) * 100)),
         actionLabel: 'View stats',
       });
     }

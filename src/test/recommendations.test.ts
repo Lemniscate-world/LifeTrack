@@ -164,7 +164,7 @@ describe('RECORD_APPROACH detection', () => {
     const result = generateInsights(habits, checks, NOW);
     const records = result.recommendations.filter((r) => r.kind === 'RECORD_APPROACH');
     expect(records.length).toBe(1);
-    expect(records[0].title).toContain('3 days');
+    expect(records[0].title).toContain('4 days'); // 8 - 5 + 1 = 4 to beat
     expect(records[0].title).toContain('Meditate');
     expect(records[0].strength).toBeGreaterThan(50);
   });
