@@ -1251,7 +1251,7 @@ function InsightsView({
   // eslint-disable-next-line no-unused-vars
   onView: (_v: 'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights') => void;
 }) {
-  const { recommendations } = useMemo(
+  const { recommendations, generatedAt } = useMemo(
     () => generateInsights(habits, checkIns),
     [habits, checkIns],
   );
@@ -1358,6 +1358,9 @@ function InsightsView({
         <h2>💡 Insights</h2>
         <span className="insights-subtitle">
           {recommendations.length} recommendation{recommendations.length > 1 ? 's' : ''} — 100% local
+          <span className="insights-generated" title="Recomputed when your data changes">
+            · {new Date(generatedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+          </span>
         </span>
         <button
           className="btn btn-sm btn-ghost ai-analyze-btn"

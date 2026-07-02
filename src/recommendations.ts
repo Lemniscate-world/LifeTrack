@@ -38,7 +38,7 @@ export interface Recommendation {
 
 const MIN_CHECKINS_FOR_ANALYSIS = 7;
 const NEGLECT_DAYS = 4;             // warn if no check-in for this many days
-const STACK_CORRELATION_MIN = 0.7;  // parent must have ≥70% completion for stack suggestion
+const STACK_CORRELATION_MIN = 0.3;  // parent must have ≥30% of days completed (e.g. 9/30 days)
 const MISS_PATTERN_THRESHOLD = 0.5; // must miss on this day >50% of weeks to flag
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const RECORD_PROXIMITY_DAYS = 5;    // warn when within N days of beating best streak
@@ -145,18 +145,22 @@ function detectStackSuggestions(
   const activeHabits = habits.filter((h) => !h.archived);
   const stacked = new Set(habits.filter((h) => h.stackParent).map((h) => h.id));
 
-  // Compute completion rate per habit over last 30 days
+  // Compute completion rate per habit over last 30 days (days-based, not check-in count).
+  // Using completedDays/30 gives the true fraction of days the habit was done,
+  // which is what the user sees in the grid. Previously we used completed/total
+  // (check-in count), which showed 100% for a habit with only 7 check-ins in 30
+  // days — misleading because 7/30 = 23% of days, not 100%.
+  const DAYS_IN_WINDOW = 30;
   const rate30 = new Map<string, number>();
   for (const habit of activeHabits) {
-    const thirtyAgo = dateStrDaysAgo(30, now);
-    const total = checkIns.filter(
-      (ci) => ci.habitId === habit.id && ci.date >= thirtyAgo,
-    ).length;
-    const completed = checkIns.filter(
-      (ci) => ci.habitId === habit.id && ci.completed && ci.date >= thirtyAgo,
-    ).length;
-    // Require at least 7 data points before computing a meaningful rate
-    rate30.set(habit.id, total >= 7 ? completed / total : 0);
+    const thirtyAgo = dateStrDaysAgo(DAYS_IN_WINDOW, now);
+    const completedDays = new Set(
+      checkIns
+        .filter((ci) => ci.habitId === habit.id && ci.completed && ci.date >= thirtyAgo)
+        .map((ci) => ci.date),
+    ).size;
+    // Require at least 5 completed days before computing a meaningful rate
+    rate30.set(habit.id, completedDays >= 5 ? completedDays / DAYS_IN_WINDOW : 0);
   }
 
   // Track best parent per child so the same habit isn't suggested as a stack
@@ -175,7 +179,7 @@ function detectStackSuggestions(
         const candidate: Recommendation = {
           kind: 'STACK_SUGGESTION',
           title: `Stack "${child.name}" after "${parent.name}"`,
-          detail: `"${parent.name}" has a ${Math.round(parentRate * 100)}% completion rate over the last 30 days, while "${child.name}" is at ${Math.round(childRate * 100)}%. Linking them could anchor the new habit to an existing strong routine.`,
+          detail: `"${parent.name}" was completed on ${Math.round(parentRate * DAYS_IN_WINDOW)} of the last ${DAYS_IN_WINDOW} days (${Math.round(parentRate * 100)}%), while "${child.name}" is at ${Math.round(childRate * DAYS_IN_WINDOW)} days (${Math.round(childRate * 100)}%). Linking them could anchor the new habit to an existing routine.`,
           habitIds: [child.id, parent.id],
           strength: Math.round(parentRate * 100),
           actionLabel: 'Link now',
