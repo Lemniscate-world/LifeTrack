@@ -150,17 +150,19 @@ function detectStackSuggestions(
   // which is what the user sees in the grid. Previously we used completed/total
   // (check-in count), which showed 100% for a habit with only 7 check-ins in 30
   // days — misleading because 7/30 = 23% of days, not 100%.
-  const DAYS_IN_WINDOW = 30;
+  const ACTUAL_WINDOW_DAYS = 30;
   const rate30 = new Map<string, number>();
   for (const habit of activeHabits) {
-    const thirtyAgo = dateStrDaysAgo(DAYS_IN_WINDOW, now);
+    // window = [30 days ago, today] inclusive = 30 days
+    // dateStrDaysAgo(29) = 29 days ago => window from 29 days ago to today = 30 days
+    const thirtyAgo = dateStrDaysAgo(ACTUAL_WINDOW_DAYS - 1, now);
     const completedDays = new Set(
       checkIns
         .filter((ci) => ci.habitId === habit.id && ci.completed && ci.date >= thirtyAgo)
         .map((ci) => ci.date),
     ).size;
     // Require at least 5 completed days before computing a meaningful rate
-    rate30.set(habit.id, completedDays >= 5 ? completedDays / DAYS_IN_WINDOW : 0);
+    rate30.set(habit.id, completedDays >= 5 ? completedDays / ACTUAL_WINDOW_DAYS : 0);
   }
 
   // Track best parent per child so the same habit isn't suggested as a stack
@@ -179,9 +181,9 @@ function detectStackSuggestions(
         const candidate: Recommendation = {
           kind: 'STACK_SUGGESTION',
           title: `Stack "${child.name}" after "${parent.name}"`,
-          detail: `"${parent.name}" was completed on ${Math.round(parentRate * DAYS_IN_WINDOW)} of the last ${DAYS_IN_WINDOW} days (${Math.round(parentRate * 100)}%), while "${child.name}" is at ${Math.round(childRate * DAYS_IN_WINDOW)} days (${Math.round(childRate * 100)}%). Linking them could anchor the new habit to an existing routine.`,
+          detail: `"${parent.name}" was completed on ${Math.round(parentRate * ACTUAL_WINDOW_DAYS)} of the last ${ACTUAL_WINDOW_DAYS} days (${Math.round(parentRate * 100)}%), while "${child.name}" is at ${Math.round(childRate * ACTUAL_WINDOW_DAYS)} days (${Math.round(childRate * 100)}%). Linking them could anchor the new habit to an existing routine.`,
           habitIds: [child.id, parent.id],
-          strength: Math.round(parentRate * 100),
+          strength: Math.min(100, Math.round(parentRate * 100)),
           actionLabel: 'Link now',
         };
         const existing = bestPerChild.get(child.id);
