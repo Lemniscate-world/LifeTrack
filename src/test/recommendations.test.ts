@@ -727,4 +727,100 @@ describe('WEEKLY_SUMMARY — all branches', () => {
     expect(weekly.length).toBe(1);
     expect(weekly[0].title).toContain('⚠️');
   });
+
+  it('works when no records beaten and no stacks (covers false branches)', () => {
+    const habits = [makeHabit('h1', 'Simple')];
+    const checks: CheckIn[] = [];
+    for (let d = 0; d < 14; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      checks.push(makeCheckIn('h1', date.toISOString().slice(0, 10), true));
+    }
+    // No bestStreakAt set — recordsBeaten stays 0
+    // No stackParent — stacked.length stays 0
+    const result = generateInsights(habits, checks, NOW);
+    const weekly = result.recommendations.filter((r) => r.kind === 'WEEKLY_SUMMARY');
+    expect(weekly.length).toBe(1);
+    // Title should NOT contain 🏆 or 🔗
+    expect(weekly[0].title).not.toContain('🏆');
+    expect(weekly[0].title).not.toContain('🔗');
+  });
+});
+
+// ============================================================================
+// GENERATE INSIGHTS — dedup + per-kind limit + total cap (lines 572-606)
+// ============================================================================
+describe('generateInsights — dedup, limits, caps', () => {
+  it('deduplicates by title when duplicates exist', () => {
+    // Two habits with identical names and patterns → may produce same title
+    const habits = [
+      makeHabit('h1', 'Same'),
+      makeHabit('h2', 'Same'),
+    ];
+    // Both have no check-ins → both get "Same has no check-ins yet"
+    const result = generateInsights(habits, [], NOW);
+    // Dedup by title should merge them into at most 1 with that title
+    const titles = result.recommendations.map((r) => r.title);
+    const sameTitles = titles.filter((t) => t.includes('Same'));
+    expect(sameTitles.length).toBeLessThanOrEqual(1);
+  });
+
+  it('enforces max 2 per kind', () => {
+    // Create 5 neglected habits to trigger per-kind cap
+    const habits: Habit[] = [];
+    for (let i = 0; i < 5; i++) {
+      habits.push(makeHabit(`h${i}`, `Neglected ${i}`));
+    }
+    const result = generateInsights(habits, [], NOW);
+    const neglected = result.recommendations.filter((r) => r.kind === 'NEGLECTED');
+    expect(neglected.length).toBeLessThanOrEqual(2);
+  });
+
+  it('enforces max 8 total recommendations', () => {
+    // Generate many recommendations by using many habits with diverse patterns
+    const habits: Habit[] = [];
+    const checks: CheckIn[] = [];
+    for (let i = 0; i < 10; i++) {
+      const id = `h${i}`;
+      habits.push(makeHabit(id, `H${i}`, { bestStreak: 10, bestStreakAt: '2026-06-28' }));
+      for (let d = 0; d < 30; d++) {
+        const date = new Date(NOW);
+        date.setUTCDate(date.getUTCDate() - d);
+        checks.push(makeCheckIn(id, date.toISOString().slice(0, 10), d % 2 === 0));
+      }
+      checks.push(makeCheckIn(id, '2026-05-15', true));
+    }
+    const result = generateInsights(habits, checks, NOW);
+    expect(result.recommendations.length).toBeLessThanOrEqual(8);
+  });
+
+  it('sorts by kind priority then strength', () => {
+    const habits = [
+      makeHabit('h1', 'Neglected'),
+      makeHabit('h2', 'Pattern', { bestStreak: 10 }),
+    ];
+    // h1: no check-ins → NEGLECTED (priority 0)
+    // h2: 12 weeks with Monday miss → MISS_PATTERN (priority 3)
+    const checks: CheckIn[] = [];
+    for (let w = 0; w < 12; w++) {
+      for (let d = 0; d < 7; d++) {
+        const date = new Date(NOW);
+        date.setUTCDate(date.getUTCDate() - w * 7 - d);
+        const ds = date.toISOString().slice(0, 10);
+        checks.push(makeCheckIn('h2', ds, date.getUTCDay() !== 1));
+      }
+    }
+    // Also make h2 high-strength to avoid it being filtered
+    for (let d = 0; d < 30; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      checks.push(makeCheckIn('h2', date.toISOString().slice(0, 10), true));
+    }
+    const result = generateInsights(habits, checks, NOW);
+    const kinds = result.recommendations.map((r) => r.kind);
+    const nIdx = kinds.indexOf('NEGLECTED');
+    const mIdx = kinds.indexOf('MISS_PATTERN');
+    // If both present, NEGLECTED (priority 0) should come before MISS_PATTERN (priority 3)
+    if (nIdx >= 0 && mIdx >= 0) expect(nIdx).toBeLessThan(mIdx);
+  });
 });
