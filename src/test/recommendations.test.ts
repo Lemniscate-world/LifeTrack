@@ -597,3 +597,134 @@ describe('STACK_SUGGESTION integration (store)', () => {
     expect(suggestsFasting).toBe(false);
   });
 });
+
+// ============================================================================
+// GENERATE INSIGHTS — limits and sorting (coverage for lines 572-606)
+// ============================================================================
+describe('generateInsights — limits, dedup, priority', () => {
+  it('caps each kind at max 2 recommendations', () => {
+    // Create many habits all in the same state (neglected) to trigger
+    // more than 2 NEGLECTED recs, then verify the per-kind cap works.
+    const habits: Habit[] = [];
+    for (let i = 0; i < 5; i++) {
+      habits.push(makeHabit(`h${i}`, `Habit ${i}`));
+    }
+    // No check-ins → all 5 are NEGLECTED (kind: no check-ins)
+    const result = generateInsights(habits, [], NOW);
+    const neglected = result.recommendations.filter((r) => r.kind === 'NEGLECTED');
+    // Per-kind cap is 2
+    expect(neglected.length).toBeLessThanOrEqual(2);
+  });
+
+  it('caps total recommendations at 8', () => {
+    // Build a scenario that generates many different recommendation types.
+    // 10 habits with check-in patterns that trigger various kinds.
+    const habits: Habit[] = [];
+    const checks: CheckIn[] = [];
+    for (let i = 0; i < 10; i++) {
+      const id = `h${i}`;
+      habits.push(makeHabit(id, `Habit ${i}`, {
+        bestStreak: 10,
+        bestStreakAt: '2026-06-28',
+      }));
+      // Daily checks for 30 days → triggers PRIME_TIME, RECOVERY_PATTERN, etc.
+      for (let d = 0; d < 30; d++) {
+        const date = new Date(NOW);
+        date.setUTCDate(date.getUTCDate() - d);
+        const ds = date.toISOString().slice(0, 10);
+        // Every other day completed → creates gaps for recovery detection
+        checks.push(makeCheckIn(id, ds, d % 2 === 0));
+      }
+      // Insert old check-ins for longer patterns
+      checks.push(makeCheckIn(id, '2026-05-15', true));
+    }
+    const result = generateInsights(habits, checks, NOW);
+    expect(result.recommendations.length).toBeLessThanOrEqual(8);
+  });
+
+  it('sorts by kind priority: NEGLECTED before MISS_PATTERN', () => {
+    const habits = [
+      makeHabit('h1', 'Neglected Habit'),
+      makeHabit('h2', 'MissPattern Habit'),
+    ];
+    // h1: no check-ins → NEGLECTED (priority 0)
+    // h2: 12 weeks with consistent Monday miss → MISS_PATTERN (priority 3)
+    const checks: CheckIn[] = [];
+    for (let w = 0; w < 12; w++) {
+      for (let d = 0; d < 7; d++) {
+        const date = new Date(NOW);
+        date.setUTCDate(date.getUTCDate() - w * 7 - d);
+        const ds = date.toISOString().slice(0, 10);
+        const dayOfWeek = date.getUTCDay();
+        checks.push(makeCheckIn('h2', ds, dayOfWeek !== 1)); // miss Monday
+      }
+    }
+    const result = generateInsights(habits, checks, NOW);
+    // NEGLECTED (priority 0) should come before MISS_PATTERN (priority 3)
+    const neglectedIdx = result.recommendations.findIndex((r) => r.kind === 'NEGLECTED');
+    const missIdx = result.recommendations.findIndex((r) => r.kind === 'MISS_PATTERN');
+    if (neglectedIdx >= 0 && missIdx >= 0) {
+      expect(neglectedIdx).toBeLessThan(missIdx);
+    }
+  });
+});
+
+// ============================================================================
+// WEEKLY_SUMMARY — uncovered branches (records, stacks, low rate)
+// ============================================================================
+describe('WEEKLY_SUMMARY — all branches', () => {
+  it('includes records beaten this week', () => {
+    const habits = [
+      makeHabit('h1', 'Gym', {
+        bestStreak: 5,
+        bestStreakAt: '2026-06-28', // within last 7 days from NOW (June 30)
+      }),
+    ];
+    // Enough check-ins to trigger weekly summary (≥5 in last 7 days)
+    const checks: CheckIn[] = [];
+    for (let d = 0; d < 7; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      checks.push(makeCheckIn('h1', date.toISOString().slice(0, 10), true));
+    }
+    const result = generateInsights(habits, checks, NOW);
+    const weekly = result.recommendations.filter((r) => r.kind === 'WEEKLY_SUMMARY');
+    expect(weekly.length).toBe(1);
+    expect(weekly[0].title).toContain('🏆');
+  });
+
+  it('includes stack completion when habits are stacked', () => {
+    const habits = [
+      makeHabit('h1', 'Coffee'),
+      makeHabit('h2', 'Read', { stackParent: 'h1' }),
+    ];
+    const checks: CheckIn[] = [];
+    for (let d = 0; d < 7; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      const ds = date.toISOString().slice(0, 10);
+      checks.push(makeCheckIn('h1', ds, true));
+      checks.push(makeCheckIn('h2', ds, d < 4)); // 4 of 7 done
+    }
+    const result = generateInsights(habits, checks, NOW);
+    const weekly = result.recommendations.filter((r) => r.kind === 'WEEKLY_SUMMARY');
+    expect(weekly.length).toBe(1);
+    expect(weekly[0].title).toContain('🔗');
+  });
+
+  it('shows warning emoji for completion rate below 50%', () => {
+    const habits = [makeHabit('h1', 'Struggle')];
+    const checks: CheckIn[] = [];
+    for (let d = 0; d < 7; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      const ds = date.toISOString().slice(0, 10);
+      // Only 2 of 7 completed → ~28%
+      checks.push(makeCheckIn('h1', ds, d === 0 || d === 3));
+    }
+    const result = generateInsights(habits, checks, NOW);
+    const weekly = result.recommendations.filter((r) => r.kind === 'WEEKLY_SUMMARY');
+    expect(weekly.length).toBe(1);
+    expect(weekly[0].title).toContain('⚠️');
+  });
+});

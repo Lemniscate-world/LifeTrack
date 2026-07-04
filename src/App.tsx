@@ -756,7 +756,7 @@ const MONTH_NAMES = [
                   const goal = habit.goal || daysInMonth;
 
                   return (
-                    <DraggableHabitRow habitId={habit.id} index={habitIdx}>
+                    <DraggableHabitRow key={habit.id} habitId={habit.id} index={habitIdx}>
                       <td className="col-habits">
                         <div className="habit-row">
                           {editingHabitId === habit.id ? (

@@ -71,16 +71,20 @@ describe('Habit reordering (UI integration)', () => {
     expect(droppable).not.toBeNull();
   });
 
-  it('drag handle uses the full row as the drag target (not just a handle icon)', async () => {
+  it('the full row is the drag target (no dedicated handle — dragHandleProps removed)', async () => {
     const user = userEvent.setup();
     render(<App />);
     await addHabitUI(user, 'Alpha');
 
-    // The library sets a "data-rfd-drag-handle-draggable-id" on the handle.
-    // Since we pass dragHandleProps to the whole <tr>, every <td> inside the
-    // row should be a drag handle.
+    // Without dragHandleProps, the entire Draggable acts as the drag area.
+    // The row should have data-rfd-draggable-id but NOT data-rfd-drag-handle-draggable-id.
+    const draggable = document.querySelector('[data-rfd-draggable-id]');
+    expect(draggable).not.toBeNull();
+    expect(draggable?.tagName).toBe('TR');
+
+    // No dedicated drag handle element exists.
     const handle = document.querySelector('[data-rfd-drag-handle-draggable-id]');
-    expect(handle).not.toBeNull();
+    expect(handle).toBeNull();
   });
 
   it('the DragDropContext wrapper renders without throwing even with no habits', () => {
@@ -97,5 +101,60 @@ describe('Habit reordering (UI integration)', () => {
     addHabit('C');
     reorderHabits(1, 0);
     expect(getHabits().map((h) => h.name)).toEqual(['B', 'A', 'C']);
+  });
+});
+
+// Unit tests for DraggableHabitRow in isolation (covers rendering, children passthrough)
+import { DraggableHabitRow } from '../components/DraggableHabitRow';
+import { DragDropContext, Droppable } from '@hello-pangea/dnd';
+
+describe('DraggableHabitRow (unit)', () => {
+  it('renders children inside a <tr> with draggable attributes', () => {
+    const { container } = render(
+      <DragDropContext onDragEnd={() => {}}>
+        <Droppable droppableId="test-list">
+          {(provided) => (
+            <table>
+              <tbody ref={provided.innerRef} {...provided.droppableProps}>
+                <DraggableHabitRow habitId="h1" index={0}>
+                  <td className="col-habits"><span className="habit-name">Test</span></td>
+                </DraggableHabitRow>
+                {provided.placeholder}
+              </tbody>
+            </table>
+          )}
+        </Droppable>
+      </DragDropContext>
+    );
+
+    // The row is a <tr> with draggable id attribute
+    const tr = container.querySelector('tr');
+    expect(tr).not.toBeNull();
+    expect(tr?.hasAttribute('data-rfd-draggable-id')).toBe(true);
+    expect(tr?.querySelector('.habit-name')?.textContent).toBe('Test');
+  });
+
+  it('does NOT have a dedicated drag handle (dragHandleProps not spread)', () => {
+    const { container } = render(
+      <DragDropContext onDragEnd={() => {}}>
+        <Droppable droppableId="test-list-2">
+          {(provided) => (
+            <table>
+              <tbody ref={provided.innerRef} {...provided.droppableProps}>
+                <DraggableHabitRow habitId="h2" index={0}>
+                  <td>Cell</td>
+                </DraggableHabitRow>
+                {provided.placeholder}
+              </tbody>
+            </table>
+          )}
+        </Droppable>
+      </DragDropContext>
+    );
+
+    // No drag handle attribute anywhere
+    expect(container.querySelector('[data-rfd-drag-handle-draggable-id]')).toBeNull();
+    // But the draggable attribute is present
+    expect(container.querySelector('[data-rfd-draggable-id]')).not.toBeNull();
   });
 });
