@@ -145,6 +145,7 @@ function sanitizeData(raw: unknown): AppData {
     skills: createDefaultSkills(),
     capacities: [],
     capacityRatings: [],
+    moods: {},
   };
   if (!raw || typeof raw !== 'object') return empty;
   const obj = raw as Record<string, unknown>;
@@ -268,10 +269,11 @@ function sanitizeData(raw: unknown): AppData {
     skills: mergedSkills,
     capacities: validCapacities,
     capacityRatings: validRatings,
+    moods: (obj.moods && typeof obj.moods === 'object' && !Array.isArray(obj.moods)) ? obj.moods as Record<string, string> : {},
   };
 }
 
-// --- Deduplicate habits in place ---
+/** Mood tracking */
 // Defensive cleanup for data that may have been corrupted by older versions
 // of the import flow that did not deduplicate by name. Groups habits by
 // normalized name, keeps the primary (first by order) for each group, and
@@ -439,6 +441,17 @@ export function clearFileRecoveryFlag(): void {
   fileRecoveryNeeded = false;
 }
 
+export const MOODS = [
+  { id: 'great', emoji: '😊', label: 'Great', color: '#10B981' },
+  { id: 'okay', emoji: '😐', label: 'Okay', color: '#6B7280' },
+  { id: 'bad', emoji: '😢', label: 'Bad', color: '#EF4444' },
+  { id: 'amazing', emoji: '🤩', label: 'Amazing', color: '#F59E0B' },
+  { id: 'tired', emoji: '😴', label: 'Tired', color: '#8B5CF6' },
+  { id: 'angry', emoji: '😡', label: 'Angry', color: '#DC2626' },
+  { id: 'sick', emoji: '🤒', label: 'Sick', color: '#F97316' },
+  { id: 'calm', emoji: '🧘', label: 'Calm', color: '#6366F1' },
+];
+
 function freshData(): AppData {
   return {
     habits: [],
@@ -450,6 +463,7 @@ function freshData(): AppData {
     skills: createDefaultSkills(),
     capacities: [],
     capacityRatings: [],
+    moods: {},
   };
 }
 
@@ -1789,17 +1803,40 @@ export function updateMantraSettings(updates: Partial<MantraSettings>): void {
 // chaos dimension instead. The exports below are kept as no-ops so any
 // leftover imports from older code compile and run safely.
 
-export function getMoods(): never[] {
-  return [];
+export function getMoods() {
+  return MOODS;
 }
-export function setMood(): void {
-  // Mood tracker removed; no-op for backward compat with older imports.
+export function setMood(date: string, moodId: string): void {
+  data.moods[date] = moodId;
+  notify();
 }
-export function getMoodForDate(): undefined {
-  return undefined;
+export function getMood(date: string): string | undefined {
+  return data.moods[date];
+}
+export function getMoodForDate(date: string): string | undefined {
+  return data.moods[date];
 }
 export function getMoodStreak(): { good: number; bad: number } {
-  return { good: 0, bad: 0 };
+  const good = ['great', 'amazing', 'calm'];
+  const bad = ['bad', 'angry', 'sick', 'tired'];
+  let g = 0, b = 0;
+  for (const moodId of Object.values(data.moods)) {
+    if (good.includes(moodId)) g++;
+    if (bad.includes(moodId)) b++;
+  }
+  return { good: g, bad: b };
+}
+
+export function getMonthMoods(year: number, month: number): Map<number, string> {
+  const map = new Map<number, string>();
+  const prefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
+  for (const [date, moodId] of Object.entries(data.moods)) {
+    if (date.startsWith(prefix)) {
+      const day = parseInt(date.split('-')[2], 10);
+      map.set(day, moodId);
+    }
+  }
+  return map;
 }
 
 export function exportAllData(): AppData {

@@ -150,4 +150,5 @@ export interface AppData {
   skills: Skill[];
   capacities: Capacity[];
   capacityRatings: CapacityRating[];
+  moods: Record<string, string>; // date YYYY-MM-DD -> mood id
 }

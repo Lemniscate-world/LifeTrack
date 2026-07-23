@@ -35,6 +35,10 @@ import {
   diagnoseStorage,
   createUpgradeBackup,
   pruneOldBackups,
+  MOODS,
+  setMood,
+  getMood,
+  getMonthMoods,
 } from './store';
 import { computeStreakStats, computeCompletionRate, computeWeightedScore, trackingStart } from './stats';
 import { Heatmap, Sparkline } from './Heatmap';
@@ -116,6 +120,8 @@ const MONTH_NAMES = [
   const [notePopupText, setNotePopupText] = useState('');
   // Map of dateKey -> note for the currently hovered/visible habit (lazy loaded)
   const [checkInNotes, setCheckInNotes] = useState<Map<string, string>>(new Map());
+  // Monthly moods
+  const [monthMoods, setMonthMoods] = useState<Map<number, string>>(new Map());
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editingGoalValue, setEditingGoalValue] = useState('');
   const [editingChaosHabitId, setEditingChaosHabitId] = useState<string | null>(null);
@@ -461,6 +467,8 @@ const MONTH_NAMES = [
         }
       }
       setCheckInNotes(noteMap);
+      // Load moods for current month
+      setMonthMoods(getMonthMoods(year, month));
     }
     update();
     return subscribe(update);
@@ -1299,6 +1307,38 @@ const MONTH_NAMES = [
                     </DraggableHabitRow>
                   );
                 })}
+                    {/* Mood tracker row */}
+                    <tr className="mood-row">
+                      <td className="col-habits">
+                        <span className="mood-label">Mood</span>
+                      </td>
+                      {dayHeaders.map((h) => {
+                        const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(h.day).padStart(2, '0')}`;
+                        const moodId = monthMoods.get(h.day);
+                        const mood = moodId ? MOODS.find(m => m.id === moodId) : null;
+                        const isToday = isCurrentMonth && h.day === todayDay;
+                        return (
+                          <td
+                            key={h.day}
+                            className={`col-day mood-cell ${isToday ? 'today' : ''}`}
+                            onClick={() => {
+                              const currentMood = getMood(dateKey);
+                              const currentIdx = currentMood ? MOODS.findIndex(m => m.id === currentMood) : -1;
+                              const nextIdx = (currentIdx + 1) % MOODS.length;
+                              setMood(dateKey, MOODS[nextIdx].id);
+                              setMonthMoods(getMonthMoods(year, month));
+                            }}
+                            title={mood ? mood.label : 'Click to set mood'}
+                          >
+                            <div className="day-cell mood-display" style={mood ? { background: mood.color + '22', color: mood.color } : {}}>
+                              {mood ? mood.emoji : '·'}
+                            </div>
+                          </td>
+                        );
+                      })}
+                      <td className="col-goal"></td>
+                      <td className="col-achieved"></td>
+                    </tr>
                     {dropProvided.placeholder}
                   </tbody>
                 )}

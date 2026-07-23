@@ -587,6 +587,40 @@ body {
   transition: width 0.3s ease;
 }
 
+/* Mood tracker row */
+.mood-row {
+  border-top: 2px solid var(--border);
+}
+
+.mood-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.mood-cell {
+  cursor: pointer;
+}
+
+.mood-display {
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: transform 0.1s, background 0.15s;
+}
+
+.mood-display:hover {
+  transform: scale(1.2);
+}
+
+.mood-cell.today .mood-display {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
 .goal-input {
   width: 46px;
   border: 1px solid var(--primary);
