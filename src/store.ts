@@ -687,6 +687,36 @@ async function doFileBackup(d: AppData): Promise<void> {
           }
         }
       } catch { /* best-effort */ }
+
+      // 6. Google Drive (if installed)
+      // Try common paths: ~/Google Drive, ~/GoogleDrive, ~/Google Drive/My Drive
+      const gDrivePaths = [
+        `${home}/Google Drive`,
+        `${home}/GoogleDrive`,
+        `${home}/Google Drive/My Drive`,
+      ];
+      for (const gd of gDrivePaths) {
+        if (await exists(gd).catch(() => false)) {
+          await writeBackup(gd, 'Apps/LifeTrack');
+          break;
+        }
+      }
+
+      // Also try reading home dir for any folder containing "Google Drive"
+      try {
+        const { readDir } = await import('@tauri-apps/plugin-fs');
+        const entries = await readDir(home);
+        for (const entry of entries) {
+          if (entry.name && /google.?drive/i.test(entry.name) && entry.isDirectory) {
+            // Check if we already wrote to it above
+            const alreadyCovered = gDrivePaths.some(p => p === `${home}/${entry.name}`);
+            if (!alreadyCovered) {
+              await writeBackup(`${home}/${entry.name}`, 'Apps/LifeTrack');
+            }
+            break;
+          }
+        }
+      } catch { /* best-effort */ }
   } catch {
     // File backup is best-effort — localStorage is primary.
     // Failures (permissions, disk full) are silent.
