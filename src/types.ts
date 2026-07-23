@@ -140,6 +140,31 @@ export interface CapacityRating {
   habitId?: string;
 }
 
+// --- N=1 Experiments ---
+export interface Experiment {
+  id: string;
+  title: string;
+  hypothesis: string;       // "If I meditate 20min every morning, my focus will improve"
+  startDate: string;        // YYYY-MM-DD
+  endDate: string;          // YYYY-MM-DD (or empty for ongoing)
+  linkedHabits: string[];   // habit IDs being tested
+  linkedMetrics: string[];  // 'mood' | capacity IDs
+  status: 'active' | 'completed' | 'cancelled';
+  conclusion: string;       // filled at completion
+  createdAt: string;
+  completedAt?: string;
+}
+
+// --- Correlation result (computed, not stored) ---
+export interface CorrelationResult {
+  metricA: string;          // label like "Meditation" or "Mood"
+  metricB: string;
+  coefficient: number;      // Pearson r, -1 to 1
+  strength: 'strong' | 'moderate' | 'weak' | 'none';
+  direction: 'positive' | 'negative';
+  sampleSize: number;       // number of data points
+}
+
 export interface AppData {
   habits: Habit[];
   checkIns: CheckIn[];
@@ -151,4 +176,5 @@ export interface AppData {
   capacities: Capacity[];
   capacityRatings: CapacityRating[];
   moods: Record<string, string>; // date YYYY-MM-DD -> mood id
+  experiments: Experiment[];
 }

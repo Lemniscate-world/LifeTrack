@@ -55,8 +55,10 @@ import TodayView from './TodayView';
 import ShortcutsHelp from './ShortcutsHelp';
 import YearView from './YearView';
 import ChallengeView from './ChallengeView';
+import ExperimentsView from './ExperimentsView';
 // (Mood view removed — emotional state is tracked via the 'emotional' chaos dimension.)
 import { generateInsights, type Recommendation, type RecKind } from './recommendations';
+import { computeCorrelations } from './correlations';
 import { getDailyEntryMantra, todayStr, shouldShowMantraNotification, markMantraNotificationShown, MANTRA_DOMAINS, sendSystemNotification } from './mantras';
 
 // Detected at module load (window is always present in browser and Tauri).
@@ -133,7 +135,7 @@ const MONTH_NAMES = [
   // Intentions editor (why you do this habit)
   const [editingWhyHabitId, setEditingWhyHabitId] = useState<string | null>(null);
   const [editWhyText, setEditWhyText] = useState('');
-  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'mantras' | 'settings'>('grid');
+  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'experiments' | 'mantras' | 'settings'>('grid');
   const [savedMsg, setSavedMsg] = useState('');
   // Shortcuts help + toast
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -410,7 +412,7 @@ const MONTH_NAMES = [
       // Tab switching: Ctrl+1..9 + Ctrl+0
       if (ctrl && e.key >= '0' && e.key <= '9') {
         e.preventDefault();
-        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'mantras'];
+        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'experiments', 'chaos', 'mantras'];
         const idx = e.key === '0' ? 0 : parseInt(e.key, 10);
         const viewKey = tabs[idx] as typeof view;
         if (viewKey) setView(viewKey);
@@ -939,6 +941,9 @@ const MONTH_NAMES = [
           </button>
           <button role="tab" aria-selected={view === 'insights'} className={`view-tab ${view === 'insights' ? 'active' : ''}`} onClick={() => setView('insights')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg> Insights
+          </button>
+          <button role="tab" aria-selected={view === 'experiments'} className={`view-tab ${view === 'experiments' ? 'active' : ''}`} onClick={() => setView('experiments')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Experiments
           </button>
           <button role="tab" aria-selected={view === 'chaos'} className={`view-tab ${view === 'chaos' ? 'active' : ''}`} onClick={() => setView('chaos')}>Chaos</button>
           <button role="tab" aria-selected={view === 'mantras'} className={`view-tab ${view === 'mantras' ? 'active' : ''}`} onClick={() => setView('mantras')}>
@@ -1486,6 +1491,8 @@ const MONTH_NAMES = [
         />
       ) : view === 'skills' ? (
         <SkillsView />
+      ) : view === 'experiments' ? (
+        <ExperimentsView />
       ) : (
         <ChaosView />
       )}
@@ -1710,12 +1717,21 @@ function InsightsView({
   // eslint-disable-next-line no-unused-vars
   onLink: (childId: string, parentId: string | null) => void;
   // eslint-disable-next-line no-unused-vars
-  onView: (_v: 'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights' | 'mantras' | 'settings' | 'today' | 'year' | 'challenge') => void;
+  onView: (_v: 'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights' | 'mantras' | 'settings' | 'today' | 'year' | 'challenge' | 'experiments') => void;
 }) {
   const { recommendations, generatedAt } = useMemo(
     () => generateInsights(habits, checkIns),
     [habits, checkIns],
   );
+
+  // Compute correlations from available data
+  const correlations = useMemo(() => {
+    try {
+      const allData = exportAllData();
+      const caps = (allData.capacities ?? []).map(c => ({ id: c.id, name: c.name }));
+      return computeCorrelations(habits, checkIns, allData.moods ?? {}, caps, allData.capacityRatings ?? []);
+    } catch { return []; }
+  }, [habits, checkIns]);
 
   const habitById = useMemo(() => {
     const m = new Map<string, Habit>();
@@ -1881,6 +1897,29 @@ function InsightsView({
           );
         })}
       </div>
+
+      {/* Correlations */}
+      {correlations.length > 0 && (
+        <div className="correlations-section">
+          <h3>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}>
+              <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+            </svg>
+            Correlations
+          </h3>
+          <div className="correlations-list">
+            {correlations.slice(0, 6).map((c, i) => (
+              <div key={i} className={`correlation-item ${c.direction} ${c.strength}`}>
+                <span className="correlation-pair">{c.metricA} ↔ {c.metricB}</span>
+                <span className={`correlation-value ${c.direction}`}>
+                  {c.direction === 'positive' ? '↑' : '↓'} {Math.abs(c.coefficient).toFixed(2)}
+                </span>
+                <span className="correlation-strength">{c.strength}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

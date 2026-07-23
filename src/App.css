@@ -621,6 +621,161 @@ body {
   box-shadow: 0 0 0 2px var(--accent);
 }
 
+/* ============ EXPERIMENTS VIEW ============ */
+.experiments-view {
+  padding: 16px;
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+.experiments-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.experiments-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.experiment-form {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.form-input, .form-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--text);
+  box-sizing: border-box;
+}
+
+.form-input:focus, .form-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.form-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 13px;
+}
+
+.habit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.chip.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.chip input { display: none; }
+
+.experiments-section { margin-bottom: 24px; }
+.experiments-section h3 { font-size: 13px; color: var(--text-secondary); margin: 0 0 8px; }
+
+.experiment-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 10px;
+}
+
+.experiment-card.active {
+  border-left: 3px solid var(--accent);
+}
+
+.experiment-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.experiment-title { font-weight: 600; font-size: 14px; }
+.experiment-dates { font-size: 11px; color: var(--text-muted); }
+.experiment-hypothesis { font-size: 13px; color: var(--text-secondary); font-style: italic; margin: 4px 0; }
+.experiment-meta { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; }
+.experiment-actions { display: flex; gap: 8px; }
+.experiment-conclusion { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.experiment-conclusion-text { font-size: 12px; color: var(--text-secondary); margin: 4px 0; }
+.experiment-status { font-size: 14px; }
+
+/* ============ CORRELATIONS ============ */
+.correlations-section {
+  margin-top: 24px;
+  padding: 16px;
+  background: var(--bg-alt);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.correlations-section h3 { margin: 0 0 10px; font-size: 14px; }
+
+.correlations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.correlation-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.correlation-pair { flex: 1; font-weight: 500; }
+.correlation-value { font-weight: 700; min-width: 45px; text-align: right; }
+.correlation-value.positive { color: #10B981; }
+.correlation-value.negative { color: #EF4444; }
+.correlation-strength {
+  font-size: 10px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-alt);
+  color: var(--text-muted);
+}
+
+.correlation-item.strong .correlation-strength { background: #10B98122; color: #10B981; }
+.correlation-item.moderate .correlation-strength { background: #F59E0B22; color: #F59E0B; }
+
 .goal-input {
   width: 46px;
   border: 1px solid var(--primary);

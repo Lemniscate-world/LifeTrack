@@ -1,4 +1,4 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment } from './types';
 import { computeStreakStats } from './stats';
 import {
   linkHabitToParentInPlace,
@@ -146,6 +146,7 @@ function sanitizeData(raw: unknown): AppData {
     capacities: [],
     capacityRatings: [],
     moods: {},
+    experiments: [],
   };
   if (!raw || typeof raw !== 'object') return empty;
   const obj = raw as Record<string, unknown>;
@@ -270,7 +271,49 @@ function sanitizeData(raw: unknown): AppData {
     capacities: validCapacities,
     capacityRatings: validRatings,
     moods: (obj.moods && typeof obj.moods === 'object' && !Array.isArray(obj.moods)) ? obj.moods as Record<string, string> : {},
+    experiments: Array.isArray(obj.experiments) ? obj.experiments.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'title' in (e as object)) as Experiment[] : [],
   };
+}
+
+/** Experiment CRUD */
+export function getExperiments(): Experiment[] {
+  return [...data.experiments].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export function addExperiment(exp: Omit<Experiment, 'id' | 'createdAt' | 'status' | 'conclusion' | 'completedAt'>): Experiment {
+  const experiment: Experiment = {
+    ...exp,
+    id: crypto.randomUUID(),
+    status: 'active',
+    conclusion: '',
+    createdAt: new Date().toISOString(),
+  };
+  data.experiments.push(experiment);
+  notify();
+  return experiment;
+}
+
+export function updateExperiment(id: string, updates: Partial<Experiment>): void {
+  const idx = data.experiments.findIndex(e => e.id === id);
+  if (idx !== -1) {
+    Object.assign(data.experiments[idx], updates);
+    notify();
+  }
+}
+
+export function completeExperiment(id: string, conclusion: string): void {
+  const exp = data.experiments.find(e => e.id === id);
+  if (exp) {
+    exp.status = 'completed';
+    exp.conclusion = conclusion;
+    exp.completedAt = new Date().toISOString();
+    notify();
+  }
+}
+
+export function deleteExperiment(id: string): void {
+  data.experiments = data.experiments.filter(e => e.id !== id);
+  notify();
 }
 
 /** Mood tracking */
@@ -464,6 +507,7 @@ function freshData(): AppData {
     capacities: [],
     capacityRatings: [],
     moods: {},
+    experiments: [],
   };
 }
 
