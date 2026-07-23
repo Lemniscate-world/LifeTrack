@@ -1,4 +1,4 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating } from './types';
 import { computeStreakStats } from './stats';
 import {
   linkHabitToParentInPlace,
@@ -8,6 +8,62 @@ import {
   getNextStackSuggestion,
   type StackStatus,
 } from './stacks';
+import { createDefaultMantras, DEFAULT_MANTRA_SETTINGS } from './mantras';
+
+export function createDefaultSkills(): Skill[] {
+  return [
+    {
+      id: 'default-mindfulness',
+      name: 'Mindfulness',
+      description: 'Training the mind to be present, note thoughts, and recognize mental patterns.',
+      emoji: '🧠',
+      color: '#EDE9FE',
+      createdAt: new Date().toISOString(),
+      links: [],
+      isDefault: true,
+    },
+    {
+      id: 'default-fitness',
+      name: 'Physical Fitness',
+      description: 'Building physical capacity, endurance, and strength through body movement.',
+      emoji: '💪',
+      color: '#D1FAE5',
+      createdAt: new Date().toISOString(),
+      links: [],
+      isDefault: true,
+    },
+    {
+      id: 'default-focus',
+      name: 'Deep Work & Focus',
+      description: 'Developing cognitive stamina to focus intensely on complex tasks without distraction.',
+      emoji: '⚡',
+      color: '#DBEAFE',
+      createdAt: new Date().toISOString(),
+      links: [],
+      isDefault: true,
+    },
+    {
+      id: 'default-learning',
+      name: 'Knowledge Acquisition',
+      description: 'Expanding mental models, reading, and learning new concepts and tools.',
+      emoji: '📚',
+      color: '#FEF3C7',
+      createdAt: new Date().toISOString(),
+      links: [],
+      isDefault: true,
+    },
+    {
+      id: 'default-resilience',
+      name: 'Mental Resilience',
+      description: 'Strengthening emotional regulation, gratitude, and stress management.',
+      emoji: '🌱',
+      color: '#FCE7F3',
+      createdAt: new Date().toISOString(),
+      links: [],
+      isDefault: true,
+    },
+  ];
+}
 
 // --- Storage envelope ---
 // Wraps app data with versioning and an integrity checksum.
@@ -22,6 +78,7 @@ interface StorageEnvelope {
 
 const STORAGE_KEY = 'lifetrack-data';
 const BACKUP_KEY = 'lifetrack-data-backup';
+const RAW_JSON_KEY = 'lifetrack-raw'; // emergency plain JSON (no envelope, survives corruption)
 const FILE_BACKUP_NAME = 'lifetrack-persistent.json'; // filesystem fallback (Tauri)
 const HABIT_COLORS = ['#FEF3C7', '#D1FAE5', '#DBEAFE', '#FCE7F3', '#E0E7FF', '#FEE2E2', '#EDE9FE', '#FEF9C3'];
 
@@ -47,9 +104,48 @@ function isLocalStorageAvailable(): boolean {
   }
 }
 
+// --- Runtime validators for Capacity types (used by sanitizeData AND mergeImportedData) ---
+// Capacity: a sub-ability under a Skill with a user-defined unit and scale.
+// `baseline` and `target` are clamped on import/save so a poisoned payload
+// can't make the timeline explode visually.
+function isValidCapacity(x: unknown): x is Capacity {
+  if (!x || typeof x !== 'object') return false;
+  const c = x as Record<string, unknown>;
+  if (typeof c.id !== 'string' || typeof c.skillId !== 'string' || typeof c.name !== 'string') return false;
+  if (typeof c.description !== 'string') return false;
+  if (typeof c.unit !== 'string') return false;
+  if (typeof c.createdAt !== 'string') return false;
+  if (typeof c.baseline !== 'number' || !Number.isFinite(c.baseline)) return false;
+  if (typeof c.target !== 'number' || !Number.isFinite(c.target)) return false;
+  return true;
+}
+// CapacityRating: one observation on one day. Either rating or note is
+// set on every entry — both are validated, but at least one must exist.
+function isValidCapacityRating(x: unknown): x is CapacityRating {
+  if (!x || typeof x !== 'object') return false;
+  const r = x as Record<string, unknown>;
+  if (typeof r.id !== 'string' || typeof r.capacityId !== 'string') return false;
+  if (typeof r.date !== 'string' || !isValidDateKey(r.date)) return false;
+  if (r.rating !== undefined && (typeof r.rating !== 'number' || !Number.isFinite(r.rating))) return false;
+  if (r.note !== undefined && typeof r.note !== 'string') return false;
+  if (r.note === undefined && r.rating === undefined) return false;
+  if (r.habitId !== undefined && typeof r.habitId !== 'string') return false;
+  return true;
+}
+
 // --- Sanitize: filter out malformed entries from parsed data ---
 function sanitizeData(raw: unknown): AppData {
-  const empty: AppData = { habits: [], checkIns: [], notes: [], chaosDimensions: [] };
+  const empty: AppData = {
+    habits: [],
+    checkIns: [],
+    notes: [],
+    chaosDimensions: [],
+    mantras: createDefaultMantras(),
+    mantraSettings: { ...DEFAULT_MANTRA_SETTINGS },
+    skills: createDefaultSkills(),
+    capacities: [],
+    capacityRatings: [],
+  };
   if (!raw || typeof raw !== 'object') return empty;
   const obj = raw as Record<string, unknown>;
   function isValidHabit(x: unknown): x is Habit {
@@ -84,11 +180,94 @@ function sanitizeData(raw: unknown): AppData {
   function isValidNote(x: unknown): x is Note {
     return !!(x && typeof x === 'object' && 'id' in (x as object) && 'content' in (x as object));
   }
+  function isValidMantra(x: unknown): x is Mantra {
+    if (!x || typeof x !== 'object') return false;
+    const m = x as Record<string, unknown>;
+    return typeof m.id === 'string'
+      && typeof m.text === 'string'
+      && typeof m.domain === 'string'
+      && typeof m.isDefault === 'boolean';
+  }
+  function isValidMantraSettings(x: unknown): x is MantraSettings {
+    if (!x || typeof x !== 'object') return false;
+    const s = x as Record<string, unknown>;
+    return typeof s.morningEnabled === 'boolean'
+      && typeof s.eveningEnabled === 'boolean'
+      && typeof s.showOnEntry === 'boolean';
+  }
+  function isValidSkill(x: unknown): x is Skill {
+    if (!x || typeof x !== 'object') return false;
+    const s = x as Record<string, unknown>;
+    if (typeof s.id !== 'string' || typeof s.name !== 'string' || typeof s.description !== 'string') return false;
+    if (typeof s.emoji !== 'string' || typeof s.color !== 'string' || typeof s.createdAt !== 'string') return false;
+    if (!Array.isArray(s.links)) return false;
+    for (const link of s.links) {
+      if (!link || typeof link !== 'object') return false;
+      const l = link as Record<string, unknown>;
+      if (typeof l.habitId !== 'string' || typeof l.xpPerCompletion !== 'number' || !Number.isFinite(l.xpPerCompletion)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Merge stored mantras with defaults: keep user mantras + built-in defaults.
+  // This way we can add new default mantras over time without losing user data.
+  const storedMantras: Mantra[] = Array.isArray(obj.mantras)
+    ? obj.mantras.filter(isValidMantra)
+    : [];
+  const defaultMantras = createDefaultMantras();
+  const userMantras = storedMantras.filter((m) => !m.isDefault);
+  // Keep user mantras + latest defaults (ensures new default mantras appear)
+  const mergedMantras = [...defaultMantras, ...userMantras];
+  
+  const storedSettings = obj.mantraSettings;
+  const mantraSettings: MantraSettings = isValidMantraSettings(storedSettings)
+    ? { ...DEFAULT_MANTRA_SETTINGS, ...storedSettings as Partial<MantraSettings> }
+    : { ...DEFAULT_MANTRA_SETTINGS };
+
+  // Merge stored skills with defaults
+  const storedSkills: Skill[] = Array.isArray(obj.skills)
+    ? obj.skills.filter(isValidSkill)
+    : [];
+  const defaultSkills = createDefaultSkills();
+  const mergedSkills = [...storedSkills];
+  for (const defS of defaultSkills) {
+    if (!mergedSkills.some((s) => s.id === defS.id)) {
+      mergedSkills.push(defS);
+    }
+  }
+
+  // Capacities: filter malformed, then drop any capacity whose parent skill
+  // no longer exists (orphaned capacities would be unreachable from the UI
+  // and clutter the storage). Ratings referring to dropped capacities are
+  // also dropped to keep the storage envelope clean.
+  const storedCapacities: Capacity[] = Array.isArray(obj.capacities)
+    ? obj.capacities.filter(isValidCapacity)
+    : [];
+  const knownSkillIds = new Set(mergedSkills.map((s) => s.id));
+  const validCapacities = storedCapacities.filter((c) => knownSkillIds.has(c.skillId));
+  const validCapacityIds = new Set(validCapacities.map((c) => c.id));
+  const storedRatings: CapacityRating[] = Array.isArray(obj.capacityRatings)
+    ? obj.capacityRatings.filter(isValidCapacityRating)
+    : [];
+  const validRatings = storedRatings.filter((r) => validCapacityIds.has(r.capacityId));
+
   return {
     habits: Array.isArray(obj.habits) ? obj.habits.filter(isValidHabit) : [],
     checkIns: Array.isArray(obj.checkIns) ? obj.checkIns.filter(isValidCheckIn) : [],
     notes: Array.isArray(obj.notes) ? obj.notes.filter(isValidNote) : [],
-    chaosDimensions: Array.isArray(obj.chaosDimensions) ? obj.chaosDimensions as ChaosDimension[] : getDefaultChaosDimensions(),
+    // Merge stored chaos dimensions with the current defaults so that new
+    // dimensions (e.g. 'emotional') appear in data saved by older versions,
+    // while preserving any user-customised labels or manual triggers.
+    chaosDimensions: mergeChaosDimensions(
+      Array.isArray(obj.chaosDimensions) ? obj.chaosDimensions as ChaosDimension[] : []
+    ),
+    mantras: mergedMantras,
+    mantraSettings,
+    skills: mergedSkills,
+    capacities: validCapacities,
+    capacityRatings: validRatings,
   };
 }
 
@@ -208,14 +387,33 @@ function loadData(): AppData {
   const primary = readEnvelope(STORAGE_KEY);
   if (primary) {
     deduplicateDataInPlace(primary);
+    scheduleFileBackup(primary); // ensure disk backup exists at startup
     return primary;
   }
   const backup = readEnvelope(BACKUP_KEY);
   if (backup) {
     console.warn('Primary storage corrupted or missing — recovered from backup');
     deduplicateDataInPlace(backup);
+    scheduleFileBackup(backup); // ensure disk backup exists at startup
     return backup;
   }
+  // Desperate: try raw JSON emergency backup (no envelope, no checksum)
+  try {
+    const rawJson = localStorage.getItem(RAW_JSON_KEY);
+    if (rawJson) {
+      const parsed = JSON.parse(rawJson);
+      if (parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string,unknown>).habits)) {
+        const recovered = sanitizeData(parsed);
+        if (recovered.habits.length > 0 || recovered.checkIns.length > 0) {
+          console.warn('Recovered from raw JSON emergency backup — re-saving as envelope');
+          writeEnvelope(STORAGE_KEY, recovered);
+          writeEnvelope(BACKUP_KEY, recovered);
+          scheduleFileBackup(recovered);
+          return recovered;
+        }
+      }
+    }
+  } catch { /* raw backup also corrupt */ }
   // Last resort: try to read raw legacy JSON and migrate it
   const migrated = migrateLegacyPrimaryData();
   if (migrated) return migrated;
@@ -242,7 +440,99 @@ export function clearFileRecoveryFlag(): void {
 }
 
 function freshData(): AppData {
-  return { habits: [], checkIns: [], notes: [], chaosDimensions: [] };
+  return {
+    habits: [],
+    checkIns: [],
+    notes: [],
+    chaosDimensions: [],
+    mantras: createDefaultMantras(),
+    mantraSettings: { ...DEFAULT_MANTRA_SETTINGS },
+    skills: createDefaultSkills(),
+    capacities: [],
+    capacityRatings: [],
+  };
+}
+
+// --- Pre-upgrade safety backup ---
+// Creates a timestamped, immutable snapshot of all data BEFORE a code update.
+// Stored with a unique key so it survives normal save/load cycles. The user
+// can restore it via the "Restore from Backup" menu or by importing the JSON.
+const UPGRADE_BACKUP_PREFIX = 'lifetrack-upgrade-backup-';
+
+export function createUpgradeBackup(): string | null {
+  if (!isLocalStorageAvailable()) return null;
+  try {
+    const now = new Date();
+    const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}T${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}`;
+    const key = `${UPGRADE_BACKUP_PREFIX}${timestamp}`;
+    const existing = readEnvelope(STORAGE_KEY);
+    const dataToBackup = existing ?? data; // fallback to in-memory if localStorage read fails
+    if (!dataToBackup || dataToBackup.habits.length === 0) {
+      console.info('[LifeTrack] Skipping upgrade backup — no data to save');
+      return null;
+    }
+    const json = JSON.stringify(dataToBackup);
+    const envelope: StorageEnvelope = {
+      v: 1,
+      d: dataToBackup,
+      h: fnv1a(json),
+    };
+    localStorage.setItem(key, JSON.stringify(envelope));
+    console.info(`[LifeTrack] ✅ Pre-upgrade backup created: ${key} (${dataToBackup.habits.length} habits, ${dataToBackup.checkIns.length} check-ins)`);
+    return key;
+  } catch (e) {
+    console.warn('[LifeTrack] Failed to create upgrade backup', e);
+    return null;
+  }
+}
+
+/** List all available upgrade backups, newest first. */
+export function listUpgradeBackups(): string[] {
+  if (!isLocalStorageAvailable()) return [];
+  const keys: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith(UPGRADE_BACKUP_PREFIX)) {
+      keys.push(key);
+    }
+  }
+  return keys.sort().reverse(); // newest first (ISO dates sort lexicographically)
+}
+
+/** Restore from a specific upgrade backup key. Returns true on success. */
+export function restoreUpgradeBackup(backupKey: string): boolean {
+  if (!isLocalStorageAvailable()) return false;
+  try {
+    const raw = localStorage.getItem(backupKey);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || !('d' in parsed)) return false;
+    const envelope = parsed as StorageEnvelope;
+    const data = sanitizeData(envelope.d);
+    writeEnvelope(STORAGE_KEY, data);
+    writeEnvelope(BACKUP_KEY, data);
+    console.info(`[LifeTrack] ✅ Restored from upgrade backup: ${backupKey}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Prune old upgrade backups, keeping only the most recent `keepCount`. */
+export function pruneOldBackups(keepCount: number = 7): number {
+  if (!isLocalStorageAvailable()) return 0;
+  const backups = listUpgradeBackups();
+  let removed = 0;
+  for (let i = keepCount; i < backups.length; i++) {
+    try {
+      localStorage.removeItem(backups[i]);
+      removed++;
+    } catch { /* ignore */ }
+  }
+  if (removed > 0) {
+    console.info(`[LifeTrack] Pruned ${removed} old backup(s), kept ${Math.min(keepCount, backups.length)}`);
+  }
+  return removed;
 }
 
 // --- Write envelope to a key ---
@@ -269,33 +559,80 @@ function writeEnvelope(key: string, data: AppData): boolean {
 // On Android, writes to app-specific storage.
 // Non-blocking — failures are logged but never crash the save.
 let fileBackupTimer: ReturnType<typeof setTimeout> | null = null;
-const FILE_BACKUP_DEBOUNCE_MS = 5000; // throttle disk writes (one every 5s max)
+let firstFileBackupDone = false; // ensure first backup after startup is NOT debounced
+const FILE_BACKUP_DEBOUNCE_MS = 1000; // throttle disk writes (one every 1s max)
 
 function scheduleFileBackup(d: AppData): void {
-  if (fileBackupTimer !== null) return;
-  fileBackupTimer = setTimeout(async () => {
+  // First backup after startup: write immediately (no debounce)
+  if (!firstFileBackupDone) {
+    firstFileBackupDone = true;
+    if (fileBackupTimer !== null) clearTimeout(fileBackupTimer);
     fileBackupTimer = null;
-    try {
-      const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-      if (!isTauriEnv) return;
-      const [{ appDataDir }, { writeTextFile, exists, mkdir }] = await Promise.all([
-        import('@tauri-apps/api/path'),
-        import('@tauri-apps/plugin-fs'),
-      ]);
-      const dir = await appDataDir();
-      const fullDir = `${dir}LifeTrack`;
-      const fullPath = `${fullDir}/${FILE_BACKUP_NAME}`;
-      const dirExists = await exists(fullDir).catch(() => false);
-      if (!dirExists) {
-        await mkdir(fullDir, { recursive: true });
-      }
-      const json = JSON.stringify(d, null, 2);
-      await writeTextFile(fullPath, json);
-    } catch {
-      // File backup is best-effort — localStorage is primary.
-      // Failures (permissions, disk full) are silent.
-    }
+    // Fire immediately in the next microtask
+    setTimeout(() => {
+      fileBackupTimer = null;
+      doFileBackup(d);
+    }, 0);
+    return;
+  }
+  if (fileBackupTimer !== null) return;
+  fileBackupTimer = setTimeout(() => {
+    fileBackupTimer = null;
+    doFileBackup(d);
   }, FILE_BACKUP_DEBOUNCE_MS);
+}
+
+async function doFileBackup(d: AppData): Promise<void> {
+  try {
+    const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    if (!isTauriEnv) return;
+    const [{ appDataDir, documentDir, desktopDir, homeDir }, { writeTextFile, exists, mkdir }] = await Promise.all([
+      import('@tauri-apps/api/path'),
+      import('@tauri-apps/plugin-fs'),
+    ]);
+    const json = JSON.stringify(d, null, 2);
+
+    const writeBackup = async (dir: string, subdir: string) => {
+      const fullDir = `${dir}${subdir}`;
+      const dirExists = await exists(fullDir).catch(() => false);
+      if (!dirExists) await mkdir(fullDir, { recursive: true });
+      await writeTextFile(`${fullDir}/${FILE_BACKUP_NAME}`, json);
+    };
+
+    // 1. AppData
+    const appDir = await appDataDir();
+    await writeBackup(appDir, 'LifeTrack');
+
+    // 2. Documents
+    const docDir = await documentDir();
+    await writeBackup(docDir, 'LifeTrack-Backups');
+
+    // 3. Desktop
+    const deskDir = await desktopDir();
+    await writeBackup(deskDir, 'LifeTrack-Backups');
+
+      // 4. Dropbox (if installed)
+      const home = await homeDir();
+      const dropboxDir = `${home}/Dropbox`;
+      if (await exists(dropboxDir).catch(() => false)) {
+        await writeBackup(dropboxDir, 'Apps/LifeTrack');
+      }
+
+      // 5. OneDrive (if installed)
+      try {
+        const { readDir } = await import('@tauri-apps/plugin-fs');
+        const entries = await readDir(home);
+        for (const entry of entries) {
+          if (entry.name?.startsWith('OneDrive') && entry.isDirectory) {
+            await writeBackup(`${home}/${entry.name}`, 'Apps/LifeTrack');
+            break;
+          }
+        }
+      } catch { /* best-effort */ }
+  } catch {
+    // File backup is best-effort — localStorage is primary.
+    // Failures (permissions, disk full) are silent.
+  }
 }
 
 // --- Periodic auto-backup (every 15 min) ---
@@ -384,6 +721,8 @@ function doSave(d: AppData): void {
         console.warn('Backup write failed; primary is persisted but backup may be stale.');
       }
       lastSavedAt = Date.now();
+      // Emergency raw JSON backup — bypasses envelope entirely
+      try { localStorage.setItem(RAW_JSON_KEY, JSON.stringify(d)); } catch { /* best-effort */ }
       // Also schedule a file backup (best-effort, non-blocking).
       scheduleFileBackup(d);
     } else {
@@ -391,6 +730,7 @@ function doSave(d: AppData): void {
       const backupOk = writeEnvelope(BACKUP_KEY, d);
       if (backupOk) {
         lastSavedAt = Date.now();
+        try { localStorage.setItem(RAW_JSON_KEY, JSON.stringify(d)); } catch { /* best-effort */ }
       } else {
         console.error('Critical: both primary and backup storage failed. Data may be lost on reload.');
       }
@@ -437,7 +777,24 @@ export function flushSave(): void {
 
 // Auto-flush on page unload to prevent data loss
 if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => flushSave());
+  window.addEventListener('beforeunload', () => {
+    flushSave();
+    // Emergency: force immediate file backup (bypass debounce)
+    if (fileBackupTimer !== null) {
+      clearTimeout(fileBackupTimer);
+      fileBackupTimer = null;
+    }
+    // Trigger synchronous-style backup via the auto_backup Tauri command
+    const isTauriEnv = '__TAURI_INTERNALS__' in window;
+    if (isTauriEnv) {
+      try {
+        // Use sendBeacon-like approach: fire and forget the auto_backup
+        import('@tauri-apps/api/core').then(({ invoke }) => {
+          invoke('auto_backup', { jsonData: JSON.stringify(exportAllData(), null, 2) });
+        }).catch(() => {});
+      } catch { /* best-effort */ }
+    }
+  });
   // Periodic save every 15s as safety net for long sessions
   const _flushInterval = setInterval(() => { if (pendingSave) flushSave(); }, 15000);
   window.addEventListener('beforeunload', () => { clearInterval(_flushInterval); flushSave(); });
@@ -453,13 +810,14 @@ interface UndoEntry {
   habitId: string;
   date: string;
   previousState: boolean; // was it checked before the toggle?
+  previousCount?: number; // what was the count before?
 }
 const undoStack: UndoEntry[] = [];
 const redoStack: UndoEntry[] = [];
 const MAX_UNDO = 50;
 
-export function pushUndo(habitId: string, date: string, previousState: boolean): void {
-  undoStack.push({ habitId, date, previousState });
+export function pushUndo(habitId: string, date: string, previousState: boolean, previousCount?: number): void {
+  undoStack.push({ habitId, date, previousState, previousCount });
   if (undoStack.length > MAX_UNDO) undoStack.shift();
   redoStack.length = 0; // clear redo on new action
 }
@@ -467,20 +825,23 @@ export function pushUndo(habitId: string, date: string, previousState: boolean):
 export function undoLastToggle(): UndoEntry | null {
   const entry = undoStack.pop();
   if (!entry) return null;
-  redoStack.push({ ...entry, previousState: !entry.previousState });
+  const existing = getCheckIn(entry.habitId, entry.date);
+  const currentCompleted = existing ? existing.completed : false;
+  const currentCount = existing ? (existing.count ?? (existing.completed ? 1 : 0)) : 0;
+
+  redoStack.push({ habitId: entry.habitId, date: entry.date, previousState: currentCompleted, previousCount: currentCount });
+
   // Guard: if the habit was deleted in the meantime, the undo is a no-op.
-  // We still keep the entry on the redo stack so the user can redo if they
-  // re-create the habit later. But we must not reinsert ghost check-ins.
   if (!data.habits.some((h) => h.id === entry.habitId)) {
     notify();
     return entry;
   }
   // Reverse the toggle
-  const existing = getCheckIn(entry.habitId, entry.date);
   if (existing) {
     existing.completed = entry.previousState;
+    existing.count = entry.previousCount ?? (entry.previousState ? 1 : 0);
   } else if (entry.previousState) {
-    data.checkIns.push({ habitId: entry.habitId, date: entry.date, completed: true });
+    data.checkIns.push({ habitId: entry.habitId, date: entry.date, completed: true, count: entry.previousCount ?? 1 });
   }
   notify();
   return entry;
@@ -489,16 +850,21 @@ export function undoLastToggle(): UndoEntry | null {
 export function redoLastUndo(): UndoEntry | null {
   const entry = redoStack.pop();
   if (!entry) return null;
-  undoStack.push({ ...entry, previousState: !entry.previousState });
+  const existing = getCheckIn(entry.habitId, entry.date);
+  const currentCompleted = existing ? existing.completed : false;
+  const currentCount = existing ? (existing.count ?? (existing.completed ? 1 : 0)) : 0;
+
+  undoStack.push({ habitId: entry.habitId, date: entry.date, previousState: currentCompleted, previousCount: currentCount });
+
   if (!data.habits.some((h) => h.id === entry.habitId)) {
     notify();
     return entry;
   }
-  const existing = getCheckIn(entry.habitId, entry.date);
   if (existing) {
     existing.completed = entry.previousState;
+    existing.count = entry.previousCount ?? (entry.previousState ? 1 : 0);
   } else if (entry.previousState) {
-    data.checkIns.push({ habitId: entry.habitId, date: entry.date, completed: true });
+    data.checkIns.push({ habitId: entry.habitId, date: entry.date, completed: true, count: entry.previousCount ?? 1 });
   }
   notify();
   return entry;
@@ -542,6 +908,9 @@ function backfillHabitRecords(): void {
 
 // Run once at startup so legacy data shows records immediately.
 backfillHabitRecords();
+
+// Note: diagnoseStorage() and restoreFromBackupIfNewer() are called by
+// the App component at mount time (not here) to avoid side-effects in tests.
 const listeners = new Set<() => void>();
 
 // Reset in-memory state and re-read from storage.
@@ -558,6 +927,77 @@ export function resetStore(): void {
   redoStack.length = 0;
   data = loadData();
   backfillHabitRecords();
+}
+
+/**
+ * Emergency recovery: read the backup key and if it has MORE habits than
+ * the current primary, restore from backup. Returns true if recovery was
+ * performed. Idempotent — safe to call multiple times.
+ */
+export function restoreFromBackupIfNewer(): boolean {
+  // Try envelope backup first
+  let backup = readEnvelope(BACKUP_KEY);
+  // If envelope backup fails, try raw JSON emergency key
+  if (!backup || backup.habits.length === 0) {
+    try {
+      const rawJson = localStorage.getItem(RAW_JSON_KEY);
+      if (rawJson) {
+        const parsed = JSON.parse(rawJson);
+        if (parsed && typeof parsed === 'object') {
+          backup = sanitizeData(parsed);
+        }
+      }
+    } catch { /* ignore */ }
+  }
+  if (!backup || backup.habits.length === 0) return false;
+  const primary = readEnvelope(STORAGE_KEY);
+  if (primary && primary.habits.length >= backup.habits.length) return false;
+  // Backup has more data — restore it as primary
+  console.warn(`Restoring from backup: ${backup.habits.length} habits, ${backup.checkIns.length} check-ins, ${backup.skills?.length || 0} skills`);
+  deduplicateDataInPlace(backup);
+  writeEnvelope(STORAGE_KEY, backup);
+  writeEnvelope(BACKUP_KEY, backup);
+  try { localStorage.setItem(RAW_JSON_KEY, JSON.stringify(backup)); } catch { /* ignore */ }
+  scheduleFileBackup(backup);
+  data = backup;
+  backfillHabitRecords();
+  notify();
+  return true;
+}
+
+/**
+ * Diagnostic: dump storage status to console. Press F12 to see.
+ */
+export function diagnoseStorage(): { primaryRaw: string | null; backupRaw: string | null; primaryParsed: unknown; backupParsed: unknown } {
+  const primaryRaw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
+  const backupRaw = typeof localStorage !== 'undefined' ? localStorage.getItem(BACKUP_KEY) : null;
+  let primaryParsed: unknown = null;
+  let backupParsed: unknown = null;
+  try { if (primaryRaw) primaryParsed = JSON.parse(primaryRaw); } catch { /* ignore */ }
+  try { if (backupRaw) backupParsed = JSON.parse(backupRaw); } catch { /* ignore */ }
+  const ph = primaryParsed && typeof primaryParsed === 'object' && 'd' in primaryParsed ? (primaryParsed as Record<string,unknown>).d : null;
+  const bh = backupParsed && typeof backupParsed === 'object' && 'd' in backupParsed ? (backupParsed as Record<string,unknown>).d : null;
+  console.group('🔍 LifeTrack Storage Diagnostic');
+  console.log('Primary key exists:', !!primaryRaw, primaryRaw ? `(${primaryRaw.length} chars)` : '');
+  console.log('Backup key exists:', !!backupRaw, backupRaw ? `(${backupRaw.length} chars)` : '');
+  const rawRaw = typeof localStorage !== 'undefined' ? localStorage.getItem(RAW_JSON_KEY) : null;
+  console.log('Raw JSON key exists:', !!rawRaw, rawRaw ? `(${rawRaw.length} chars)` : '');
+  if (ph && typeof ph === 'object') {
+    const p = ph as Record<string,unknown>;
+    console.log('Primary habits:', (p.habits as Array<unknown>)?.length || 0);
+    console.log('Primary checkIns:', (p.checkIns as Array<unknown>)?.length || 0);
+    console.log('Primary skills:', (p.skills as Array<unknown>)?.length || 0);
+  }
+  if (bh && typeof bh === 'object') {
+    const b = bh as Record<string,unknown>;
+    console.log('Backup habits:', (b.habits as Array<unknown>)?.length || 0);
+    console.log('Backup checkIns:', (b.checkIns as Array<unknown>)?.length || 0);
+    console.log('Backup skills:', (b.skills as Array<unknown>)?.length || 0);
+  }
+  console.log('In-memory habits:', data.habits.length);
+  console.log('In-memory skills:', data.skills?.length || 0);
+  console.groupEnd();
+  return { primaryRaw, backupRaw, primaryParsed, backupParsed };
 }
 
 function notify() {
@@ -677,6 +1117,14 @@ export function deleteHabit(id: string): void {
   data.habits = data.habits.filter((h) => h.id !== id);
   data.checkIns = data.checkIns.filter((c) => c.habitId !== id);
   data.notes = data.notes.filter((n) => n.habitId !== id);
+  // Capacity ratings that referenced this habit are kept (the rating entry
+  // is meaningful on its own) but their habitId is cleared so it doesn't
+  // show a dangling link in the UI.
+  if (data.capacityRatings) {
+    for (const r of data.capacityRatings) {
+      if (r.habitId === id) r.habitId = undefined;
+    }
+  }
   notify();
 }
 
@@ -684,8 +1132,8 @@ export function deleteHabit(id: string): void {
 // Thin wrappers around the pure helpers in `src/stacks.ts` so the UI has one
 // stable import surface (`./store`) without leaking module split.
 
-export function linkHabitToParent(habitId: string, parentId: string): boolean {
-  const result = linkHabitToParentInPlace(data.habits, habitId, parentId);
+export function linkHabitToParent(habitId: string, parentId: string, when: 'before' | 'after' | 'with' = 'after'): boolean {
+  const result = linkHabitToParentInPlace(data.habits, habitId, parentId, when);
   if (!result.ok) {
     if (result.reason === 'cycle') {
       console.warn('linkHabitToParent: cycle detected — refusing', { habitId, parentId });
@@ -769,14 +1217,109 @@ export function toggleCheckIn(habitId: string, date: string): CheckIn {
   if (existing) {
     pushUndo(habitId, date, existing.completed);
     existing.completed = !existing.completed;
+    if (!existing.completed) existing.count = 0;
+    else if (!existing.count) existing.count = 1;
     notify();
     return existing;
   }
   pushUndo(habitId, date, false);
-  const checkIn: CheckIn = { habitId, date, completed: true };
+  const checkIn: CheckIn = { habitId, date, completed: true, count: 1 };
   data.checkIns.push(checkIn);
   notify();
   return checkIn;
+}
+
+/** Increment the completion count for a habit on a given day by 1. */
+export function incrementCheckInCount(habitId: string, date: string): CheckIn {
+  const existing = getCheckIn(habitId, date);
+  if (existing) {
+    const current = existing.count ?? (existing.completed ? 1 : 0);
+    pushUndo(habitId, date, existing.completed, current);
+    existing.count = current + 1;
+    existing.completed = true;
+    notify();
+    return existing;
+  }
+  pushUndo(habitId, date, false, 0);
+  const checkIn: CheckIn = { habitId, date, completed: true, count: 1 };
+  data.checkIns.push(checkIn);
+  notify();
+  return checkIn;
+}
+
+/** Reset the completion count for a habit on a given day to 0 (unchecked). */
+export function resetCheckInCount(habitId: string, date: string): void {
+  const existing = getCheckIn(habitId, date);
+  if (existing) {
+    const current = existing.count ?? (existing.completed ? 1 : 0);
+    pushUndo(habitId, date, existing.completed, current);
+    existing.count = 0;
+    existing.completed = false;
+    notify();
+  }
+}
+
+/** Decrement the completion count by 1. If count reaches 0, unchecks. */
+export function decrementCheckInCount(habitId: string, date: string): void {
+  const existing = getCheckIn(habitId, date);
+  if (!existing) return;
+  const current = existing.count ?? (existing.completed ? 1 : 0);
+  pushUndo(habitId, date, existing.completed, current);
+  if (current <= 1) {
+    existing.count = 0;
+    existing.completed = false;
+  } else {
+    existing.count = current - 1;
+    existing.completed = true;
+  }
+  notify();
+}
+
+/** Get the completion count for a habit on a given day (0 if not checked). */
+export function getCheckInCount(habitId: string, date: string): number {
+  const ci = getCheckIn(habitId, date);
+  if (!ci || !ci.completed) return 0;
+  return ci.count ?? 1;
+}
+
+/** Set or clear the note on a check-in for a specific habit+day. */
+export function setCheckInNote(habitId: string, date: string, note: string | null): void {
+  const existing = getCheckIn(habitId, date);
+  if (existing) {
+    if (note === null || note === '') {
+      delete existing.note;
+    } else {
+      existing.note = note;
+    }
+    notify();
+    return;
+  }
+  // Create a non-completed entry just to hold the note (observation without completion)
+  if (note) {
+    const checkIn: CheckIn = { habitId, date, completed: false, note };
+    data.checkIns.push(checkIn);
+    notify();
+  }
+}
+
+/** Get the note for a check-in on a specific habit+day, or empty string. */
+export function getCheckInNote(habitId: string, date: string): string {
+  const ci = getCheckIn(habitId, date);
+  return ci?.note ?? '';
+}
+
+/** Get all check-in notes for a month (habitId -> day -> note). */
+export function getMonthCheckInNotes(habitId: string, year: number, month: number): Map<number, string> {
+  const map = new Map<number, string>();
+  const prefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
+  const checks = data.checkIns.filter((c) => c.habitId === habitId && c.date.startsWith(prefix));
+  for (const c of checks) {
+    if (c.note) {
+      const day = parseInt(c.date.split('-')[2], 10);
+      map.set(day, c.note);
+    }
+  }
+  return map;
 }
 
 export function getCheckInsForHabit(habitId: string): CheckIn[] {
@@ -790,6 +1333,19 @@ export function getMonthCheckIns(habitId: string, year: number, month: number): 
   for (const c of checks) {
     const day = parseInt(c.date.split('-')[2], 10);
     map.set(day, c.completed);
+  }
+  return map;
+}
+
+/** Get completion counts per day for a month (for multi-goal sub-cell rendering). */
+export function getMonthCheckInCounts(habitId: string, year: number, month: number): Map<number, number> {
+  const map = new Map<number, number>();
+  const prefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
+  const checks = data.checkIns.filter((c) => c.habitId === habitId && c.date.startsWith(prefix));
+  for (const c of checks) {
+    const day = parseInt(c.date.split('-')[2], 10);
+    const prev = map.get(day) ?? 0;
+    map.set(day, Math.max(prev, c.completed ? (c.count ?? 1) : 0));
   }
   return map;
 }
@@ -831,17 +1387,6 @@ export function addNote(content: string): Note {
 export function deleteNote(id: string): void {
   data.notes = data.notes.filter((n) => n.id !== id);
   notify();
-}
-
-// --- Diagnostic: peek at raw storage content for debugging ---
-export function diagnoseStorage(): { primaryRaw: string | null; backupRaw: string | null; primaryParsed: unknown; backupParsed: unknown } {
-  const primaryRaw = localStorage.getItem(STORAGE_KEY);
-  const backupRaw = localStorage.getItem(BACKUP_KEY);
-  let primaryParsed: unknown = null;
-  let backupParsed: unknown = null;
-  try { if (primaryRaw) primaryParsed = JSON.parse(primaryRaw); } catch { /* ignore */ }
-  try { if (backupRaw) backupParsed = JSON.parse(backupRaw); } catch { /* ignore */ }
-  return { primaryRaw, backupRaw, primaryParsed, backupParsed };
 }
 
 interface ImportedHabit {
@@ -889,7 +1434,7 @@ function isValidDateKey(date: string): boolean {
   return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
 }
 
-function readArray(raw: unknown, key: 'habits' | 'checkIns' | 'notes'): unknown[] {
+function readArray(raw: unknown, key: 'habits' | 'checkIns' | 'notes' | 'skills'): unknown[] {
   if (!isRecord(raw)) return [];
   const value = raw[key];
   return Array.isArray(value) ? value : [];
@@ -1061,7 +1606,84 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
     result.notesCreated++;
   }
 
-  if (metadataChanged || result.habitsCreated > 0 || result.checkInsRestored > 0 || result.notesCreated > 0) {
+  let skillsMerged = false;
+  for (const rawSkill of readArray(raw, 'skills')) {
+    const s = rawSkill as Record<string, unknown>;
+    if (!s || typeof s.id !== 'string' || typeof s.name !== 'string') continue;
+    const links: SkillLink[] = [];
+    if (Array.isArray(s.links)) {
+      for (const link of s.links) {
+        if (!link || typeof link !== 'object') continue;
+        const l = link as Record<string, unknown>;
+        if (typeof l.habitId === 'string' && typeof l.xpPerCompletion === 'number') {
+          const remappedId = idMap.get(l.habitId) ?? l.habitId;
+          links.push({ habitId: remappedId, xpPerCompletion: l.xpPerCompletion });
+        }
+      }
+    }
+    const existing = data.skills.find(x => x.id === s.id || normalizeHabitName(x.name) === normalizeHabitName(String(s.name)));
+    if (existing) {
+      for (const link of links) {
+        if (!existing.links.some(l => l.habitId === link.habitId)) {
+          existing.links.push(link);
+          skillsMerged = true;
+        }
+      }
+    } else {
+      data.skills.push({
+        id: s.id,
+        name: s.name,
+        description: typeof s.description === 'string' ? s.description : '',
+        emoji: typeof s.emoji === 'string' ? s.emoji : '💪',
+        color: typeof s.color === 'string' ? s.color : '#FEF3C7',
+        createdAt: typeof s.createdAt === 'string' ? s.createdAt : new Date().toISOString(),
+        links,
+        isDefault: s.isDefault === true,
+      });
+      skillsMerged = true;
+    }
+  }
+
+  // Import capacities. We use `raw.capacities` (NOT readArray) because that
+  // helper is intentionally restricted to the 4 core collections. Capacities
+  // and their ratings are an extension surface so we validate ad-hoc with
+  // the same isValid* predicates the sanitize path uses. Skill ids are
+  // remapped through idMap so a capacity that lived under a habit-renamed
+  // skill still points at the merged skill id.
+  if (!data.capacities) data.capacities = [];
+  if (!data.capacityRatings) data.capacityRatings = [];
+  const rawCaps = Array.isArray((raw as Record<string, unknown>).capacities)
+    ? (raw as Record<string, unknown>).capacities as unknown[]
+    : [];
+  let capacitiesImported = 0;
+  for (const rawCap of rawCaps) {
+    if (!isValidCapacity(rawCap)) continue;
+    const remappedSkillId = idMap.get(rawCap.skillId) ?? rawCap.skillId;
+    if (!data.skills.some((s) => s.id === remappedSkillId)) continue;
+    if (data.capacities.some((c) => c.id === rawCap.id)) continue;
+    data.capacities.push({
+      ...rawCap,
+      skillId: remappedSkillId,
+    });
+    capacitiesImported++;
+  }
+  const rawRatings = Array.isArray((raw as Record<string, unknown>).capacityRatings)
+    ? (raw as Record<string, unknown>).capacityRatings as unknown[]
+    : [];
+  let ratingsImported = 0;
+  for (const rawRating of rawRatings) {
+    if (!isValidCapacityRating(rawRating)) continue;
+    if (!data.capacities.some((c) => c.id === rawRating.capacityId)) continue;
+    if (data.capacityRatings.some((r) => r.id === rawRating.id)) continue;
+    const remappedHabitId = rawRating.habitId ? idMap.get(rawRating.habitId) ?? rawRating.habitId : undefined;
+    data.capacityRatings.push({
+      ...rawRating,
+      habitId: remappedHabitId,
+    });
+    ratingsImported++;
+  }
+
+  if (metadataChanged || result.habitsCreated > 0 || result.checkInsRestored > 0 || result.notesCreated > 0 || skillsMerged || capacitiesImported > 0 || ratingsImported > 0) {
     notify();
   }
   return result;
@@ -1116,6 +1738,70 @@ export function recomputeHabitRecords(habitId: string): void {
   habit.totalCompleted = stats.totalCompleted;
   scheduleSave(data);
 }
+
+// --- Mantras ---
+
+export function getMantras(): Mantra[] {
+  return data.mantras ?? [];
+}
+
+export function getMantraSettings(): MantraSettings {
+  if (!data.mantraSettings) {
+    data.mantraSettings = { ...DEFAULT_MANTRA_SETTINGS };
+  }
+  return data.mantraSettings;
+}
+
+export function addMantra(text: string, domain: string): Mantra {
+  const mantra: Mantra = {
+    id: crypto.randomUUID(),
+    text: text.trim(),
+    domain,
+    createdAt: new Date().toISOString(),
+    isDefault: false,
+  };
+  if (!data.mantras) data.mantras = [];
+  data.mantras.push(mantra);
+  notify();
+  return mantra;
+}
+
+export function deleteMantra(id: string): void {
+  if (!data.mantras) return;
+  const mantra = data.mantras.find((m) => m.id === id);
+  if (!mantra) return;
+  // Only allow deleting user-created mantras (not built-in defaults)
+  if (mantra.isDefault) return;
+  data.mantras = data.mantras.filter((m) => m.id !== id);
+  notify();
+}
+
+export function updateMantraSettings(updates: Partial<MantraSettings>): void {
+  if (!data.mantraSettings) {
+    data.mantraSettings = { ...DEFAULT_MANTRA_SETTINGS };
+  }
+  data.mantraSettings = { ...data.mantraSettings, ...updates };
+  notify();
+}
+
+// --- Mood / Emotional Tracking ---
+// Mood tracker was removed: emotional state is captured via the 'emotional'
+// chaos dimension instead. The exports below are kept as no-ops so any
+// leftover imports from older code compile and run safely.
+
+export function getMoods(): never[] {
+  return [];
+}
+export function setMood(): void {
+  // Mood tracker removed; no-op for backward compat with older imports.
+}
+export function getMoodForDate(): undefined {
+  return undefined;
+}
+export function getMoodStreak(): { good: number; bad: number } {
+  return { good: 0, bad: 0 };
+}
+
 export function exportAllData(): AppData {
   // Return a deep clone so callers cannot mutate internal state
   return JSON.parse(JSON.stringify(data));
@@ -1129,10 +1815,24 @@ const DEFAULT_CHAOS: ChaosDimension[] = [
   { id: 'physical', name: 'Physical', triggers: [] },
   { id: 'structural', name: 'Structural', triggers: [] },
   { id: 'spiritual', name: 'Spiritual', triggers: [] },
+  { id: 'emotional', name: 'Emotional', triggers: [] },
 ];
 
 export function getDefaultChaosDimensions(): ChaosDimension[] {
   return JSON.parse(JSON.stringify(DEFAULT_CHAOS));
+}
+
+// Merge stored dimensions with the current defaults. New defaults (e.g.
+// 'emotional') are appended for users whose data was saved by an older
+// version that didn't include them. User customisations on existing
+// dimensions are preserved by id.
+export function mergeChaosDimensions(stored: ChaosDimension[]): ChaosDimension[] {
+  const defaults = getDefaultChaosDimensions();
+  const storedById = new Map(stored.filter((d) => d && d.id).map((d) => [d.id, d]));
+  return defaults.map((d) => {
+    const prior = storedById.get(d.id);
+    return prior ? { ...d, triggers: prior.triggers ?? [] } : d;
+  });
 }
 
 export function getChaosDimensions(): ChaosDimension[] {
@@ -1333,4 +2033,375 @@ export function computeChaosReport(asOf?: Date): ChaosReport {
     : 0;
 
   return { dimensions, linkedHabitCount, overallPct };
+}
+
+// --- Skills & Capacities Progression math and CRUD ---
+
+export function getLevelFromXp(xp: number): number {
+  if (xp <= 0) return 1;
+  return Math.floor((1 + Math.sqrt(1 + xp / 12.5)) / 2);
+}
+
+export function getXpRequiredForLevel(level: number): number {
+  if (level <= 1) return 0;
+  return 50 * (level - 1) * level;
+}
+
+export function getSkills(): Skill[] {
+  return data.skills;
+}
+
+export function addSkill(name: string, description: string, emoji: string, color: string, links: SkillLink[] = []): Skill {
+  const newSkill: Skill = {
+    id: crypto.randomUUID(),
+    name,
+    description,
+    emoji,
+    color,
+    createdAt: new Date().toISOString(),
+    links,
+  };
+  data.skills.push(newSkill);
+  notify();
+  return newSkill;
+}
+
+export function updateSkill(id: string, updates: Partial<Skill>): void {
+  const idx = data.skills.findIndex(s => s.id === id);
+  if (idx !== -1) {
+    data.skills[idx] = { ...data.skills[idx], ...updates };
+    notify();
+  }
+}
+
+export function deleteSkill(id: string): void {
+  const idx = data.skills.findIndex(s => s.id === id);
+  if (idx !== -1) {
+    data.skills.splice(idx, 1);
+    // Cascade: remove capacities belonging to this skill, then drop their ratings.
+    if (data.capacities) {
+      const removedCapacityIds = new Set(
+        data.capacities.filter((c) => c.skillId === id).map((c) => c.id),
+      );
+      data.capacities = data.capacities.filter((c) => c.skillId !== id);
+      if (data.capacityRatings && removedCapacityIds.size > 0) {
+        data.capacityRatings = data.capacityRatings.filter(
+          (r) => !removedCapacityIds.has(r.capacityId),
+        );
+      }
+    }
+    notify();
+  }
+}
+
+export interface HabitXpContribution {
+  habitId: string;
+  habitName: string;
+  habitColor: string;
+  completions: number;
+  xpContributed: number;
+}
+
+export interface DayXpGain {
+  date: string;
+  xpGained: number;
+}
+
+export interface SkillProgress {
+  skillId: string;
+  totalXp: number;
+  level: number;
+  minXpForLevel: number;
+  nextLevelXp: number;
+  progressPct: number;
+  contributions: HabitXpContribution[];
+  recentHistory: DayXpGain[];
+}
+
+export function computeSkillProgress(skillId: string): SkillProgress | undefined {
+  const skill = data.skills.find(s => s.id === skillId);
+  if (!skill) return undefined;
+
+  const contributions: HabitXpContribution[] = [];
+  let totalXp = 0;
+
+  // Cache check-ins by habit
+  const habitCheckIns = new Map<string, CheckIn[]>();
+  for (const ci of data.checkIns) {
+    if (ci.completed) {
+      if (!habitCheckIns.has(ci.habitId)) {
+        habitCheckIns.set(ci.habitId, []);
+      }
+      habitCheckIns.get(ci.habitId)!.push(ci);
+    }
+  }
+
+  // Calculate contributions per habit link
+  for (const link of skill.links) {
+    const habit = data.habits.find(h => h.id === link.habitId);
+    if (!habit) continue;
+
+    const checkIns = habitCheckIns.get(link.habitId) ?? [];
+    let completions = 0;
+    for (const ci of checkIns) {
+      completions += ci.count || 1;
+    }
+    const xpContributed = completions * link.xpPerCompletion;
+    totalXp += xpContributed;
+
+    contributions.push({
+      habitId: link.habitId,
+      habitName: habit.name,
+      habitColor: habit.color,
+      completions,
+      xpContributed,
+    });
+  }
+
+  const level = getLevelFromXp(totalXp);
+  const minXpForLevel = getXpRequiredForLevel(level);
+  const nextLevelXp = getXpRequiredForLevel(level + 1);
+  const range = nextLevelXp - minXpForLevel;
+  const progressPct = range > 0 ? Math.min(100, Math.max(0, ((totalXp - minXpForLevel) / range) * 100)) : 0;
+
+  // Calculate 30-day history
+  const recentHistory: DayXpGain[] = [];
+  const today = new Date();
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0]; // YYYY-MM-DD
+
+    let xpGainedOnDay = 0;
+    for (const link of skill.links) {
+      const checkIns = habitCheckIns.get(link.habitId) ?? [];
+      const ciForDay = checkIns.find(ci => ci.date === dateStr);
+      if (ciForDay) {
+        xpGainedOnDay += (ciForDay.count || 1) * link.xpPerCompletion;
+      }
+    }
+    recentHistory.push({
+      date: dateStr,
+      xpGained: xpGainedOnDay,
+    });
+  }
+
+  return {
+    skillId,
+    totalXp,
+    level,
+    minXpForLevel,
+    nextLevelXp,
+    progressPct,
+    contributions,
+    recentHistory,
+  };
+}
+
+
+// --- Capacities (sub-skills / micro-abilities) ---
+// Each Skill can have multiple Capacities: discrete, named sub-abilities
+// (e.g. "Pattern detection", "Thought noting" under Mindfulness). A Capacity
+// owns a timeline of self-ratings + free-form notes. This module is the
+// "API" surface; the underlying array lives on AppData.capacities /
+// AppData.capacityRatings and is persisted with the same StorageEnvelope as
+// everything else.
+
+export function getCapacities(skillId?: string): Capacity[] {
+  if (!data.capacities) return [];
+  return skillId ? data.capacities.filter((c) => c.skillId === skillId) : data.capacities;
+}
+
+export function getCapacity(capacityId: string): Capacity | undefined {
+  return data.capacities?.find((c) => c.id === capacityId);
+}
+
+export function addCapacity(
+  skillId: string,
+  name: string,
+  description: string,
+  unit: string,
+  baseline: number,
+  target: number,
+): Capacity | null {
+  // Parent must exist � refuse orphans (they would be unreachable from the UI).
+  if (!data.skills.some((s) => s.id === skillId)) {
+    console.warn('addCapacity: skill not found', skillId);
+    return null;
+  }
+  if (!data.capacities) data.capacities = [];
+  const capacity: Capacity = {
+    id: crypto.randomUUID(),
+    skillId,
+    name: name.trim(),
+    description: description.trim(),
+    unit: unit.trim() || '1-10',
+    baseline: clampNumber(baseline, 0, 1000),
+    target: clampNumber(target, 0, 1000),
+    createdAt: new Date().toISOString(),
+  };
+  if (!capacity.name) return null;
+  data.capacities.push(capacity);
+  notify();
+  return capacity;
+}
+
+export function updateCapacity(id: string, updates: Partial<Capacity>): void {
+  if (!data.capacities) return;
+  const idx = data.capacities.findIndex((c) => c.id === id);
+  if (idx === -1) return;
+  const cleaned: Partial<Capacity> = { ...updates };
+  if ('baseline' in cleaned) cleaned.baseline = clampNumber(cleaned.baseline, 0, 1000);
+  if ('target' in cleaned) cleaned.target = clampNumber(cleaned.target, 0, 1000);
+  if ('name' in cleaned && typeof cleaned.name === 'string') cleaned.name = cleaned.name.trim();
+  if ('description' in cleaned && typeof cleaned.description === 'string') cleaned.description = cleaned.description.trim();
+  if ('unit' in cleaned && typeof cleaned.unit === 'string') cleaned.unit = cleaned.unit.trim() || '1-10';
+  data.capacities[idx] = { ...data.capacities[idx], ...cleaned };
+  notify();
+}
+
+export function deleteCapacity(id: string): void {
+  if (!data.capacities) return;
+  data.capacities = data.capacities.filter((c) => c.id !== id);
+  if (data.capacityRatings) {
+    data.capacityRatings = data.capacityRatings.filter((r) => r.capacityId !== id);
+  }
+  notify();
+}
+
+export function getCapacityRatings(capacityId: string): CapacityRating[] {
+  if (!data.capacityRatings) return [];
+  return data.capacityRatings
+    .filter((r) => r.capacityId === capacityId)
+    .sort((a, b) => b.date.localeCompare(a.date)); // newest first
+}
+
+export interface CapacityObservationInput {
+  date?: string;       // defaults to today
+  rating?: number;
+  note?: string;
+  habitId?: string;
+}
+
+/**
+ * Record an observation on a capacity. If an entry already exists for the
+ * same capacity + date, the new observation MERGES with the existing one
+ * (newer rating wins; notes concatenate). This matches the user mental model
+ * of "log today again" without losing prior context.
+ */
+export function logCapacityObservation(
+  capacityId: string,
+  input: CapacityObservationInput,
+): CapacityRating | null {
+  if (!getCapacity(capacityId)) {
+    console.warn('logCapacityObservation: capacity not found', capacityId);
+    return null;
+  }
+  if (input.rating === undefined && (!input.note || input.note.trim().length === 0)) {
+    // Reject empty observations (R7 � no silent failures / no silent data loss).
+    console.warn('logCapacityObservation: refusing empty observation (no rating, no note)');
+    return null;
+  }
+  if (!data.capacityRatings) data.capacityRatings = [];
+  const todayStr = new Date().toISOString().split('T')[0];
+  const date = input.date ?? todayStr;
+  if (!isValidDateKey(date)) {
+    console.warn('logCapacityObservation: invalid date', date);
+    return null;
+  }
+  const existing = data.capacityRatings.find(
+    (r) => r.capacityId === capacityId && r.date === date,
+  );
+  if (existing) {
+    if (input.rating !== undefined) existing.rating = input.rating;
+    if (input.note && input.note.trim().length > 0) {
+      existing.note = existing.note
+        ? `${existing.note}\n� ${input.note.trim()}`
+        : input.note.trim();
+    }
+    if (input.habitId !== undefined) existing.habitId = input.habitId;
+    notify();
+    return existing;
+  }
+  const entry: CapacityRating = {
+    id: crypto.randomUUID(),
+    capacityId,
+    date,
+    rating: input.rating,
+    note: input.note?.trim() || undefined,
+    habitId: input.habitId,
+  };
+  data.capacityRatings.push(entry);
+  notify();
+  return entry;
+}
+
+export function deleteCapacityRating(ratingId: string): void {
+  if (!data.capacityRatings) return;
+  data.capacityRatings = data.capacityRatings.filter((r) => r.id !== ratingId);
+  notify();
+}
+
+export interface CapacityProgress {
+  capacityId: string;
+  latestRating: number | null;
+  latestDate: string | null;
+  /** Average of last 5 numeric ratings, or null if no numeric data. */
+  recentAverage: number | null;
+  /** Total number of observations (rating + note entries). */
+  totalObservations: number;
+  /** All observations, oldest first. Includes id for delete actions. */
+  history: { id: string; date: string; rating: number | null; note?: string }[];
+  /** Delta from baseline: latestRating - capacity.baseline (signed). */
+  delta: number;
+  /** Delta from start: latestRating - first rating in history (signed). */
+  deltaSinceStart: number;
+  /** % progress toward target (latestRating vs baseline?target range). */
+  progressPct: number;
+  /** Has the capacity reached its declared target? */
+  targetReached: boolean;
+}
+
+export function computeCapacityProgress(capacityId: string): CapacityProgress | null {
+  const capacity = getCapacity(capacityId);
+  if (!capacity) return null;
+  const ratings = getCapacityRatings(capacityId).slice().reverse(); // oldest first
+  const numeric = ratings.filter((r) => r.rating !== undefined) as Array<CapacityRating & { rating: number }>;
+  const latest = numeric.length > 0 ? numeric[numeric.length - 1] : null;
+  const latestRating = latest?.rating ?? null;
+  const latestDate = latest?.date ?? null;
+  const recent5 = numeric.slice(-5);
+  const recentAverage = recent5.length > 0
+    ? recent5.reduce((s, r) => s + r.rating, 0) / recent5.length
+    : null;
+  const first = numeric.length > 0 ? numeric[0] : null;
+  const delta = latestRating !== null ? latestRating - capacity.baseline : 0;
+  const deltaSinceStart = latestRating !== null && first
+    ? latestRating - first.rating
+    : 0;
+  // Progress toward target, clamped 0-100. If baseline == target, the only
+  // valid values are 0% (below) and 100% (at or above). We treat baseline as
+  // the floor and target as the ceiling.
+  const range = capacity.target - capacity.baseline;
+  const progressPct = latestRating !== null && range !== 0
+    ? Math.max(0, Math.min(100, ((latestRating - capacity.baseline) / range) * 100))
+    : (latestRating !== null && range === 0 ? (latestRating >= capacity.target ? 100 : 0) : 0);
+  const targetReached = latestRating !== null && latestRating >= capacity.target;
+  return {
+    capacityId,
+    latestRating,
+    latestDate,
+    recentAverage,
+    totalObservations: ratings.length,
+    history: ratings.map((r) => ({ id: r.id, date: r.date, rating: r.rating ?? null, note: r.note })),
+    delta,
+    deltaSinceStart,
+    progressPct,
+    targetReached,
+  };
+}
+
+function clampNumber(v: unknown, min: number, max: number): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return min;
+  return Math.max(min, Math.min(max, v));
 }

@@ -1,11 +1,8 @@
 // src/components/DraggableHabitRow.tsx
 // Wrapper that makes a habit row draggable via @hello-pangea/dnd.
-// Pure presentation: receives the row JSX as children and the drag index.
-//
-// We intentionally do NOT spread dragHandleProps — the library auto-blocks
-// drag from interactive children (buttons, inputs) when no handle is set.
-// The whole row acts as the drag area. zIndex is also removed because it
-// has no effect on display:table-row elements.
+// The entire row acts as the drag area (no separate drag handle needed).
+// We merge draggableProps with our own className/style to avoid overriding
+// critical DnD attributes that @hello-pangea/dnd v18 requires.
 
 import { type PropsWithChildren } from 'react';
 import { Draggable } from '@hello-pangea/dnd';
@@ -22,8 +19,8 @@ export function DraggableHabitRow({ habitId, index, children }: PropsWithChildre
         <tr
           ref={provided.innerRef}
           {...provided.draggableProps}
-          className={snapshot.isDragging ? 'habit-row-dragging' : ''}
-          style={provided.draggableProps.style}
+          {...provided.dragHandleProps}
+          className={snapshot.isDragging ? 'habit-row-dragging' : undefined}
         >
           {children}
         </tr>

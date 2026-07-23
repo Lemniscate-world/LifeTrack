@@ -1,7 +1,7 @@
 // src/test/stacks-ui.test.tsx
 // UI smoke tests for StacksView + inline badge in the grid.
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
@@ -164,6 +164,6 @@ describe('Stacks UI in App', () => {
     const b = addHabit('Meditate');
     linkHabitToParent(b.id, a.id);
     render(<App />);
-    expect(screen.getByText(/↳ Coffee/)).toBeInTheDocument();
+    expect(screen.getByText(/↓ Coffee/)).toBeInTheDocument();
   });
 });

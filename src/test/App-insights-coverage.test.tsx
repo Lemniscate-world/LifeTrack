@@ -2,16 +2,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { resetStore, addHabit, toggleCheckIn, linkHabitToParent } from '../store';
+import { resetStore, addHabit, toggleCheckIn } from '../store';
 import App from '../App';
 
 beforeEach(() => { localStorage.clear(); resetStore(); });
 
-async function addUI(user: ReturnType<typeof userEvent.setup>, name: string) {
-  await user.click(screen.getByText('+ New Habit'));
-  await user.type(screen.getByPlaceholderText('Habit name...'), name);
-  await user.click(screen.getByText('Add'));
-}
 
 describe('InsightsView — with recommendations', () => {
   it('shows recommendation cards when data exists', async () => {
@@ -19,7 +14,7 @@ describe('InsightsView — with recommendations', () => {
     addHabit('Journal');
     // No check-ins → NEGLECTED recommendation
     render(<App />);
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
 
     // Should show recommendation cards, not empty state
     expect(screen.queryByText('Not enough data yet')).toBeNull();
@@ -32,7 +27,7 @@ describe('InsightsView — with recommendations', () => {
     addHabit('Gym');
     addHabit('Read');
     render(<App />);
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
 
     // Subtitle shows count: "N recommendation(s) — 100% local"
     expect(screen.getByText(/recommendation/)).toBeInTheDocument();
@@ -42,7 +37,7 @@ describe('InsightsView — with recommendations', () => {
     const user = userEvent.setup();
     addHabit('Yoga');
     render(<App />);
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
 
     // NEGLECTED recs have "Track now" button
     expect(screen.getByText('Track now')).toBeInTheDocument();
@@ -52,7 +47,7 @@ describe('InsightsView — with recommendations', () => {
     const user = userEvent.setup();
     addHabit('Meditate');
     render(<App />);
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
 
     const icons = document.querySelectorAll('.insight-icon');
     expect(icons.length).toBeGreaterThanOrEqual(1);
@@ -64,7 +59,7 @@ describe('InsightsView — with recommendations', () => {
     const user = userEvent.setup();
     addHabit('Run');
     render(<App />);
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
 
     expect(screen.getByText(/Relevance/)).toBeInTheDocument();
   });
@@ -73,7 +68,7 @@ describe('InsightsView — with recommendations', () => {
     const user = userEvent.setup();
     addHabit('Swim');
     render(<App />);
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
 
     // Habit name in the insight-meta section
     const metas = document.querySelectorAll('.insight-habits');
@@ -84,7 +79,7 @@ describe('InsightsView — with recommendations', () => {
     const user = userEvent.setup();
     addHabit('Gym');
     render(<App />);
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
 
     // Generated at timestamp
     expect(screen.getByText(/100% local/)).toBeInTheDocument();
@@ -94,7 +89,7 @@ describe('InsightsView — with recommendations', () => {
     const user = userEvent.setup();
     addHabit('Test');
     render(<App />);
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
 
     expect(screen.getByText('🤖 Deep Analysis')).toBeInTheDocument();
   });
@@ -105,7 +100,7 @@ describe('InsightsView — action buttons navigate', () => {
     const user = userEvent.setup();
     addHabit('Read');
     render(<App />);
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
     await user.click(screen.getByText('Track now'));
 
     // Should be back on grid
@@ -121,7 +116,7 @@ describe('InsightsView — action buttons navigate', () => {
       toggleCheckIn(h.id, dt.toISOString().slice(0, 10));
     }
     render(<App />);
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
 
     // Find a "View stats" button if present
     const viewStatsBtns = screen.queryAllByText('View stats');
@@ -143,7 +138,7 @@ describe('InsightsView — action buttons navigate', () => {
       }
     }
     render(<App />);
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
 
     const viewHistoryBtns = screen.queryAllByText('View history');
     if (viewHistoryBtns.length > 0) {
@@ -164,7 +159,7 @@ describe('InsightsView — action buttons navigate', () => {
       if (d % 7 !== 0) toggleCheckIn(read.id, dt.toISOString().slice(0, 10));
     }
     render(<App />);
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
 
     const linkBtns = screen.queryAllByText('Link now');
     if (linkBtns.length > 0) {
@@ -180,7 +175,7 @@ describe('InsightsView — empty state', () => {
   it('shows empty state with no habits', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
     expect(screen.getByText('Not enough data yet')).toBeInTheDocument();
     expect(screen.getByText('Go to Grid')).toBeInTheDocument();
   });
@@ -188,7 +183,7 @@ describe('InsightsView — empty state', () => {
   it('Go to Grid button navigates to grid', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
     await user.click(screen.getByText('Go to Grid'));
     expect(screen.getByText('Grid').className).toContain('active');
   });

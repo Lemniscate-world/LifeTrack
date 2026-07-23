@@ -5,6 +5,7 @@ import {
   forceMigrateLegacyData, recomputeHabitRecords,
   toggleChaosTrigger, getChaosDimensions, resetChaos,
   getHabits, exportAllData, archiveHabit,
+  mergeChaosDimensions,
 } from '../store';
 
 beforeEach(() => { localStorage.clear(); resetStore(); });
@@ -38,7 +39,39 @@ describe('resetChaos', () => {
     addHabit('Test');
     expect(() => resetChaos()).not.toThrow();
     const dims = getChaosDimensions();
-    expect(dims.length).toBe(5);
+    expect(dims.length).toBe(6);
+  });
+});
+
+describe('mergeChaosDimensions — backward compatibility', () => {
+  it('adds new default dimensions (emotional) to old 5-dim data', () => {
+    // Simulate data saved by an older version that only had 5 dimensions.
+    const oldData = [
+      { id: 'social', name: 'Social', triggers: [] },
+      { id: 'financial', name: 'Financial', triggers: [] },
+      { id: 'physical', name: 'Physical', triggers: [] },
+      { id: 'structural', name: 'Structural', triggers: [] },
+      { id: 'spiritual', name: 'Spiritual', triggers: [] },
+    ];
+    const merged = mergeChaosDimensions(oldData);
+    expect(merged).toHaveLength(6);
+    expect(merged.map((d) => d.id)).toContain('emotional');
+  });
+
+  it('preserves user triggers on existing dimensions', () => {
+    const userData = [
+      { id: 'physical', name: 'Physical', triggers: [{ id: 't1', label: 'Custom', active: true, createdAt: '2026-01-01', weight: 30 }] },
+    ];
+    const merged = mergeChaosDimensions(userData);
+    const physical = merged.find((d) => d.id === 'physical')!;
+    expect(physical.triggers).toHaveLength(1);
+    expect(physical.triggers[0].label).toBe('Custom');
+  });
+
+  it('returns full defaults when stored is empty', () => {
+    const merged = mergeChaosDimensions([]);
+    expect(merged).toHaveLength(6);
+    expect(merged.every((d) => d.triggers.length === 0)).toBe(true);
   });
 });
 
@@ -76,7 +109,7 @@ describe('exportAllData — structure', () => {
   });
 
   it('returns a deep clone', () => {
-    const h = addHabit('Original');
+    void addHabit('Original');
     const data1 = exportAllData();
     data1.habits[0].name = 'Mutated';
     const data2 = exportAllData();

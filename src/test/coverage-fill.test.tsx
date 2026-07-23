@@ -3,7 +3,7 @@
 // Each test is labeled with the file + line range it targets.
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   resetStore,
@@ -12,13 +12,9 @@ import {
   getHabits,
   recomputeHabitRecords,
   forceMigrateLegacyData,
-  getChaosDimensions,
-  linkHabitToParent,
   updateHabit,
 } from '../store';
 import App from '../App';
-import { generateInsights } from '../recommendations';
-import type { Habit, CheckIn } from '../types';
 
 beforeEach(() => {
   localStorage.clear();
@@ -34,7 +30,7 @@ describe('App.tsx — Insights empty state (lines 1337-1350)', () => {
     render(<App />);
 
     // Switch to Insights tab
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
 
     // With no habits, recommendations are empty → empty state renders
     expect(screen.getByText('Not enough data yet')).toBeInTheDocument();
@@ -176,7 +172,7 @@ describe('ChaosView.tsx — chaos card rendering', () => {
 // ============================================================================
 describe('Heatmap.tsx — future dates', () => {
   it('handles habits created today (all future days are transparent)', async () => {
-    const habit = addHabit('New Habit');
+    addHabit('New Habit');
     // No check-ins yet — all days are either future or untracked
     render(<App />);
     // Just verify the app renders without crashing
@@ -216,24 +212,24 @@ describe('App.tsx — Ctrl+number tab switching', () => {
     expect(screen.getByText('Stacks')).toBeInTheDocument();
   });
 
-  it('switches to Chaos via Ctrl+6', async () => {
+  it('switches to Chaos via Ctrl+9', async () => {
     const user = userEvent.setup();
     addHabit('Test');
     render(<App />);
 
-    await user.keyboard('{Control>}6{/Control}');
+    await user.keyboard('{Control>}9{/Control}');
     expect(screen.getByText('Chaos Pressure')).toBeInTheDocument();
   });
 
-  it('switches back to Grid via Ctrl+1', async () => {
+  it('switches back to Grid via Ctrl+2', async () => {
     const user = userEvent.setup();
     addHabit('Test');
     render(<App />);
 
-    // Go to another view first
-    await user.keyboard('{Control>}2{/Control}');
-    // Then back to grid
+    // Go to another view first (Ctrl+1 = Today)
     await user.keyboard('{Control>}1{/Control}');
+    // Then back to grid (Ctrl+2)
+    await user.keyboard('{Control>}2{/Control}');
     // Grid view should be active — verify the habit appears
     expect(screen.getByText('Test')).toBeInTheDocument();
   });

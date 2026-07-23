@@ -2,16 +2,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { resetStore, addHabit, linkHabitToParent, getHabits } from '../store';
+import { resetStore, addHabit, linkHabitToParent, getHabits, updateHabit } from '../store';
 import App from '../App';
 
 beforeEach(() => { localStorage.clear(); resetStore(); });
-
-async function addUI(user: ReturnType<typeof userEvent.setup>, name: string) {
-  await user.click(screen.getByText('+ New Habit'));
-  await user.type(screen.getByPlaceholderText('Habit name...'), name);
-  await user.click(screen.getByText('Add'));
-}
 
 describe('Stack editor', () => {
   it('opens stack editor', async () => {
@@ -22,7 +16,7 @@ describe('Stack editor', () => {
     const btn = document.querySelector('.habit-stack-btn');
     expect(btn).not.toBeNull();
     await user.click(btn!);
-    expect(screen.getByText(/Triggered by/)).toBeInTheDocument();
+    expect(screen.getByText(/from:/i)).toBeInTheDocument();
   });
 
   it('links child to parent', async () => {
@@ -32,9 +26,11 @@ describe('Stack editor', () => {
     render(<App />);
     const btns = document.querySelectorAll('.habit-stack-btn');
     await user.click(btns[1]);
-    const select = document.querySelector('.stack-select-sm') as HTMLSelectElement;
-    if (select) {
-      await user.selectOptions(select, parent.id);
+    // Now there are two selects: the first is "when" (before/after/with), the second is "from" (parent picker).
+    const selects = document.querySelectorAll('.stack-select-sm');
+    const parentSelect = selects[1]; // second select = parent picker
+    if (parentSelect) {
+      await user.selectOptions(parentSelect, parent.id);
       await user.click(screen.getByText('Done'));
       expect(getHabits().some((h) => h.stackParent === parent.id)).toBe(true);
     }
@@ -45,7 +41,8 @@ describe('Stack editor', () => {
     const child = addHabit('B');
     linkHabitToParent(child.id, parent.id);
     render(<App />);
-    expect(screen.getByText(/↳ A/)).toBeInTheDocument();
+    // Badge now uses ↓ for "after" (default), ↑ for "before", ↔ for "with"
+    expect(screen.getByText(/↓ A/)).toBeInTheDocument();
   });
 });
 
@@ -81,14 +78,55 @@ describe('Goal editing', () => {
     expect(document.querySelector('.goal-input')).toBeNull();
   });
 
-  it('shows achieved count', async () => {
+  it('shows achieved count with monthly goal format', async () => {
     const user = userEvent.setup();
-    const h = addHabit('Run');
+    addHabit('Run');
     render(<App />);
     // Toggle via keyboard (day 1 by default)
     await user.keyboard(' ');
     const achieved = document.querySelector('.achieved-number');
     expect(achieved).not.toBeNull();
-    expect(achieved?.textContent).toBe('1');
+    // Shows "1/31" (1 execution out of 31 days this month)
+    expect(achieved?.textContent).toContain('1');
+  });
+
+  it('multi-click: increments count per click, no goal dependency', async () => {
+    const user = userEvent.setup();
+    const h = addHabit('Meditation');
+    updateHabit(h.id, { goal: 3 });
+    render(<App />);
+    const tds = document.querySelectorAll('td.col-day');
+    const lastTd = tds[tds.length - 1]; // last day cell
+    // Click once → count badge shows "1"
+    await user.click(lastTd);
+    expect(document.querySelector('.day-cell-count')?.textContent).toBe('1');
+    // Click again → count 2
+    await user.click(lastTd);
+    expect(document.querySelector('.day-cell-count')?.textContent).toBe('2');
+    // Click again → count 3
+    await user.click(lastTd);
+    expect(document.querySelector('.day-cell-count')?.textContent).toBe('3');
+    // Ctrl+click → reset to 0 (unchecked, no badge)
+    await user.keyboard('{Control>}');
+    await user.click(lastTd);
+    await user.keyboard('{/Control}');
+    expect(document.querySelector('.day-cell-count')).toBeNull();
+  });
+
+  it('multi-click works regardless of goal value', async () => {
+    const user = userEvent.setup();
+    const h = addHabit('Read');
+    updateHabit(h.id, { goal: 30 }); // any goal value, multi-click still works
+    render(<App />);
+    const tds = document.querySelectorAll('td.col-day');
+    // Click: increments count (count badge shows regardless of goal)
+    await user.click(tds[tds.length - 1]);
+    expect(document.querySelector('.day-cell.checked')).not.toBeNull();
+    expect(document.querySelector('.day-cell-count')?.textContent).toBe('1');
+    // Shift+click: decrements
+    await user.keyboard('{Shift>}');
+    await user.click(tds[tds.length - 1]);
+    await user.keyboard('{/Shift}');
+    expect(document.querySelector('.day-cell.checked')).toBeNull();
   });
 });

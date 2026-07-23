@@ -10,22 +10,14 @@ static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         .expect("Failed to build HTTP client")
 });
 
-#[tauri::command]
-fn auto_backup(app: tauri::AppHandle, json_data: String) -> Result<String, String> {
-    let backup_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("backups");
-    std::fs::create_dir_all(&backup_dir).map_err(|e| e.to_string())?;
-
-    let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+fn backup_to_dir(dir: &std::path::Path, json_data: &str, stamp: &str, keep: usize) -> Result<String, String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let filename = format!("lifetrack-backup-{}.json", stamp);
-    let path = backup_dir.join(&filename);
-    std::fs::write(&path, &json_data).map_err(|e| e.to_string())?;
+    let path = dir.join(&filename);
+    std::fs::write(&path, json_data).map_err(|e| e.to_string())?;
 
-    // Keep only the 10 most recent backups
-    let mut entries: Vec<_> = std::fs::read_dir(&backup_dir)
+    // Keep only the N most recent backups
+    let mut entries: Vec<_> = std::fs::read_dir(dir)
         .map_err(|e| e.to_string())?
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().map_or(false, |ext| ext == "json"))
@@ -35,14 +27,64 @@ fn auto_backup(app: tauri::AppHandle, json_data: String) -> Result<String, Strin
             .and_then(|m| m.modified())
             .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
     });
-    while entries.len() > 10 {
+    while entries.len() > keep {
         if let Some(old) = entries.first() {
             let _ = std::fs::remove_file(old.path());
             entries.remove(0);
         }
     }
-
     Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn auto_backup(app: tauri::AppHandle, json_data: String) -> Result<String, String> {
+    let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+
+    // Primary: AppData (roaming)
+    let appdata_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("backups");
+    let _ = backup_to_dir(&appdata_dir, &json_data, &stamp, 10);
+
+    // Secondary: Documents (survives AppData wipe)
+    let docs_dir = app
+        .path()
+        .document_dir()
+        .map_err(|e| e.to_string())?
+        .join("LifeTrack-Backups");
+    let doc_path = backup_to_dir(&docs_dir, &json_data, &stamp, 20);
+
+    // Tertiary: Desktop (easy to find, hard to accidentally delete)
+    if let Ok(desktop) = app.path().desktop_dir() {
+        let desktop_dir = desktop.join("LifeTrack-Backups");
+        let _ = backup_to_dir(&desktop_dir, &json_data, &stamp, 10);
+    }
+
+    // Quaternary: Dropbox (cloud-synced, survives disk failure)
+    if let Ok(home) = app.path().home_dir() {
+        let dropbox = home.join("Dropbox").join("Apps").join("LifeTrack");
+        if dropbox.exists() || home.join("Dropbox").exists() {
+            let _ = backup_to_dir(&dropbox, &json_data, &stamp, 30);
+        }
+
+        // Quinary: OneDrive (cloud-synced, auto-detected)
+        if let Ok(entries) = std::fs::read_dir(&home) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                if name_str.starts_with("OneDrive") && entry.path().is_dir() {
+                    let onedrive = entry.path().join("Apps").join("LifeTrack");
+                    let _ = backup_to_dir(&onedrive, &json_data, &stamp, 30);
+                    break;
+                }
+            }
+        }
+    }
+
+    // Return the Documents path as primary result (most reliable)
+    doc_path
 }
 
 #[tauri::command]
@@ -103,18 +145,12 @@ fn backup_has_data(content: &str) -> bool {
     })
 }
 
-#[tauri::command]
-fn find_latest_backup(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    let backup_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("backups");
-    if !backup_dir.exists() {
-        return Ok(None);
+fn find_newest_in_dir(dir: &std::path::Path) -> Option<String> {
+    if !dir.exists() {
+        return None;
     }
-    let mut entries: Vec<_> = std::fs::read_dir(&backup_dir)
-        .map_err(|e| e.to_string())?
+    let mut entries: Vec<_> = std::fs::read_dir(dir)
+        .ok()?
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().map_or(false, |ext| ext == "json"))
         .collect();
@@ -132,9 +168,44 @@ fn find_latest_backup(app: tauri::AppHandle) -> Result<Option<String>, String> {
     for entry in entries {
         let content = std::fs::read_to_string(entry.path()).unwrap_or_default();
         if backup_has_data(&content) {
+            return Some(content);
+        }
+    }
+    None
+}
+
+#[tauri::command]
+fn find_latest_backup(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    // Check all backup locations in priority order
+    let locations: Vec<std::path::PathBuf> = vec![
+        app.path().app_data_dir().map_err(|e| e.to_string())?.join("backups"),
+        app.path().document_dir().map_err(|e| e.to_string())?.join("LifeTrack-Backups"),
+        app.path().desktop_dir().unwrap_or_default().join("LifeTrack-Backups"),
+    ];
+
+    // Also check Dropbox if it exists
+    if let Ok(home) = app.path().home_dir() {
+        let dropbox = home.join("Dropbox").join("Apps").join("LifeTrack");
+        if dropbox.exists() || home.join("Dropbox").exists() {
+            // Use Dropbox with its own path
+        }
+        // Try Dropbox as well
+    }
+
+    for dir in &locations {
+        if let Some(content) = find_newest_in_dir(dir) {
             return Ok(Some(content));
         }
     }
+
+    // Try Dropbox
+    if let Ok(home) = app.path().home_dir() {
+        let dropbox = home.join("Dropbox").join("Apps").join("LifeTrack");
+        if let Some(content) = find_newest_in_dir(&dropbox) {
+            return Ok(Some(content));
+        }
+    }
+
     Ok(None)
 }
 

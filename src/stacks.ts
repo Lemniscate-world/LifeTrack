@@ -34,6 +34,7 @@ export function linkHabitToParentInPlace(
   allHabits: Habit[],
   habitId: string,
   parentId: string,
+  when: 'before' | 'after' | 'with' = 'after',
 ): { ok: boolean; reason?: 'self' | 'cycle' | 'missing' } {
   const habit = allHabits.find((h) => h.id === habitId);
   const parent = allHabits.find((h) => h.id === parentId);
@@ -43,12 +44,16 @@ export function linkHabitToParentInPlace(
     return { ok: false, reason: 'cycle' };
   }
   habit.stackParent = parentId;
+  habit.stackWhen = when;
   return { ok: true };
 }
 
 export function unlinkHabitInPlace(allHabits: Habit[], habitId: string): void {
   const habit = allHabits.find((h) => h.id === habitId);
-  if (habit) habit.stackParent = undefined;
+  if (habit) {
+    habit.stackParent = undefined;
+    habit.stackWhen = undefined;
+  }
 }
 
 /**
@@ -60,6 +65,7 @@ export function clearDanglingStackParentsInPlace(allHabits: Habit[], removedId: 
   for (const h of allHabits) {
     if (h.stackParent === removedId) {
       h.stackParent = undefined;
+      h.stackWhen = undefined;
       cleared.push(h.id);
     }
   }
@@ -78,6 +84,7 @@ export interface StackStep {
   archived: boolean;
   state: StackStepState;
   parentId?: string;
+  stackWhen?: 'before' | 'after' | 'with';
 }
 
 export interface StackStatus {
@@ -213,6 +220,7 @@ function collectChainWithCheckIns(
       archived: h.archived,
       state,
       parentId: h.stackParent,
+      stackWhen: h.stackWhen ?? 'after',
     });
 
     const kids = childrenOf.get(h.id) ?? [];

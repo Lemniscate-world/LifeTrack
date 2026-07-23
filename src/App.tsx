@@ -1,9 +1,16 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import type { Habit, Note, CheckIn } from './types';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import type { Habit, Note, CheckIn, Mantra } from './types';
 import {
   getHabits,
   getMonthCheckIns,
   toggleCheckIn,
+  incrementCheckInCount,
+  getCheckInCount,
+  resetCheckInCount,
+  decrementCheckInCount,
+  setCheckInNote,
+  getCheckInNote,
+  getMonthCheckInNotes,
   subscribe,
   addHabit,
   updateHabit,
@@ -21,16 +28,32 @@ import {
   reorderHabits,
   linkHabitToParent as linkHabitToParentStore,
   unlinkHabitFromParent as unlinkHabitFromParentStore,
+  getMantras,
+  getMantraSettings,
+  updateMantraSettings,
+  restoreFromBackupIfNewer,
+  diagnoseStorage,
+  createUpgradeBackup,
+  pruneOldBackups,
 } from './store';
 import { computeStreakStats, computeCompletionRate, computeWeightedScore, trackingStart } from './stats';
 import { Heatmap, Sparkline } from './Heatmap';
 import { HistoryView } from './HistoryView';
 import { StacksView } from './StacksView';
+import SkillsView from './SkillsView';
 import { DraggableHabitRow } from './components/DraggableHabitRow';
 import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import './App.css';
 import ChaosView from './ChaosView';
+import MantraView from './MantraView';
+import SettingsView from './SettingsView';
+import TodayView from './TodayView';
+import ShortcutsHelp from './ShortcutsHelp';
+import YearView from './YearView';
+import ChallengeView from './ChallengeView';
+// (Mood view removed — emotional state is tracked via the 'emotional' chaos dimension.)
 import { generateInsights, type Recommendation, type RecKind } from './recommendations';
+import { getDailyEntryMantra, todayStr, shouldShowMantraNotification, markMantraNotificationShown, MANTRA_DOMAINS, sendSystemNotification } from './mantras';
 
 // Detected at module load (window is always present in browser and Tauri).
 // In test environments this is false. Module-level constant is acceptable
@@ -88,6 +111,11 @@ const MONTH_NAMES = [
   const [notes, setNotes] = useState<Note[]>([]);
   const [newNoteContent, setNewNoteContent] = useState('');
   const [showNewNoteInput, setShowNewNoteInput] = useState(false);
+  // Per-day check-in note popup
+  const [notePopup, setNotePopup] = useState<{ habitId: string; date: string; habitName: string } | null>(null);
+  const [notePopupText, setNotePopupText] = useState('');
+  // Map of dateKey -> note for the currently hovered/visible habit (lazy loaded)
+  const [checkInNotes, setCheckInNotes] = useState<Map<string, string>>(new Map());
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editingGoalValue, setEditingGoalValue] = useState('');
   const [editingChaosHabitId, setEditingChaosHabitId] = useState<string | null>(null);
@@ -99,8 +127,114 @@ const MONTH_NAMES = [
   // Intentions editor (why you do this habit)
   const [editingWhyHabitId, setEditingWhyHabitId] = useState<string | null>(null);
   const [editWhyText, setEditWhyText] = useState('');
-  const [view, setView] = useState<'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights'>('grid');
+  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'mantras' | 'settings'>('grid');
   const [savedMsg, setSavedMsg] = useState('');
+  // Shortcuts help + toast
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [toastMsg, setToastMsg] = useState('');
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastMsg(''), 3000);
+  };
+
+  // --- Mantra state ---
+  const [showMantraBanner, setShowMantraBanner] = useState(false);
+  const [dailyEntryMantra, setDailyEntryMantra] = useState<Mantra | null>(null);
+  const mantraBannerShownRef = useRef(false);
+
+  // --- Startup: diagnose storage + auto-restore from backup if needed ---
+  useEffect(() => {
+    diagnoseStorage();
+    const restored = restoreFromBackupIfNewer();
+    if (restored) {
+      console.log('✅ Auto-restored data from backup');
+    }
+    // Create a pre-upgrade safety snapshot once per day (survives code updates).
+    // Only creates a backup if one doesn't already exist for today.
+    const todayKey = `lifetrack-upgrade-backup-${new Date().toISOString().slice(0, 10)}`;
+    const todayExists = typeof localStorage !== 'undefined' && localStorage.getItem(todayKey);
+    if (!todayExists) {
+      const backupKey = createUpgradeBackup();
+      if (backupKey) {
+        console.log(`🔒 Daily safety backup: ${backupKey}`);
+        pruneOldBackups(7); // keep rolling 7-day window
+      }
+    }
+  }, []);
+
+  // Show daily mantra banner on entry (once per session / once per day)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (mantraBannerShownRef.current) return;
+
+      const settings = getMantraSettings();
+      if (settings.showOnEntry) {
+        const today = todayStr();
+        if (settings.lastEntryDate !== today) {
+          const allMantras = getMantras();
+          const entryMantra = getDailyEntryMantra(allMantras);
+          if (entryMantra) {
+            mantraBannerShownRef.current = true;
+            setDailyEntryMantra(entryMantra);
+            setShowMantraBanner(true);
+            updateMantraSettings({ lastEntryDate: today });
+          }
+        }
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Periodic check for morning/evening notification times (every 30s)
+  useEffect(() => {
+    const checkNotifications = () => {
+      const settings = getMantraSettings();
+      const now = new Date();
+      const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+      // Morning notification (independent from entry banner)
+      if (shouldShowMantraNotification(settings, 'morning') && currentTime >= settings.morningTime) {
+        const updated = markMantraNotificationShown(settings, 'morning');
+        updateMantraSettings({ lastMorningDate: updated.lastMorningDate });
+        const allMantras = getMantras();
+        const entryMantra = getDailyEntryMantra(allMantras);
+        if (entryMantra) {
+          setDailyEntryMantra(entryMantra);
+          setShowMantraBanner(true);
+          // Also try system notification
+          sendSystemNotification(
+            `🌅 Morning Mantra — ${MANTRA_DOMAINS.find((d) => d.id === entryMantra.domain)?.name ?? ''}`,
+            entryMantra.text,
+          );
+        }
+      }
+
+      // Evening notification
+      if (shouldShowMantraNotification(settings, 'evening') && currentTime >= settings.eveningTime) {
+        const updated = markMantraNotificationShown(settings, 'evening');
+        updateMantraSettings({ lastEveningDate: updated.lastEveningDate });
+        const allMantras = getMantras();
+        const entryMantra = getDailyEntryMantra(allMantras);
+        if (entryMantra) {
+          setDailyEntryMantra(entryMantra);
+          setShowMantraBanner(true);
+          // Also try system notification
+          sendSystemNotification(
+            `🌙 Evening Mantra — ${MANTRA_DOMAINS.find((d) => d.id === entryMantra.domain)?.name ?? ''}`,
+            entryMantra.text,
+          );
+        }
+      }
+    };
+
+    // Check every 30 seconds
+    checkNotifications();
+    const interval = setInterval(checkNotifications, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Periodically refresh the "last saved" display
   useEffect(() => {
@@ -164,7 +298,7 @@ const MONTH_NAMES = [
         const { invoke } = await import('@tauri-apps/api/core');
         const allData = exportAllData();
         const path = await invoke<string>('auto_backup', { jsonData: JSON.stringify(allData, null, 2) });
-        console.log('Auto-backup saved to', path);
+        console.debug('Auto-backup saved to', path);
       } catch (e) {
         console.error('auto_backup failed:', e);
       }
@@ -218,12 +352,14 @@ const MONTH_NAMES = [
 
       if (ctrl && key === 'z' && !e.shiftKey) {
         e.preventDefault();
-        undoLastToggle();
+        const entry = undoLastToggle();
+        if (entry) showToast(`↩ Undo: ${entry.previousState ? 'restored' : 'removed'} check-in`);
         return;
       }
       if (ctrl && (key === 'y' || (key === 'z' && e.shiftKey))) {
         e.preventDefault();
-        redoLastUndo();
+        const entry = redoLastUndo();
+        if (entry) showToast(`↪ Redo: ${entry.previousState ? 'restored' : 'removed'} check-in`);
         return;
       }
 
@@ -241,7 +377,15 @@ const MONTH_NAMES = [
         e.preventDefault();
         setKeyboardUsed(true);
         const dateStr = parseDateStr(year, month, focusDay);
-        toggleCheckIn(habit.id, dateStr);
+        if (habit.multiClick === false) {
+          toggleCheckIn(habit.id, dateStr);
+        } else if (e.ctrlKey || e.metaKey) {
+          resetCheckInCount(habit.id, dateStr);
+        } else if (e.shiftKey) {
+          decrementCheckInCount(habit.id, dateStr);
+        } else {
+          incrementCheckInCount(habit.id, dateStr);
+        }
       }
 
       if (e.key === 'n' && ctrl) {
@@ -257,18 +401,27 @@ const MONTH_NAMES = [
   useEffect(() => {
     function onGlobalKey(e: KeyboardEvent) {
       const ctrl = e.ctrlKey || e.metaKey;
-      // Tab switching: Ctrl+1..6
-      if (ctrl && e.key >= '1' && e.key <= '6') {
+      // Tab switching: Ctrl+1..9 + Ctrl+0
+      if (ctrl && e.key >= '0' && e.key <= '9') {
         e.preventDefault();
-        const tabs: Array<'grid' | 'stats' | 'history' | 'stacks' | 'insights' | 'chaos'> = ['grid', 'stats', 'history', 'stacks', 'insights', 'chaos'];
-        const idx = parseInt(e.key, 10) - 1;
-        if (idx < tabs.length) setView(tabs[idx]);
+        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'mantras'];
+        const idx = e.key === '0' ? 0 : parseInt(e.key, 10);
+        const viewKey = tabs[idx] as typeof view;
+        if (viewKey) setView(viewKey);
       }
       // Ctrl+S: save indicator (already auto-saved, but gives user confidence)
       if (ctrl && e.key === 's') {
         e.preventDefault();
         flushSave();
         setSavedMsg('Saved just now');
+      }
+      // ?: Show shortcuts help
+      if (e.key === '?' && !ctrl && !e.metaKey) {
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
+          e.preventDefault();
+          setShowShortcuts(prev => !prev);
+        }
       }
     }
     window.addEventListener('keydown', onGlobalKey);
@@ -298,6 +451,16 @@ const MONTH_NAMES = [
       setNotes(getNotes());
       // Refresh the lifetime check-in cache so Stats view shows fresh records.
       setAllCheckIns(exportAllData().checkIns);
+      // Load per-day check-in notes for the current month (for note indicator dots).
+      const noteMap = new Map<string, string>();
+      for (const habit of h) {
+        const habitNotes = getMonthCheckInNotes(habit.id, year, month);
+        for (const [day, note] of habitNotes) {
+          const dateKey = parseDateStr(year, month, day);
+          noteMap.set(`${habit.id}::${dateKey}`, note);
+        }
+      }
+      setCheckInNotes(noteMap);
     }
     update();
     return subscribe(update);
@@ -321,9 +484,54 @@ const MONTH_NAMES = [
     }
   }
 
-  function handleCellClick(habitId: string, day: number) {
+  function handleCellClick(habitId: string, day: number, isMultiClick: boolean = true, ctrlKey: boolean = false, shiftKey: boolean = false) {
     const dateStr = parseDateStr(year, month, day);
-    toggleCheckIn(habitId, dateStr);
+    if (!isMultiClick) {
+      // Simple toggle mode: just on/off, no count
+      toggleCheckIn(habitId, dateStr);
+      return;
+    }
+    if (ctrlKey) {
+      resetCheckInCount(habitId, dateStr);
+    } else if (shiftKey) {
+      decrementCheckInCount(habitId, dateStr);
+    } else {
+      incrementCheckInCount(habitId, dateStr);
+    }
+  }
+
+  // Right-click on a day cell: open the note popup for that habit+day.
+  function handleCellContextMenu(e: React.MouseEvent, habitId: string, habitName: string, day: number) {
+    e.preventDefault();
+    const dateStr = parseDateStr(year, month, day);
+    const existingNote = getCheckInNote(habitId, dateStr);
+    setNotePopup({ habitId, date: dateStr, habitName });
+    setNotePopupText(existingNote);
+  }
+
+  // Save the note from the popup.
+  function handleNotePopupSave() {
+    if (!notePopup) return;
+    const trimmed = notePopupText.trim();
+    setCheckInNote(notePopup.habitId, notePopup.date, trimmed || null);
+    // Update local cache
+    setCheckInNotes((prev) => {
+      const next = new Map(prev);
+      if (trimmed) {
+        next.set(notePopup.date, trimmed);
+      } else {
+        next.delete(notePopup.date);
+      }
+      return next;
+    });
+    setNotePopup(null);
+    setNotePopupText('');
+  }
+
+  // Close the note popup without saving.
+  function handleNotePopupClose() {
+    setNotePopup(null);
+    setNotePopupText('');
   }
 
   function handleAddHabit() {
@@ -705,16 +913,42 @@ const MONTH_NAMES = [
           </button>
         </div>
         <div className="view-tabs" role="tablist" aria-label="View selector">
+          <button role="tab" aria-selected={view === 'today'} className={`view-tab ${view === 'today' ? 'active' : ''}`} onClick={() => setView('today')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> Today
+          </button>
           <button role="tab" aria-selected={view === 'grid'} className={`view-tab ${view === 'grid' ? 'active' : ''}`} onClick={() => setView('grid')}>Grid</button>
           <button role="tab" aria-selected={view === 'stats'} className={`view-tab ${view === 'stats' ? 'active' : ''}`} onClick={() => setView('stats')}>Statistics</button>
           <button role="tab" aria-selected={view === 'history'} className={`view-tab ${view === 'history' ? 'active' : ''}`} onClick={() => setView('history')}>History</button>
+          <button role="tab" aria-selected={view === 'year'} className={`view-tab ${view === 'year' ? 'active' : ''}`} onClick={() => setView('year')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Year
+          </button>
+          <button role="tab" aria-selected={view === 'challenge'} className={`view-tab ${view === 'challenge' ? 'active' : ''}`} onClick={() => setView('challenge')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 30 Days
+          </button>
           <button role="tab" aria-selected={view === 'stacks'} className={`view-tab ${view === 'stacks' ? 'active' : ''}`} onClick={() => setView('stacks')}>Stacks</button>
-          <button role="tab" aria-selected={view === 'insights'} className={`view-tab ${view === 'insights' ? 'active' : ''}`} onClick={() => setView('insights')}>💡 Insights</button>
+          <button role="tab" aria-selected={view === 'skills'} className={`view-tab ${view === 'skills' ? 'active' : ''}`} onClick={() => setView('skills')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Skills
+          </button>
+          <button role="tab" aria-selected={view === 'insights'} className={`view-tab ${view === 'insights' ? 'active' : ''}`} onClick={() => setView('insights')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg> Insights
+          </button>
           <button role="tab" aria-selected={view === 'chaos'} className={`view-tab ${view === 'chaos' ? 'active' : ''}`} onClick={() => setView('chaos')}>Chaos</button>
+          <button role="tab" aria-selected={view === 'mantras'} className={`view-tab ${view === 'mantras' ? 'active' : ''}`} onClick={() => setView('mantras')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4.5 12.5l3 3 5-7"/><circle cx="12" cy="12" r="10"/></svg> Mantras
+          </button>
+          <button role="tab" aria-selected={view === 'settings'} className={`view-tab ${view === 'settings' ? 'active' : ''}`} onClick={() => setView('settings')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg> Settings
+          </button>
         </div>
       </div>
 
-      {view === 'grid' ? (
+      {view === 'today' ? (
+        <TodayView
+          habits={habits}
+          checkIns={allCheckIns}
+          todayMantra={dailyEntryMantra}
+        />
+      ) : view === 'grid' ? (
         <div className="grid-area" key={gridKey} onClick={() => setKeyboardUsed(false)}>
           {habits.length === 0 ? (
             <div className="empty-state">
@@ -737,8 +971,8 @@ const MONTH_NAMES = [
                       <span className="day-number">{h.day}</span>
                     </th>
                   ))}
-                  <th className="col-goal">Goal</th>
-                  <th className="col-achieved">Achieved</th>
+                  <th className="col-goal" title="Monthly target">Goal</th>
+                  <th className="col-achieved">Done</th>
                 </tr>
               </thead>
               <Droppable droppableId="habit-list">
@@ -749,15 +983,26 @@ const MONTH_NAMES = [
                   >
                     {habits.map((habit, habitIdx) => {
                       const habitChecks = checkIns.get(habit.id) || new Map();
-                  let completedCount = 0;
+                  const hs = habitStats.find(s => s.habitId === habit.id);
+                  const streakLevel = hs ? (hs.currentStreak >= 30 ? 3 : hs.currentStreak >= 7 ? 2 : hs.currentStreak >= 3 ? 1 : 0) : 0;
+                  // Count total executions this month (sum of counts across all days)
+                  let totalExecs = 0;
                   for (let d = 1; d <= daysInMonth; d++) {
-                    if (habitChecks.get(d)) completedCount++;
+                    if (habitChecks.get(d)) {
+                      const dateKey = parseDateStr(year, month, d);
+                      totalExecs += getCheckInCount(habit.id, dateKey);
+                    }
+                  }
+                  // Days with at least one execution
+                  let activeDays = 0;
+                  for (let d = 1; d <= daysInMonth; d++) {
+                    if (habitChecks.get(d)) activeDays++;
                   }
                   const goal = habit.goal || daysInMonth;
 
                   return (
                     <DraggableHabitRow key={habit.id} habitId={habit.id} index={habitIdx}>
-                      <td className="col-habits">
+                      <td className={`col-habits streak-level-${streakLevel}`}>
                         <div className="habit-row">
                           {editingHabitId === habit.id ? (
                             <input
@@ -777,19 +1022,30 @@ const MONTH_NAMES = [
                               title="Click to rename"
                             >
                               {habit.name}
+                              {habit.focusMonth && (
+                                <span className="focus-badge" title={`Focus of ${habit.focusMonth}`}>🎯</span>
+                              )}
+                              {(() => {
+                                const hs = habitStats.find(s => s.habitId === habit.id);
+                                if (hs && hs.currentStreak >= 30) return <span className="streak-badge streak-30" title="30+ day streak!">🏆</span>;
+                                if (hs && hs.currentStreak >= 7) return <span className="streak-badge streak-7" title="7+ day streak!">🔥</span>;
+                                return null;
+                              })()}
                             </span>
                           )}
                           {habit.stackParent && (() => {
                             const parent = habits.find((h) => h.id === habit.stackParent);
-                            return parent ? (
+                            if (!parent) return null;
+                            const whenLabel = habit.stackWhen === 'before' ? '↑' : habit.stackWhen === 'with' ? '↔' : '↓';
+                            return (
                               <span
                                 className="habit-stack-badge"
-                                title={`Triggered by: ${parent.name}`}
+                                title={`${whenLabel} ${parent.name}`}
                                 onClick={() => setFocusHabitIdx(habits.findIndex((h) => h.id === parent.id))}
                               >
-                                ↳ {parent.name}
+                                {whenLabel} {parent.name}
                               </span>
-                            ) : null;
+                            );
                           })()}
                           <button
                             className="habit-archive"
@@ -812,12 +1068,30 @@ const MONTH_NAMES = [
                           <button
                             className={`habit-stack-btn ${habit.stackParent ? 'linked' : ''}`}
                             onClick={() => setEditingStackParentId(editingStackParentId === habit.id ? null : habit.id)}
-                            title={habit.stackParent ? `After: ${habits.find((h) => h.id === habit.stackParent)?.name ?? '?'}` : 'Add to a stack (after another habit)'}
+                            title={habit.stackParent ? `${habit.stackWhen === 'before' ? 'Before' : habit.stackWhen === 'with' ? 'With' : 'After'}: ${habits.find((h) => h.id === habit.stackParent)?.name ?? '?'}` : 'Add to a stack'}
                           >
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                               <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
                               <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
                             </svg>
+                          </button>
+                          <button
+                            className={`habit-multiclick-btn ${habit.multiClick !== false ? 'active' : ''}`}
+                            onClick={() => updateHabit(habit.id, { multiClick: habit.multiClick === false ? true : false })}
+                            title={habit.multiClick !== false ? 'Multi-click: ON (click to disable)' : 'Multi-click: OFF — simple toggle'}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                          </button>
+                          <button
+                            className={`habit-focus-btn ${habit.focusMonth ? 'active' : ''}`}
+                            onClick={() => {
+                              const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                              const isFocused = habit.focusMonth === thisMonth;
+                              updateHabit(habit.id, { focusMonth: isFocused ? undefined : thisMonth });
+                            }}
+                            title={habit.focusMonth ? `Focus: ${habit.focusMonth}` : 'Set as monthly focus'}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
                           </button>
                           <button
                             className={`habit-why-btn ${(habit.why?.length ?? 0) > 0 ? 'has-intentions' : ''}`}
@@ -887,6 +1161,7 @@ const MONTH_NAMES = [
                               <option value="social">Social</option>
                               <option value="structural">Structural</option>
                               <option value="spiritual">Spiritual</option>
+                              <option value="emotional">Emotional</option>
                             </select>
                             <input type="number" min="1" max="100" value={Number.isFinite(editChaosImpact) ? editChaosImpact : ''} onChange={(e) => {
                               const raw = e.target.value;
@@ -906,7 +1181,21 @@ const MONTH_NAMES = [
                         )}
                         {editingStackParentId === habit.id && (
                           <div className="habit-stack-edit">
-                            <span className="stack-edit-label">Triggered by:</span>
+                            <span className="stack-edit-label">When:</span>
+                            <select
+                              className="stack-select-sm"
+                              value={habit.stackWhen ?? 'after'}
+                              onChange={(e) => {
+                                if (habit.stackParent) {
+                                  linkHabitToParentStore(habit.id, habit.stackParent, e.target.value as 'before' | 'after' | 'with');
+                                }
+                              }}
+                            >
+                              <option value="before">⬆ Before</option>
+                              <option value="after">⬇ After</option>
+                              <option value="with">↔ With</option>
+                            </select>
+                            <span className="stack-edit-label">from:</span>
                             <select
                               className="stack-select-sm"
                               value={habit.stackParent ?? ''}
@@ -915,7 +1204,7 @@ const MONTH_NAMES = [
                                 if (newParent === '') {
                                   unlinkHabitFromParentStore(habit.id);
                                 } else {
-                                  linkHabitToParentStore(habit.id, newParent);
+                                  linkHabitToParentStore(habit.id, newParent, habit.stackWhen ?? 'after');
                                 }
                               }}
                             >
@@ -940,20 +1229,32 @@ const MONTH_NAMES = [
                         const checked = habitChecks.get(h.day) || false;
                         const isToday = isCurrentMonth && h.day === todayDay;
                         const isFocused = keyboardUsed && focusDay === h.day && focusHabitIdx === habitIdx;
+                        const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(h.day).padStart(2, '0')}`;
+                        const currentCount = checked ? getCheckInCount(habit.id, dateKey) : 0;
+                        const showCount = currentCount >= 1;
+                        // Note indicator
+                        const noteKey = `${habit.id}::${dateKey}`;
+                        const hasNote = checkInNotes.has(noteKey);
+                        const noteText = checkInNotes.get(noteKey) ?? '';
+                        const isMultiClick = habit.multiClick !== false; // true by default
                         return (
                           <td
                             key={h.day}
                             className={`col-day ${isToday ? 'today' : ''} ${isFocused ? 'focused' : ''}`}
-                            onClick={() => handleCellClick(habit.id, h.day)}
+                            onClick={(e) => handleCellClick(habit.id, h.day, isMultiClick, e.ctrlKey || e.metaKey, e.shiftKey)}
+                            onContextMenu={(e) => handleCellContextMenu(e, habit.id, habit.name, h.day)}
+                            title={hasNote ? `📝 ${noteText}` : isMultiClick ? `Click +1 · Shift+Click −1 · Ctrl+Click reset · Right-click note` : `Click to toggle · Right-click to add note`}
                           >
-                            <div
-                              className={`day-cell ${checked ? 'checked' : ''}`}
-                            >
+                            <div className={`day-cell ${checked ? 'checked' : ''} ${hasNote ? 'has-note' : ''}`}>
                               {checked && (
                                 <svg className="check-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                                   <polyline points="5,13 10,18 19,7"/>
                                 </svg>
                               )}
+                              {showCount && (
+                                <span className="day-cell-count">{currentCount}</span>
+                              )}
+                              {hasNote && <span className="day-cell-note-dot" title={noteText}>●</span>}
                             </div>
                           </td>
                         );
@@ -984,7 +1285,16 @@ const MONTH_NAMES = [
                         )}
                       </td>
                       <td className="col-achieved">
-                        <span className="achieved-number">{completedCount}</span>
+                        <div className="achieved-cell">
+                          <span className="achieved-number" title={`${activeDays}d active · ${totalExecs} total`}>
+                            {goal > 0 ? `${totalExecs}/${goal}` : `${totalExecs}`}
+                          </span>
+                          {goal > 0 && (
+                            <div className="achieved-bar" style={{ '--pct': `${Math.min(100, Math.round((totalExecs / goal) * 100))}%` } as React.CSSProperties}>
+                              <div className="achieved-bar-fill" />
+                            </div>
+                          )}
+                        </div>
                       </td>
                     </DraggableHabitRow>
                   );
@@ -1088,6 +1398,10 @@ const MONTH_NAMES = [
         </>
       ) : view === 'history' ? (
         <HistoryView checkIns={allCheckIns} habits={habits} />
+      ) : view === 'year' ? (
+        <YearView habits={habits} checkIns={allCheckIns} />
+      ) : view === 'challenge' ? (
+        <ChallengeView habits={habits} checkIns={allCheckIns} />
       ) : view === 'stacks' ? (
         <StacksView checkIns={allCheckIns} habits={habits} />
       ) : view === 'insights' ? (
@@ -1095,8 +1409,69 @@ const MONTH_NAMES = [
           if (parentId) linkHabitToParentStore(childId, parentId);
           else void unlinkHabitFromParentStore(childId);
         }} onView={(newView) => setView(newView)} />
+      ) : view === 'mantras' ? (
+        <MantraView />
+      ) : view === 'settings' ? (
+        <SettingsView
+          darkMode={darkMode}
+          onToggleDarkMode={() => setDarkMode(!darkMode)}
+          theme={theme}
+          onSetTheme={setTheme}
+          onExportJSON={handleExportJSON}
+          onExportCSV={handleExportCSV}
+          onImportJSON={handleImportJSON}
+          onRestoreBackup={() => {
+            // First: try localStorage backup (instant, no Tauri needed)
+            const restored = restoreFromBackupIfNewer();
+            if (restored) {
+              alert('✅ Restored from localStorage backup! Your data should be back.');
+              diagnoseStorage();
+              return;
+            }
+            // Second: try Tauri file backup
+            import('@tauri-apps/api/core').then(({ invoke }) =>
+              invoke<string | null>('find_latest_backup').then((backup) => {
+                if (!backup) { alert('No backup found in files or localStorage.'); return; }
+                const parsed = JSON.parse(backup);
+                const habitCount = parsed?.habits?.length || 0;
+                const checkinCount = parsed?.checkIns?.length || 0;
+                if (!habitCount) { alert('Backup is empty.'); return; }
+                if (!window.confirm(`Restore ${habitCount} habits + ${checkinCount} check-ins from file backup?\n\nExisting habits with the same name will be merged, not duplicated.`)) return;
+                const result = mergeImportedData(parsed);
+                alert(`Restore successful: ${result.habitsCreated} habits added, ${result.checkInsRestored} check-ins restored.`);
+              }).catch((e) => alert('Restore failed: ' + e))
+            ).catch((e) => alert('Restore failed: ' + e));
+          }}
+          onViewMantras={() => setView('mantras')}
+        />
+      ) : view === 'skills' ? (
+        <SkillsView />
       ) : (
         <ChaosView />
+      )}
+
+      {/* Daily Mantra Banner */}
+      {showMantraBanner && dailyEntryMantra && (
+        <div className="mantra-banner">
+          <div className="mantra-banner-content">
+            <span className="mantra-banner-domain">
+              {MANTRA_DOMAINS.find((d) => d.id === dailyEntryMantra.domain)?.icon} {' '}
+              {MANTRA_DOMAINS.find((d) => d.id === dailyEntryMantra.domain)?.name}
+            </span>
+            <blockquote className="mantra-banner-text">
+              "{dailyEntryMantra.text}"
+            </blockquote>
+          </div>
+          <button
+            className="mantra-banner-close"
+            onClick={() => setShowMantraBanner(false)}
+            title="Dismiss"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
       )}
 
       {/* Bottom bar: add habit + notes toggle */}
@@ -1140,6 +1515,7 @@ const MONTH_NAMES = [
                     <option value="social">Social</option>
                     <option value="structural">Structural</option>
                     <option value="spiritual">Spiritual</option>
+                    <option value="emotional">Emotional</option>
                   </select>
                   <label className="chaos-field">
                     Impact %
@@ -1233,6 +1609,51 @@ const MONTH_NAMES = [
         </div>
       )}
 
+      {/* Toast notification */}
+      {toastMsg && (
+        <div className="toast">{toastMsg}</div>
+      )}
+
+      {/* Shortcuts help modal */}
+      {showShortcuts && (
+        <ShortcutsHelp onClose={() => setShowShortcuts(false)} />
+      )}
+
+      {/* Per-day check-in note popup */}
+      {notePopup && (
+        <div className="note-popup-overlay" onClick={handleNotePopupClose}>
+          <div className="note-popup" onClick={(e) => e.stopPropagation()}>
+            <div className="note-popup-header">
+              <span className="note-popup-title">
+                📝 {notePopup.habitName} — {notePopup.date}
+              </span>
+              <button className="note-popup-close" onClick={handleNotePopupClose} title="Close">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <textarea
+              className="note-popup-input"
+              placeholder="What did you observe or detect today thanks to this habit?"
+              value={notePopupText}
+              onChange={(e) => setNotePopupText(e.target.value)}
+              autoFocus
+              rows={4}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && e.ctrlKey) handleNotePopupSave();
+                if (e.key === 'Escape') handleNotePopupClose();
+              }}
+            />
+            <div className="note-popup-actions">
+              <span className="note-popup-hint">Ctrl+Enter to save</span>
+              <button className="btn btn-sm btn-primary" onClick={handleNotePopupSave}>Save</button>
+              <button className="btn btn-sm btn-ghost" onClick={handleNotePopupClose}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -1249,7 +1670,7 @@ function InsightsView({
   // eslint-disable-next-line no-unused-vars
   onLink: (childId: string, parentId: string | null) => void;
   // eslint-disable-next-line no-unused-vars
-  onView: (_v: 'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights') => void;
+  onView: (_v: 'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights' | 'mantras' | 'settings' | 'today' | 'year' | 'challenge') => void;
 }) {
   const { recommendations, generatedAt } = useMemo(
     () => generateInsights(habits, checkIns),
@@ -1314,6 +1735,9 @@ function InsightsView({
     CORRELATION: '🤝',
     TREND: '📊',
     WEEKLY_SUMMARY: '📋',
+    STREAK_MILESTONE: '🎯',
+    PERFECT_WEEK: '✨',
+    MANTRA_MATCH: '🧘',
   };
 
   // eslint-disable-next-line no-unused-vars
@@ -1332,6 +1756,9 @@ function InsightsView({
     },
     TREND: () => onView('history'),
     WEEKLY_SUMMARY: () => onView('history'),
+    STREAK_MILESTONE: () => onView('stats'),
+    PERFECT_WEEK: () => onView('history'),
+    MANTRA_MATCH: () => onView('mantras'),
   };
 
   if (recommendations.length === 0) {
@@ -1355,7 +1782,7 @@ function InsightsView({
   return (
     <div className="insights-view">
       <div className="insights-header">
-        <h2>💡 Insights</h2>
+        <h2><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:6}}><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>Insights</h2>
         <span className="insights-subtitle">
           {recommendations.length} recommendation{recommendations.length > 1 ? 's' : ''} — 100% local
           <span className="insights-generated" title="Recomputed when your data changes">

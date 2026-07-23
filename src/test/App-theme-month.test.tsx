@@ -84,7 +84,7 @@ describe('Empty state', () => {
 describe('Navbar', () => {
   it('renders all tabs', () => {
     render(<App />);
-    for (const tab of ['Grid', 'Statistics', 'History', 'Stacks', 'Chaos', '💡 Insights']) {
+    for (const tab of ['Grid', 'Statistics', 'History', 'Stacks', 'Chaos', 'Insights']) {
       expect(screen.getByText(tab)).toBeInTheDocument();
     }
   });
@@ -101,15 +101,13 @@ describe('Navbar', () => {
 });
 
 describe('Day headers', () => {
-  it('shows day numbers after adding habit', async () => {
-    const user = userEvent.setup();
+  it('shows day numbers after adding habit', () => {
     addHabit('Test');
     render(<App />);
     expect(screen.getByText('1')).toBeInTheDocument();
   });
 
-  it('shows today highlight', async () => {
-    const user = userEvent.setup();
+  it('shows today highlight', () => {
     addHabit('Test');
     render(<App />);
     expect(document.querySelectorAll('.col-day.today').length).toBeGreaterThanOrEqual(1);

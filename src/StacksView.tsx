@@ -108,11 +108,17 @@ export function StacksView({ habits, checkIns }: Props) {
                     >
                       {sl.glyph}
                     </span>
-                    {step.parentId && (
-                      <span className="stack-step-parent">
-                        after: {habits.find((h) => h.id === step.parentId)?.name ?? '?'}
-                      </span>
-                    )}
+                    {step.parentId && (() => {
+                      const parent = habits.find((h) => h.id === step.parentId);
+                      if (!parent) return null;
+                      const when = step.stackWhen;
+                      const glyph = when === 'before' ? '↑ before' : when === 'with' ? '↔ with' : '↓ after';
+                      return (
+                        <span className="stack-step-parent">
+                          {glyph}: {parent.name}
+                        </span>
+                      );
+                    })()}
                   </li>
                 );
               })}

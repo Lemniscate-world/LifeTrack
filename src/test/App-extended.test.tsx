@@ -36,7 +36,7 @@ describe('App view tabs', () => {
     await user.click(screen.getByText('Chaos'));
     expect(screen.getByText('Chaos').className).toContain('active');
 
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
     expect(screen.getByText('Not enough data yet')).toBeInTheDocument();
 
     await user.click(screen.getByText('Grid'));
@@ -46,7 +46,7 @@ describe('App view tabs', () => {
   it('Insights shows empty state with button to grid', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
     expect(screen.getByText('Go to Grid')).toBeInTheDocument();
   });
 });

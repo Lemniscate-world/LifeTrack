@@ -20,7 +20,7 @@ describe('Insights with seeded data', () => {
     addHabit('Journal');
     render(<App />);
 
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
 
     // Should show NEGLECTED: "Journal" has no check-ins yet (appears in title + detail)
     const journalTexts = screen.getAllByText(/Journal/);
@@ -35,7 +35,7 @@ describe('Insights with seeded data', () => {
     addHabit('Read');
     render(<App />);
 
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
     // Click the action button for the NEGLECTED recommendation
     await user.click(screen.getByText('Track now'));
     // Should navigate to grid (InsightsView's NEGLECTED action: onView('grid'))
@@ -47,7 +47,7 @@ describe('Insights with seeded data', () => {
     const user = userEvent.setup();
     addHabit('Yoga');
     render(<App />);
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
 
     // Recommendation card renders with title
     const yogaTexts = screen.getAllByText(/Yoga/);
@@ -64,7 +64,7 @@ describe('Insights empty state interaction', () => {
   it('empty state button navigates to grid', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByText('💡 Insights'));
+    await user.click(screen.getByText('Insights'));
     const goToGrid = screen.getByText('Go to Grid');
     await user.click(goToGrid);
     expect(screen.getByText('Grid').className).toContain('active');
@@ -231,7 +231,7 @@ describe('All views accessible after adding habits', () => {
     await user.type(screen.getByPlaceholderText('Habit name...'), 'Test');
     await user.click(screen.getByText('Add'));
 
-    const tabs = ['Grid', 'Statistics', 'History', 'Stacks', 'Chaos', '💡 Insights'];
+    const tabs = ['Grid', 'Statistics', 'History', 'Stacks', 'Chaos', 'Insights'];
     for (const t of tabs) {
       // click the tab button (use role=tab)
       const btns = screen.getAllByRole('tab', { name: new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) });

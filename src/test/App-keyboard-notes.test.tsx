@@ -7,12 +7,6 @@ import App from '../App';
 
 beforeEach(() => { localStorage.clear(); resetStore(); });
 
-async function addUI(user: ReturnType<typeof userEvent.setup>, name: string) {
-  await user.click(screen.getByText('+ New Habit'));
-  await user.type(screen.getByPlaceholderText('Habit name...'), name);
-  await user.click(screen.getByText('Add'));
-}
-
 describe('Keyboard navigation', () => {
   it('ArrowRight moves focus', async () => {
     const user = userEvent.setup();

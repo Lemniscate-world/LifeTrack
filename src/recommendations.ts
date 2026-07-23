@@ -23,7 +23,10 @@ export type RecKind =
   | 'PRIME_TIME'
   | 'CORRELATION'
   | 'TREND'
-  | 'WEEKLY_SUMMARY';
+  | 'WEEKLY_SUMMARY'
+  | 'STREAK_MILESTONE'
+  | 'PERFECT_WEEK'
+  | 'MANTRA_MATCH';
 
 export interface Recommendation {
   kind: RecKind;
@@ -533,6 +536,168 @@ function generateWeeklySummary(
   }];
 }
 
+// --- Rule 10: Streak Milestones ---
+// Celebrate when a current streak hits a meaningful number
+function detectStreakMilestones(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  now: Date,
+): Recommendation[] {
+  const recs: Recommendation[] = [];
+  const MILESTONES = [7, 14, 21, 30, 60, 90, 100, 180, 365];
+  for (const habit of habits) {
+    if (habit.archived) continue;
+    const stats = computeStreakStats(habit, checkIns, now);
+    const current = stats.current;
+    // Check if current streak exactly hits a milestone
+    for (const m of MILESTONES) {
+      if (current === m) {
+        recs.push({
+          kind: 'STREAK_MILESTONE',
+          title: `🎯 "${habit.name}" — ${m}-day streak!`,
+          detail: `You've hit a ${m}-day streak on "${habit.name}". That's ${m} consecutive days of consistency — this is how habits become identity.`,
+          habitIds: [habit.id],
+          strength: Math.min(100, m),
+          actionLabel: 'View stats',
+        });
+        break; // only report the highest milestone
+      }
+    }
+    // Also check if approaching a milestone (within 2 days)
+    for (const m of MILESTONES) {
+      if (current === m - 1 && current >= 6) {
+        recs.push({
+          kind: 'STREAK_MILESTONE',
+          title: `🔜 "${habit.name}" — 1 day from ${m}-day streak`,
+          detail: `You're at ${current} days — one more day and you'll hit ${m} consecutive days on "${habit.name}".`,
+          habitIds: [habit.id],
+          strength: 70,
+          actionLabel: 'View stats',
+        });
+        break;
+      }
+      if (current === m - 2 && current >= 5) {
+        recs.push({
+          kind: 'STREAK_MILESTONE',
+          title: `🔜 "${habit.name}" — 2 days from ${m}-day streak`,
+          detail: `You're at ${current} days on "${habit.name}". Keep going for 2 more days to reach ${m}.`,
+          habitIds: [habit.id],
+          strength: 55,
+          actionLabel: 'View stats',
+        });
+        break;
+      }
+    }
+  }
+  return recs;
+}
+
+// --- Rule 11: Perfect Week Detection ---
+// Flag when the user had a week with all habits completed every day
+function detectPerfectWeeks(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  now: Date,
+): Recommendation[] {
+  const activeHabits = habits.filter((h) => !h.archived);
+  if (activeHabits.length < 2) return [];
+
+  // Look at the last completed week (Mon-Sun) and the current week
+  const today = new Date(now);
+  today.setUTCHours(0, 0, 0, 0);
+
+  // Build a map of date -> completed habit IDs
+  const byDate = new Map<string, Set<string>>();
+  for (const ci of checkIns) {
+    if (!ci.completed) continue;
+    let set = byDate.get(ci.date);
+    if (!set) { set = new Set(); byDate.set(ci.date, set); }
+    set.add(ci.habitId);
+  }
+
+  // Check last 4 weeks
+  const recs: Recommendation[] = [];
+  for (let w = 1; w <= 4; w++) {
+    const weekEnd = new Date(today);
+    weekEnd.setUTCDate(weekEnd.getUTCDate() - (w - 1) * 7);
+    const weekStart = new Date(weekEnd);
+    weekStart.setUTCDate(weekStart.getUTCDate() - 6);
+
+    let perfectDays = 0;
+    let totalDays = 0;
+    const perfectDates: string[] = [];
+
+    for (let d = 0; d < 7; d++) {
+      const date = new Date(weekStart);
+      date.setUTCDate(date.getUTCDate() + d);
+      const ds = date.toISOString().slice(0, 10);
+      if (ds > today.toISOString().slice(0, 10)) continue;
+      totalDays++;
+      const completed = byDate.get(ds);
+      if (completed && completed.size >= activeHabits.length) {
+        perfectDays++;
+        perfectDates.push(ds);
+      }
+    }
+
+    if (perfectDays >= 3 && totalDays >= 5) {
+      const weekLabel = w === 1 ? 'This week' : w === 2 ? 'Last week' : `${w} weeks ago`;
+      recs.push({
+        kind: 'PERFECT_WEEK',
+        title: `✨ ${perfectDays} perfect day${perfectDays > 1 ? 's' : ''} ${weekLabel.toLowerCase()}`,
+        detail: `You completed ALL ${activeHabits.length} habits on ${perfectDays} day${perfectDays > 1 ? 's' : ''} ${weekLabel.toLowerCase()}. That's exceptional consistency — these are the days that compound into real change.`,
+        habitIds: activeHabits.map((h) => h.id),
+        strength: Math.min(100, Math.round((perfectDays / totalDays) * 100)),
+        actionLabel: 'View history',
+      });
+      break; // only show the most recent perfect week
+    }
+  }
+  return recs.slice(0, 1);
+}
+
+// --- Rule 12: Mantra Match ---
+// Suggest a relevant mantra when a habit in that domain is neglected
+function detectMantraMatches(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  now: Date,
+): Recommendation[] {
+  const recs: Recommendation[] = [];
+
+  // Map chaos dimensions to mantra domains
+  const dimensionToMantra: Record<string, string> = {
+    physical: 'health',
+    financial: 'financial',
+    spiritual: 'spiritual',
+    social: 'relationships',
+    structural: 'productivity',
+  };
+
+  for (const habit of habits) {
+    if (habit.archived) continue;
+    const lastCheck = habitCheckDates(habit.id, checkIns).pop();
+    if (!lastCheck) continue;
+    const ago = daysSince(lastCheck, now);
+    if (ago < 3) continue; // only suggest if habit is being neglected (3+ days)
+
+    const mantraDomain = habit.chaosDimension
+      ? dimensionToMantra[habit.chaosDimension] ?? 'life'
+      : 'life';
+
+    recs.push({
+      kind: 'MANTRA_MATCH',
+      title: `🧘 "${habit.name}" — ${ago} days, time for a reset?`,
+      detail: `It's been ${ago} days since your last "${habit.name}" check-in. Check the 🧘 Mantras tab for a ${mantraDomain} inspiration to help you restart. A small step today beats a perfect plan tomorrow.`,
+      habitIds: [habit.id],
+      strength: Math.min(85, ago * 20),
+      actionLabel: 'View mantras',
+    });
+  }
+  recs.sort((a, b) => b.strength - a.strength);
+  return recs.slice(0, 2);
+}
+
 // --- Main entry point ---
 
 export interface InsightsResult {
@@ -563,6 +728,9 @@ export function generateInsights(
     ...detectCorrelations(activeHabits, checkIns),
     ...detectTrends(activeHabits, checkIns, now),
     ...generateWeeklySummary(habits, checkIns, now),
+    ...detectStreakMilestones(habits, checkIns, now),
+    ...detectPerfectWeeks(activeHabits, checkIns, now),
+    ...detectMantraMatches(activeHabits, checkIns, now),
   ];
 
   // Deduplicate by title
@@ -580,9 +748,12 @@ export function generateInsights(
     NEGLECTED: 0,
     RECORD_APPROACH: 0,
     STACK_SUGGESTION: 0,
+    STREAK_MILESTONE: 0,
+    PERFECT_WEEK: 0,
     CORRELATION: 1,
     TREND: 1,
     WEEKLY_SUMMARY: 1,
+    MANTRA_MATCH: 1,
     RECOVERY_PATTERN: 2,
     PRIME_TIME: 2,
     CHAOS_CORRELATION: 2,

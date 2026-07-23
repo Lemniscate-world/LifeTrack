@@ -2,16 +2,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { resetStore, addHabit, updateHabit, getHabits } from '../store';
+import { resetStore, addHabit, getHabits } from '../store';
 import App from '../App';
 
 beforeEach(() => { localStorage.clear(); resetStore(); });
-
-async function addUI(user: ReturnType<typeof userEvent.setup>, name: string) {
-  await user.click(screen.getByText('+ New Habit'));
-  await user.type(screen.getByPlaceholderText('Habit name...'), name);
-  await user.click(screen.getByText('Add'));
-}
 
 describe('Export dropdown', () => {
   it('shows all menu items on hover', async () => {

@@ -21,12 +21,12 @@ beforeEach(() => {
 });
 
 describe('Chaos dimension defaults', () => {
-  it('returns 5 default dimensions', () => {
+  it('returns 6 default dimensions', () => {
     const dims = getDefaultChaosDimensions();
-    expect(dims.length).toBe(5);
+    expect(dims.length).toBe(6);
     const ids = dims.map((d) => d.id).sort();
     expect(ids).toEqual([
-      'financial', 'physical', 'social', 'spiritual', 'structural',
+      'emotional', 'financial', 'physical', 'social', 'spiritual', 'structural',
     ]);
   });
 
@@ -37,7 +37,7 @@ describe('Chaos dimension defaults', () => {
       expect(d.name).toBeTruthy();
       expect(Array.isArray(d.triggers)).toBe(true);
     }
-    expect(dims.length).toBe(5);
+    expect(dims.length).toBe(6);
   });
 });
 
@@ -62,7 +62,7 @@ describe('Chaos linkage', () => {
 
   it('computeChaosReport returns all 5 dimensions', () => {
     const report = computeChaosReport();
-    expect(report.dimensions.length).toBe(5);
+    expect(report.dimensions.length).toBe(6);
     expect(report.overallPct).toBeGreaterThanOrEqual(0);
     expect(report.overallPct).toBeLessThanOrEqual(100);
     expect(report.linkedHabitCount).toBe(0);

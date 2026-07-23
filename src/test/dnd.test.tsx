@@ -71,20 +71,20 @@ describe('Habit reordering (UI integration)', () => {
     expect(droppable).not.toBeNull();
   });
 
-  it('the full row is the drag target (no dedicated handle — dragHandleProps removed)', async () => {
+  it('the full row acts as both draggable and drag handle', async () => {
     const user = userEvent.setup();
     render(<App />);
     await addHabitUI(user, 'Alpha');
 
-    // Without dragHandleProps, the entire Draggable acts as the drag area.
-    // The row should have data-rfd-draggable-id but NOT data-rfd-drag-handle-draggable-id.
+    // The row should have both data-rfd-draggable-id and data-rfd-drag-handle-draggable-id
     const draggable = document.querySelector('[data-rfd-draggable-id]');
     expect(draggable).not.toBeNull();
     expect(draggable?.tagName).toBe('TR');
 
-    // No dedicated drag handle element exists.
+    // The entire row is also the drag handle (dragHandleProps spread on TR)
     const handle = document.querySelector('[data-rfd-drag-handle-draggable-id]');
-    expect(handle).toBeNull();
+    expect(handle).not.toBeNull();
+    expect(handle?.tagName).toBe('TR');
   });
 
   it('the DragDropContext wrapper renders without throwing even with no habits', () => {
@@ -134,7 +134,7 @@ describe('DraggableHabitRow (unit)', () => {
     expect(tr?.querySelector('.habit-name')?.textContent).toBe('Test');
   });
 
-  it('does NOT have a dedicated drag handle (dragHandleProps not spread)', () => {
+  it('spreads dragHandleProps on the TR (entire row is the handle)', () => {
     const { container } = render(
       <DragDropContext onDragEnd={() => {}}>
         <Droppable droppableId="test-list-2">
@@ -152,9 +152,9 @@ describe('DraggableHabitRow (unit)', () => {
       </DragDropContext>
     );
 
-    // No drag handle attribute anywhere
-    expect(container.querySelector('[data-rfd-drag-handle-draggable-id]')).toBeNull();
-    // But the draggable attribute is present
-    expect(container.querySelector('[data-rfd-draggable-id]')).not.toBeNull();
+    // The TR acts as both draggable and drag handle
+    const tr = container.querySelector('tr');
+    expect(tr?.hasAttribute('data-rfd-draggable-id')).toBe(true);
+    expect(tr?.hasAttribute('data-rfd-drag-handle-draggable-id')).toBe(true);
   });
 });

@@ -29,6 +29,11 @@ import {
   mergeImportedData,
   recomputeHabitRecords,
   deduplicateDataInPlace,
+  getMantras,
+  addMantra,
+  deleteMantra,
+  getMantraSettings,
+  updateMantraSettings,
 } from '../store';
 
 // Reset store state between tests for full isolation
@@ -429,11 +434,11 @@ describe('Undo / Redo', () => {
 });
 
 describe('Chaos Tracker', () => {
-  it('seeds 5 default dimensions on a fresh store', () => {
+  it('seeds 6 default dimensions on a fresh store', () => {
     const dims = getChaosDimensions();
-    expect(dims).toHaveLength(5);
+    expect(dims).toHaveLength(6);
     const ids = dims.map((d) => d.id);
-    expect(ids).toEqual(expect.arrayContaining(['physical', 'financial', 'social', 'structural', 'spiritual']));
+    expect(ids).toEqual(expect.arrayContaining(['physical', 'financial', 'social', 'structural', 'spiritual', 'emotional']));
   });
 
   it('toggles a non-existent trigger gracefully (no manual triggers by default)', () => {
@@ -624,7 +629,7 @@ describe('Chaos Tracker', () => {
     // After reset, all dimensions have empty triggers
     resetChaos();
     const fresh = getChaosDimensions();
-    expect(fresh).toHaveLength(5);
+    expect(fresh).toHaveLength(6);
     for (const d of fresh) {
       expect(d.triggers).toEqual([]);
     }
@@ -812,9 +817,9 @@ describe('Chaos Tracker', () => {
     expect(a).toBe(b); // same reference — by design, for reactivity
   });
 
-  it('all 5 default dimensions exist with empty triggers (auto-only)', () => {
+  it('all 6 default dimensions exist with empty triggers (auto-only)', () => {
     const dims = getChaosDimensions();
-    expect(dims).toHaveLength(5);
+    expect(dims).toHaveLength(6);
     for (const d of dims) {
       expect(d.triggers).toEqual([]);
     }
@@ -1286,6 +1291,12 @@ describe('deduplicateDataInPlace', () => {
       checkIns: [],
       notes: [],
       chaosDimensions: [],
+      mantras: [],
+      moods: [],
+      mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
+      skills: [],
+      capacities: [],
+      capacityRatings: [],
     };
     const result = deduplicateDataInPlace(data);
     expect(result.removed).toBe(0);
@@ -1304,6 +1315,12 @@ describe('deduplicateDataInPlace', () => {
       checkIns: [],
       notes: [],
       chaosDimensions: [],
+      mantras: [],
+      moods: [],
+      mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
+      skills: [],
+      capacities: [],
+      capacityRatings: [],
     };
     const result = deduplicateDataInPlace(data);
     expect(result.removed).toBe(2);
@@ -1329,6 +1346,12 @@ describe('deduplicateDataInPlace', () => {
       ],
       notes: [],
       chaosDimensions: [],
+      mantras: [],
+      moods: [],
+      mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
+      skills: [],
+      capacities: [],
+      capacityRatings: [],
     };
     const result = deduplicateDataInPlace(data);
     expect(result.removed).toBe(1);
@@ -1352,6 +1375,12 @@ describe('deduplicateDataInPlace', () => {
         { id: 'n3', habitId: 'orphan', content: 'orphan note', createdAt: '2026-06-03' },
       ],
       chaosDimensions: [],
+      mantras: [],
+      moods: [],
+      mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
+      skills: [],
+      capacities: [],
+      capacityRatings: [],
     };
     const result = deduplicateDataInPlace(data);
     expect(result.remappedNotes).toBe(1);
@@ -1374,6 +1403,12 @@ describe('deduplicateDataInPlace', () => {
       ],
       notes: [],
       chaosDimensions: [],
+      mantras: [],
+      moods: [],
+      mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
+      skills: [],
+      capacities: [],
+      capacityRatings: [],
     };
     const result = deduplicateDataInPlace(data);
     expect(result.orphanCheckIns).toBe(2);
@@ -1393,7 +1428,7 @@ describe('deduplicateDataInPlace', () => {
         habits.push({ id: `${name.toLowerCase().replace(/\s+/g, '-')}-${i}`, name, color: '#fff', goal: 0, createdAt: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00.000Z`, archived: false, order: order++ });
       }
     }
-    const data = { habits, checkIns: [], notes: [], chaosDimensions: [] };
+    const data = { habits, checkIns: [], notes: [], chaosDimensions: [], moods: [], mantras: [], mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' }, skills: [], capacities: [], capacityRatings: [] };
     expect(data.habits).toHaveLength(326);
 
     const result = deduplicateDataInPlace(data);
@@ -1406,9 +1441,83 @@ describe('deduplicateDataInPlace', () => {
   });
 
   it('handles empty data without throwing', () => {
-    const data = { habits: [], checkIns: [], notes: [], chaosDimensions: [] };
+    const data = { habits: [], checkIns: [], notes: [], chaosDimensions: [], moods: [], mantras: [], mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' }, skills: [], capacities: [], capacityRatings: [] };
     const result = deduplicateDataInPlace(data);
     expect(result.removed).toBe(0);
     expect(data.habits).toHaveLength(0);
+  });
+});
+
+// ============================================================
+// Mantras — fresh install & migration
+// ============================================================
+describe('Mantras in store', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetStore();
+  });
+
+  it('loads 60 default mantras on fresh install', () => {
+    const mantras = getMantras();
+    expect(mantras).toHaveLength(60);
+    expect(mantras.every((m) => m.isDefault)).toBe(true);
+    // All 6 domains have 10 mantras each
+    const domains = [...new Set(mantras.map((m) => m.domain))];
+    expect(domains).toHaveLength(6);
+    for (const domain of domains) {
+      expect(mantras.filter((m) => m.domain === domain)).toHaveLength(10);
+    }
+  });
+
+  it('has default settings on fresh install', () => {
+    const settings = getMantraSettings();
+    expect(settings.morningEnabled).toBe(true);
+    expect(settings.eveningEnabled).toBe(true);
+    expect(settings.showOnEntry).toBe(true);
+    expect(settings.morningTime).toBe('08:00');
+    expect(settings.eveningTime).toBe('20:00');
+    expect(settings.lastMorningDate).toBe('');
+    expect(settings.lastEveningDate).toBe('');
+    expect(settings.lastEntryDate).toBe('');
+  });
+
+  it('preserves user mantras across reloads', () => {
+    addMantra('My custom mantra', 'life');
+    // Force save before reloading
+    flushSave();
+    // Simulate reload by resetting store
+    resetStore();
+    const mantras = getMantras();
+    const custom = mantras.filter((m) => !m.isDefault);
+    expect(custom).toHaveLength(1);
+    expect(custom[0].text).toBe('My custom mantra');
+    expect(custom[0].domain).toBe('life');
+  });
+
+  it('does not allow deleting default mantras', () => {
+    const mantras = getMantras();
+    const defaultMantra = mantras.find((m) => m.isDefault);
+    expect(defaultMantra).toBeDefined();
+    deleteMantra(defaultMantra!.id);
+    // Default mantra should still exist
+    const after = getMantras();
+    expect(after.find((m) => m.id === defaultMantra!.id)).toBeDefined();
+  });
+
+  it('allows deleting user-created mantras', () => {
+    const mantra = addMantra('Delete me', 'health');
+    expect(getMantras().find((m) => m.id === mantra.id)).toBeDefined();
+    deleteMantra(mantra.id);
+    expect(getMantras().find((m) => m.id === mantra.id)).toBeUndefined();
+  });
+
+  it('updates mantra settings correctly', () => {
+    updateMantraSettings({ morningEnabled: false, morningTime: '07:30' });
+    const settings = getMantraSettings();
+    expect(settings.morningEnabled).toBe(false);
+    expect(settings.morningTime).toBe('07:30');
+    // Other settings unchanged
+    expect(settings.eveningEnabled).toBe(true);
+    expect(settings.eveningTime).toBe('20:00');
   });
 });
