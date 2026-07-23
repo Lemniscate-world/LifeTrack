@@ -1031,12 +1031,12 @@ const MONTH_NAMES = [
                             >
                               {habit.name}
                               {habit.focusMonth && (
-                                <span className="focus-badge" title={`Focus of ${habit.focusMonth}`}>🎯</span>
+                                <span className="focus-badge" title={`Focus of ${habit.focusMonth}`}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg></span>
                               )}
                               {(() => {
                                 const hs = habitStats.find(s => s.habitId === habit.id);
-                                if (hs && hs.currentStreak >= 30) return <span className="streak-badge streak-30" title="30+ day streak!">🏆</span>;
-                                if (hs && hs.currentStreak >= 7) return <span className="streak-badge streak-7" title="7+ day streak!">🔥</span>;
+                                if (hs && hs.currentStreak >= 30) return <span className="streak-badge streak-30" title="30+ day streak!"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9H4.5a2.5 2.5 0 010-5C7 4 6 9 6 9z"/><path d="M18 9h1.5a2.5 2.5 0 000-5C17 4 18 9 18 9z"/><path d="M4 22h16"/><path d="M10 22V2h4v20"/></svg></span>;
+                                if (hs && hs.currentStreak >= 7) return <span className="streak-badge streak-7" title="7+ day streak!"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.62 0-6 .03-.18.06-.36.1-.54A9.98 9.98 0 0012 2a10 10 0 100 20 9.98 9.98 0 006.9-2.46"/></svg></span>;
                                 return null;
                               })()}
                             </span>
@@ -1110,7 +1110,7 @@ const MONTH_NAMES = [
                             }}
                             title={(habit.why?.length ?? 0) > 0 ? `${habit.why!.length} intention(s)` : 'Add intentions (why?)'}
                           >
-                            💭
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9.66 2.97a10 10 0 104.68 0"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
                           </button>
                         </div>
                         {editingWhyHabitId === habit.id && (
@@ -1393,7 +1393,7 @@ const MONTH_NAMES = [
                       <td className="stats-number">
                         {stat.longestStreak}d
                         {stat.longestStreak > 0 && (
-                          <span className="stats-best-tag" title="All-time best">★</span>
+                          <span className="stats-best-tag" title="All-time best"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span>
                         )}
                       </td>
                       <td className="stats-number stats-gap">
@@ -1665,7 +1665,7 @@ const MONTH_NAMES = [
           <div className="note-popup" onClick={(e) => e.stopPropagation()}>
             <div className="note-popup-header">
               <span className="note-popup-title">
-                📝 {notePopup.habitName} — {notePopup.date}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> {notePopup.habitName} — {notePopup.date}
               </span>
               <button className="note-popup-close" onClick={handleNotePopupClose} title="Close">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

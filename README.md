@@ -1,55 +1,43 @@
-﻿# LifeTrack — Desktop Habit Tracker
+﻿# LifeTrack — Experimental Habit Tracking
 
-LifeTrack is a native Windows habit tracker: fast, local-first, and built for daily review loops.
-It uses React + TypeScript + Vite for the UI and Tauri v2 (Rust + WebView2) for desktop packaging.
+LifeTrack is a native Windows desktop app for experimental habit tracking: track habits, mood, correlations, and run N=1 self-experiments. Local-first, AI-powered insights, built with React + TypeScript + Tauri v2.
 
 ## Features
 
-- Monthly habit grid with keyboard navigation and undo/redo shortcuts
-- Habit CRUD: add, rename, archive, delete, edit monthly goals
-- Optional Chaos links per habit: missed streaks heat up life dimensions
-- Chaos dashboard showing healthy vs triggered habits per dimension
-- **Statistics view**: current/best streak, longest gap, completion rates (7d/30d/90d/365d), weighted score, **365-day heatmap** + sparkline per habit
-- **History view**: reverse-chronological timeline of all check-ins, filter by habit, toggle misses
-- **Persistent personal records**: best streak and longest gap survive streak breaks (no "Habitica gap")
-- Notes panel with persistent local notes
-- Theme cycling + dark mode with persisted preferences
-- **Enriched CSV export** (9 columns: date, habit, habit_id, completed, current_streak, best_streak, completion_rate_30d, total_completed, chaos_dimension)
-- JSON import/export and CSV export
-- Desktop auto-backups in the app data directory
-- Offline-first storage with checksum envelope, backup recovery, and malformed-data filtering
+- **Multi-click counter**: Click +1, Shift -1, Ctrl reset per habit per day
+- **Per-day notes**: Right-click any cell to log observations
+- **Mood tracker**: 8 moods integrated in the daily grid
+- **Monthly Focus**: Pin a habit as focus of the month with Today widget
+- **Streak colors**: Cells intensify with streak length (glow at 30+)
+- **SVG icon system**: Clean, consistent iconography throughout
+- **Monthly goals**: Intelligent targets with progress bars
+- **Statistics view**: streaks, rates (7/30/90/365d), weighted score, heatmap, sparklines
+- **Habit stacking**: Chain habits, cycle detection, Up Next suggestions
+- **Skills & Capacities**: XP system, self-ratings, linked habits
+- **Chaos dashboard**: 5 life dimensions, missed-streak impact
+- **AI Insights**: 9 heuristic rules + Ollama/DeepSeek via Rust backend
+- **Rolling backups**: 7-day automatic snapshots, FNV-1a checksums
+- **JSON/CSV export & import**, keyboard nav, undo/redo, drag-and-drop
+- **Dark mode + 7 themes**, offline-first, no telemetry, no cloud
 
 ## Install
 
-Download the latest installer from [Releases](https://github.com/Lemniscate-world/LifeTrack/releases), or build locally:
+Download from [Releases](https://github.com/Lemniscate-world/LifeTrack/releases).
 
-```sh
+``sh
 npm install
-npm run desktop    # dev mode with hot reload
-npm run package    # build .exe + .msi installers
-```
+npm run desktop    # dev mode
+npm run package    # build .exe + .msi
+``
 
 Requirements: Node.js 22+, Rust 1.77+, Windows WebView2.
 
 ## Development
 
-```sh
-npm run lint       # ESLint
-npm test           # 171 tests (Vitest + React Testing Library)
-npm run build      # TypeScript + Vite production build
-```
-
-> New in 0.1.1: `src/stats.ts` is the pure-functions core for streak / rate / score
-> calculations. It's fully unit-tested and powers both the Statistics view and
-> the enriched CSV export.
-
-For the Rust/Tauri side:
-
-```sh
-cd src-tauri
-cargo fmt --check
-cargo check --quiet
-```
+``sh
+npm test           # 547 tests (Vitest + React Testing Library)
+npm run build      # TypeScript + Vite
+``
 
 ## Tech Stack
 
@@ -58,24 +46,12 @@ cargo check --quiet
 | UI | React 19 + TypeScript + Pure CSS |
 | Build | Vite 8 |
 | Desktop | Tauri v2 (Rust + Windows WebView2) |
-| Storage | localStorage + checksum integrity + backup key |
+| Storage | localStorage x2 + checksum + file backup |
 | Tests | Vitest + @testing-library/react + jsdom |
 
-## Storage Architecture
-
-Data is stored locally with a versioned envelope:
-
-- Primary key + backup key
-- FNV-1a checksum integrity verification on every load
-- Debounced writes with unload/periodic safety flushes
-- Automatic recovery from backup when primary storage is corrupted
-- Sanitization of malformed habits, check-ins, notes, and imported dates
-- Desktop JSON backups kept under the Tauri app data directory
-
 ## Roadmap
-
-Next product direction: habit stacking — define routines such as “after coffee, meditate,” show stack progress, and surface skipped downstream habits.
+- **v0.4.0**: N=1 experiments, correlation analysis, AI recommendations
+- **v0.5.0**: Biohacking protocols (sleep, fasting, supplements), protocol library
 
 ## License
-
-MIT — see [LICENSE](LICENSE).
+MIT
