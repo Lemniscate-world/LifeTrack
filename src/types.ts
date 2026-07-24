@@ -170,6 +170,17 @@ export interface UrgeEntry {
   counterHabits?: string[]; // habit IDs used as counter-measures
 }
 
+// --- Custom Urge Types ---
+// Users can define their own urge categories with specific counter-habits.
+export interface CustomUrgeType {
+  id: string;
+  name: string;
+  emoji: string;       // e.g. "🎮", "💊", "🛒"
+  color: string;       // hex color for UI
+  defaultCounterHabits?: string[]; // habit IDs suggested as counter-measures
+  createdAt: string;
+}
+
 // --- Correlation result (computed, not stored) ---
 export interface CorrelationResult {
   metricA: string;          // label like "Meditation" or "Mood"
@@ -193,6 +204,7 @@ export interface AppData {
   moods: Record<string, string>; // date YYYY-MM-DD -> mood id
   experiments: Experiment[];
   urges: UrgeEntry[];
+  customUrgeTypes: CustomUrgeType[];
   preferences: UserPreferences;
 }
 

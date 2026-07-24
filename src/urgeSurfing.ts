@@ -2,7 +2,18 @@
 // watch them peak, and let them pass without acting on them.
 // This module defines types, presets, and store functions.
 
-import type { AppData, UrgeEntry } from './types';
+import type { AppData, UrgeEntry, CustomUrgeType } from './types';
+
+// --- Type for merged urge types (defaults + custom) ---
+
+export interface UrgeTypeInfo {
+  id: string;
+  name: string;
+  emoji: string;
+  color: string;
+  isCustom: boolean;
+  defaultCounterHabits?: string[];
+}
 
 // --- Computed stats (not stored) ---
 
@@ -25,6 +36,71 @@ export const URGE_TYPES = [
   { id: 'boredom', label: 'Boredom', emoji: '🥱', color: '#6B7280' },
   { id: 'other', label: 'Other', emoji: '❓', color: '#10B981' },
 ];
+
+// --- Custom Urge Types CRUD ---
+
+function customTypes(): CustomUrgeType[] {
+  const d = _getData();
+  if (!d.customUrgeTypes) (d as unknown as Record<string, unknown>).customUrgeTypes = [];
+  return d.customUrgeTypes as unknown as CustomUrgeType[];
+}
+
+/** All urge types: built-in defaults + user custom types. */
+export function getAllUrgeTypes(): UrgeTypeInfo[] {
+  const builtIn: UrgeTypeInfo[] = URGE_TYPES.map(t => ({
+    id: t.id,
+    name: t.label,  // URGE_TYPES uses 'label', UrgeTypeInfo uses 'name'
+    emoji: t.emoji,
+    color: t.color,
+    isCustom: false,
+  }));
+  const custom: UrgeTypeInfo[] = customTypes().map(t => ({
+    id: t.id,
+    name: t.name,
+    emoji: t.emoji,
+    color: t.color,
+    isCustom: true,
+    defaultCounterHabits: t.defaultCounterHabits,
+  }));
+  return [...builtIn, ...custom];
+}
+
+/** Get default counter-habits for an urge type (from custom type config). */
+export function getDefaultCounterHabits(typeId: string): string[] {
+  const ct = customTypes().find(t => t.id === typeId);
+  return ct?.defaultCounterHabits ?? [];
+}
+
+export function addCustomUrgeType(name: string, emoji: string, color: string, counterHabits?: string[]): CustomUrgeType {
+  const ct: CustomUrgeType = {
+    id: crypto.randomUUID(),
+    name,
+    emoji,
+    color,
+    defaultCounterHabits: counterHabits && counterHabits.length > 0 ? counterHabits : undefined,
+    createdAt: new Date().toISOString(),
+  };
+  customTypes().push(ct);
+  _notify();
+  return ct;
+}
+
+export function updateCustomUrgeType(id: string, updates: Partial<Pick<CustomUrgeType, 'name' | 'emoji' | 'color' | 'defaultCounterHabits'>>): void {
+  const ct = customTypes().find(t => t.id === id);
+  if (ct) {
+    Object.assign(ct, updates);
+    _notify();
+  }
+}
+
+export function deleteCustomUrgeType(id: string): void {
+  const arr = customTypes();
+  const idx = arr.findIndex(t => t.id === id);
+  if (idx !== -1) {
+    arr.splice(idx, 1);
+    _notify();
+  }
+}
 
 // --- Store accessors (data lives in AppData.urges) ---
 // We use a helper to read/write the urges array from the global data object.

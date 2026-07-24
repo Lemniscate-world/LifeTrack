@@ -1182,6 +1182,125 @@ body {
   padding: 3px 8px;
 }
 
+/* Custom type management */
+.urge-manage-types-btn {
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.urge-manage-types {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.urge-manage-types h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.urge-manage-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 12px;
+}
+
+.urge-custom-type-row {
+  display: flex;
+  align-items: flex-start;
+  padding: 10px;
+  margin-bottom: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: 6px;
+}
+
+.urge-custom-type-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.urge-custom-type-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.urge-custom-type-habits {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.urge-custom-type-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.urge-edit-type-form {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.urge-add-type-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.urge-add-type-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.urge-color-picker {
+  display: flex;
+  gap: 4px;
+}
+
+.urge-color-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.1s, border-color 0.1s;
+}
+
+.urge-color-dot:hover {
+  transform: scale(1.2);
+}
+
+.urge-color-dot.active {
+  border-color: var(--text);
+  transform: scale(1.15);
+}
+
+.urge-type-habits-select {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.urge-type-custom-dot {
+  font-size: 9px;
+  margin-left: 2px;
+  opacity: 0.6;
+}
+
+.urge-edit-type-actions {
+  display: flex;
+  gap: 6px;
+}
+
 .intensity-value {
   font-weight: 700;
   font-size: 16px;

@@ -1,4 +1,4 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, UserPreferences } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences } from './types';
 import { computeStreakStats } from './stats';
 import {
   linkHabitToParentInPlace,
@@ -149,6 +149,7 @@ function sanitizeData(raw: unknown): AppData {
     moods: {},
     experiments: [],
     urges: [],
+    customUrgeTypes: [],
     preferences: { darkMode: false, theme: '' },
   };
   if (!raw || typeof raw !== 'object') return empty;
@@ -276,6 +277,7 @@ function sanitizeData(raw: unknown): AppData {
     moods: (obj.moods && typeof obj.moods === 'object' && !Array.isArray(obj.moods)) ? obj.moods as Record<string, string> : {},
     experiments: Array.isArray(obj.experiments) ? obj.experiments.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'title' in (e as object)) as Experiment[] : [],
     urges: Array.isArray(obj.urges) ? obj.urges.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'type' in (e as object)) as UrgeEntry[] : [],
+    customUrgeTypes: Array.isArray(obj.customUrgeTypes) ? obj.customUrgeTypes.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'name' in (e as object)) as CustomUrgeType[] : [],
     preferences: sanitizePreferences(obj.preferences),
   };
 }
@@ -344,8 +346,13 @@ export {
   computeUrgeStats,
   formatUrgeElapsed,
   URGE_TYPES,
+  getAllUrgeTypes,
+  getDefaultCounterHabits,
+  addCustomUrgeType,
+  updateCustomUrgeType,
+  deleteCustomUrgeType,
 } from './urgeSurfing';
-export type { UrgeStats } from './urgeSurfing';
+export type { UrgeStats, UrgeTypeInfo } from './urgeSurfing';
 
 /** Mood tracking */
 // Defensive cleanup for data that may have been corrupted by older versions
@@ -540,6 +547,7 @@ function freshData(): AppData {
     moods: {},
     experiments: [],
     urges: [],
+    customUrgeTypes: [],
     preferences: { darkMode: false, theme: '' },
   };
 }
@@ -1985,6 +1993,28 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
     if (p.darkMode === true && !currentPrefs.darkMode) currentPrefs.darkMode = true;
     if (typeof p.theme === 'string' && p.theme && !currentPrefs.theme) currentPrefs.theme = p.theme;
     data.preferences = currentPrefs;
+  }
+
+  // --- v0.3.2: Import custom urge types ---
+  const rawCustomTypes = Array.isArray((raw as Record<string, unknown>).customUrgeTypes)
+    ? (raw as Record<string, unknown>).customUrgeTypes as unknown[]
+    : [];
+  if (!data.customUrgeTypes) data.customUrgeTypes = [];
+  for (const rawCT of rawCustomTypes) {
+    if (!rawCT || typeof rawCT !== 'object') continue;
+    const ct = rawCT as Record<string, unknown>;
+    if (typeof ct.id !== 'string' || typeof ct.name !== 'string') continue;
+    if (data.customUrgeTypes.some(x => x.id === ct.id)) continue;
+    data.customUrgeTypes.push({
+      id: ct.id,
+      name: ct.name,
+      emoji: typeof ct.emoji === 'string' ? ct.emoji : '❓',
+      color: typeof ct.color === 'string' ? ct.color : '#6B7280',
+      defaultCounterHabits: Array.isArray(ct.defaultCounterHabits)
+        ? (ct.defaultCounterHabits as string[]).map(hid => idMap.get(hid) ?? hid).filter(Boolean)
+        : undefined,
+      createdAt: typeof ct.createdAt === 'string' ? ct.createdAt : new Date().toISOString(),
+    });
   }
 
   const totalRestored = result.habitsCreated + result.checkInsRestored + result.notesCreated
