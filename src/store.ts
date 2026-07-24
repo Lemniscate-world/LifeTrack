@@ -1554,6 +1554,8 @@ interface ImportedCheckIn {
   habitId: string;
   date: string;
   completed: boolean;
+  count?: number;
+  note?: string;
 }
 
 interface ImportedNote {
@@ -1627,6 +1629,8 @@ function parseImportedCheckIn(raw: unknown): ImportedCheckIn | null {
     habitId: raw.habitId,
     date: raw.date,
     completed: raw.completed === true,
+    count: typeof raw.count === 'number' && raw.count > 0 && Number.isFinite(raw.count) ? raw.count : undefined,
+    note: typeof raw.note === 'string' && raw.note.trim() ? raw.note.trim() : undefined,
   };
 }
 
@@ -1748,10 +1752,23 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
 
     const existing = getCheckIn(habitId, imported.date);
     if (!existing) {
-      data.checkIns.push({ habitId, date: imported.date, completed: imported.completed ?? false });
+      data.checkIns.push({
+        habitId,
+        date: imported.date,
+        completed: imported.completed ?? false,
+        count: imported.count,
+        note: imported.note,
+      });
       result.checkInsRestored++;
     } else if (!existing.completed) {
       existing.completed = true;
+      // Preserve imported count if higher than existing
+      if (imported.count && (!existing.count || imported.count > existing.count)) {
+        existing.count = imported.count;
+      }
+      if (imported.note && !existing.note) {
+        existing.note = imported.note;
+      }
       result.checkInsRestored++;
     }
   }

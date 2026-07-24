@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { resetStore, getHabits, reorderHabits, addHabit } from '../store';
+import { resetStore, getHabits, reorderHabits, addHabit, updateHabit, archiveHabit } from '../store';
 import App from '../App';
 
 beforeEach(() => {
@@ -156,5 +156,69 @@ describe('DraggableHabitRow (unit)', () => {
     const tr = container.querySelector('tr');
     expect(tr?.hasAttribute('data-rfd-draggable-id')).toBe(true);
     expect(tr?.hasAttribute('data-rfd-drag-handle-draggable-id')).toBe(true);
+  });
+});
+
+// Additional DnD edge cases (v0.3.2)
+describe('Drag and drop — edge cases', () => {
+  it('reorder with single habit is a no-op', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await addHabitUI(user, 'Only');
+    act(() => { reorderHabits(0, 0); });
+    const names = Array.from(document.querySelectorAll('td.col-habits .habit-name')).map(c => c.textContent);
+    expect(names).toEqual(['Only']);
+  });
+
+  it('reorder preserves habit configuration (multiClick, chaos, focus)', () => {
+    const h = addHabit('Gym');
+    updateHabit(h.id, { multiClick: true, chaosDimension: 'physical', chaosImpact: 50, focusMonth: '2026-07' });
+    addHabit('Run');
+    reorderHabits(1, 0);
+    const habits = getHabits();
+    const gym = habits.find(x => x.name === 'Gym');
+    expect(gym?.multiClick).toBe(true);
+    expect(gym?.chaosDimension).toBe('physical');
+    expect(gym?.chaosImpact).toBe(50);
+    expect(gym?.focusMonth).toBe('2026-07');
+  });
+
+  it('reorder after adding habits that were then archived', () => {
+    const a = addHabit('A');
+    addHabit('B');
+    addHabit('C');
+    archiveHabit(a.id);
+    // Only B and C are visible
+    reorderHabits(0, 1); // B → after C
+    const names = getHabits().map(h => h.name);
+    expect(names).toEqual(['C', 'B']);
+  });
+
+  it('empty state has no draggable elements', () => {
+    render(<App />);
+    const draggables = document.querySelectorAll('[data-rfd-draggable-id]');
+    expect(draggables.length).toBe(0);
+  });
+
+  it('reorder to last position handles dest=length correctly', () => {
+    addHabit('A');
+    addHabit('B');
+    addHabit('C');
+    reorderHabits(0, 3); // dest=3 in 3-item list = last
+    expect(getHabits().map(h => h.name)).toEqual(['B', 'C', 'A']);
+  });
+
+  it('multiple consecutive reorders maintain consistent order numbers', () => {
+    addHabit('A');
+    addHabit('B');
+    addHabit('C');
+    addHabit('D');
+    addHabit('E');
+    reorderHabits(4, 0); // E to top
+    reorderHabits(4, 2); // D to middle
+    reorderHabits(0, 4); // E to bottom
+    const orders = getHabits().map(h => h.order);
+    expect(orders).toEqual([0, 1, 2, 3, 4]);
+    expect(new Set(orders).size).toBe(5);
   });
 });
