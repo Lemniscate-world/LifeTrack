@@ -969,6 +969,358 @@ body {
   background: #7f1d1d;
 }
 
+/* ============ URGE SURFING VIEW ============ */
+.urge-surfing-view {
+  padding: 20px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.urge-header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.urge-header h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.urge-subtitle {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin: 0;
+  font-style: italic;
+}
+
+/* Active urge card */
+.urge-active-card {
+  background: var(--bg-alt);
+  border: 2px solid var(--primary);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 20px;
+  animation: urgePulse 3s ease infinite;
+}
+
+@keyframes urgePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.2); }
+  50% { box-shadow: 0 0 0 8px rgba(99, 102, 241, 0); }
+}
+
+.urge-active-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.urge-active-type {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.urge-active-timer {
+  font-size: 14px;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.urge-active-intensity {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.urge-intensity-bar {
+  width: 100%;
+  height: 4px;
+  background: var(--bg);
+  border-radius: 2px;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.urge-intensity-fill {
+  height: 100%;
+  width: var(--pct);
+  background: var(--primary);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.urge-active-trigger {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 4px 0 12px;
+}
+
+.urge-active-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.urge-note-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--text);
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.urge-active-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-success {
+  background: #10b981;
+  color: white;
+  border: none;
+}
+
+.btn-success:hover {
+  background: #059669;
+}
+
+.btn-danger {
+  background: #ef4444;
+  color: white;
+  border: none;
+}
+
+.btn-danger:hover {
+  background: #dc2626;
+}
+
+/* No active urge */
+.urge-no-active {
+  text-align: center;
+  padding: 32px 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.urge-no-active p {
+  margin: 0 0 12px;
+}
+
+/* New urge form */
+.urge-form {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.urge-form h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.urge-type-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.urge-type-btn {
+  padding: 8px 6px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text);
+  transition: all 0.15s;
+}
+
+.urge-type-btn:hover {
+  border-color: var(--primary);
+}
+
+.urge-type-btn.active {
+  border-color: var(--primary);
+}
+
+.urge-form-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.urge-counter-habits {
+  flex-direction: column;
+  align-items: flex-start !important;
+  gap: 6px;
+}
+
+.urge-counter-habits label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.urge-counter-habits .habit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.urge-counter-habits .chip {
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.intensity-value {
+  font-weight: 700;
+  font-size: 16px;
+  min-width: 24px;
+  text-align: center;
+  color: var(--primary);
+}
+
+/* Stats */
+.urge-stats {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.urge-stat {
+  flex: 1;
+  text-align: center;
+  background: var(--bg-alt);
+  border-radius: var(--radius);
+  padding: 12px 8px;
+}
+
+.urge-stat-value {
+  display: block;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.urge-stat-label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  text-transform: uppercase;
+}
+
+/* History */
+.urge-history h3 {
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+
+.urge-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.urge-history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.urge-history-item.surfed {
+  border-left: 3px solid #10b981;
+}
+
+.urge-history-item.gave_in {
+  border-left: 3px solid #ef4444;
+}
+
+.urge-history-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.urge-history-emoji {
+  font-size: 18px;
+}
+
+.urge-history-type {
+  display: block;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.urge-history-time {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.urge-history-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.urge-history-intensity {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.urge-history-outcome {
+  font-size: 16px;
+}
+
+.urge-delete-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.urge-delete-btn:hover {
+  color: #ef4444;
+}
+
+/* Empty state */
+.urge-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.urge-empty p {
+  margin: 0;
+}
+
+.urge-empty-hint {
+  margin-top: 8px !important;
+  font-style: italic;
+}
+
 /* ============ DAY CELLS ============ */
 .col-day {
   cursor: pointer;

@@ -7,6 +7,7 @@ import {
   getLastSaved,
   flushSave,
   exportAllData,
+  listUpgradeBackups,
 } from './store';
 import type { MantraSettings } from './types';
 
@@ -62,8 +63,16 @@ export default function SettingsView({
 
   const handleResetData = () => {
     if (!confirmReset) { setConfirmReset(true); return; }
+    // Remove ALL LifeTrack keys from localStorage (v0.3.2: complete cleanup)
     localStorage.removeItem('lifetrack-data');
     localStorage.removeItem('lifetrack-data-backup');
+    localStorage.removeItem('lifetrack-raw');
+    localStorage.removeItem('lifetrack-darkmode');
+    localStorage.removeItem('lifetrack-theme');
+    // Clean all upgrade backup keys (timestamped snapshots)
+    for (const key of listUpgradeBackups()) {
+      try { localStorage.removeItem(key); } catch { /* ignore */ }
+    }
     resetChaos();
     window.location.reload();
   };

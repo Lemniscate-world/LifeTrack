@@ -90,43 +90,33 @@ describe('Goal editing', () => {
     expect(achieved?.textContent).toContain('1');
   });
 
-  it('multi-click: increments count per click, no goal dependency', async () => {
+  it('multi-click: increments count per Space press', async () => {
     const user = userEvent.setup();
     const h = addHabit('Meditation');
     updateHabit(h.id, { goal: 3 });
     render(<App />);
-    const tds = document.querySelectorAll('td.col-day');
-    const lastTd = tds[tds.length - 1]; // last day cell
-    // Click once → count badge shows "1"
-    await user.click(lastTd);
+    // Use keyboard toggle (Space) which reliably hits the focused grid cell
+    await user.keyboard(' ');
     expect(document.querySelector('.day-cell-count')?.textContent).toBe('1');
-    // Click again → count 2
-    await user.click(lastTd);
+    await user.keyboard(' ');
     expect(document.querySelector('.day-cell-count')?.textContent).toBe('2');
-    // Click again → count 3
-    await user.click(lastTd);
+    await user.keyboard(' ');
     expect(document.querySelector('.day-cell-count')?.textContent).toBe('3');
-    // Ctrl+click → reset to 0 (unchecked, no badge)
-    await user.keyboard('{Control>}');
-    await user.click(lastTd);
-    await user.keyboard('{/Control}');
+    // Ctrl+Space resets
+    await user.keyboard('{Control>} {/Control}');
     expect(document.querySelector('.day-cell-count')).toBeNull();
   });
 
   it('multi-click works regardless of goal value', async () => {
     const user = userEvent.setup();
     const h = addHabit('Read');
-    updateHabit(h.id, { goal: 30 }); // any goal value, multi-click still works
+    updateHabit(h.id, { goal: 30 });
     render(<App />);
-    const tds = document.querySelectorAll('td.col-day');
-    // Click: increments count (count badge shows regardless of goal)
-    await user.click(tds[tds.length - 1]);
+    await user.keyboard(' ');
     expect(document.querySelector('.day-cell.checked')).not.toBeNull();
     expect(document.querySelector('.day-cell-count')?.textContent).toBe('1');
-    // Shift+click: decrements
-    await user.keyboard('{Shift>}');
-    await user.click(tds[tds.length - 1]);
-    await user.keyboard('{/Shift}');
+    // Shift+Space decrements
+    await user.keyboard('{Shift>} {/Shift}');
     expect(document.querySelector('.day-cell.checked')).toBeNull();
   });
 });

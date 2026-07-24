@@ -1,4 +1,4 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, UserPreferences } from './types';
 import { computeStreakStats } from './stats';
 import {
   linkHabitToParentInPlace,
@@ -9,6 +9,7 @@ import {
   type StackStatus,
 } from './stacks';
 import { createDefaultMantras, DEFAULT_MANTRA_SETTINGS } from './mantras';
+import { bindUrgeStore } from './urgeSurfing';
 
 export function createDefaultSkills(): Skill[] {
   return [
@@ -147,6 +148,8 @@ function sanitizeData(raw: unknown): AppData {
     capacityRatings: [],
     moods: {},
     experiments: [],
+    urges: [],
+    preferences: { darkMode: false, theme: '' },
   };
   if (!raw || typeof raw !== 'object') return empty;
   const obj = raw as Record<string, unknown>;
@@ -272,6 +275,19 @@ function sanitizeData(raw: unknown): AppData {
     capacityRatings: validRatings,
     moods: (obj.moods && typeof obj.moods === 'object' && !Array.isArray(obj.moods)) ? obj.moods as Record<string, string> : {},
     experiments: Array.isArray(obj.experiments) ? obj.experiments.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'title' in (e as object)) as Experiment[] : [],
+    urges: Array.isArray(obj.urges) ? obj.urges.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'type' in (e as object)) as UrgeEntry[] : [],
+    preferences: sanitizePreferences(obj.preferences),
+  };
+}
+
+/** Sanitize user preferences from stored data. */
+function sanitizePreferences(raw: unknown): UserPreferences {
+  const defaults: UserPreferences = { darkMode: false, theme: '' };
+  if (!raw || typeof raw !== 'object') return defaults;
+  const p = raw as Record<string, unknown>;
+  return {
+    darkMode: p.darkMode === true,
+    theme: typeof p.theme === 'string' ? p.theme : '',
   };
 }
 
@@ -315,6 +331,21 @@ export function deleteExperiment(id: string): void {
   data.experiments = data.experiments.filter(e => e.id !== id);
   notify();
 }
+
+// --- Urge Surfing re-exports (store lives in urgeSurfing.ts) ---
+export {
+  addUrgeEntry,
+  updateUrgeEntry,
+  deleteUrgeEntry,
+  getUrgeEntries,
+  getActiveUrge,
+  surfUrge,
+  giveInUrge,
+  computeUrgeStats,
+  formatUrgeElapsed,
+  URGE_TYPES,
+} from './urgeSurfing';
+export type { UrgeStats } from './urgeSurfing';
 
 /** Mood tracking */
 // Defensive cleanup for data that may have been corrupted by older versions
@@ -508,6 +539,8 @@ function freshData(): AppData {
     capacityRatings: [],
     moods: {},
     experiments: [],
+    urges: [],
+    preferences: { darkMode: false, theme: '' },
   };
 }
 
@@ -774,8 +807,12 @@ function doSave(d: AppData): void {
     return;
   }
   // Safety net: never overwrite existing data with empty data silently.
-  // This protects against accidental data loss from migration bugs.
-  if (d.habits.length === 0 && d.checkIns.length === 0 && d.notes.length === 0) {
+  // v0.3.2: expanded to check ALL data types (moods, urges, experiments, etc.)
+  const hasData = d.habits.length > 0 || d.checkIns.length > 0 || d.notes.length > 0
+    || (d.urges && d.urges.length > 0) || (d.experiments && d.experiments.length > 0)
+    || (d.moods && Object.keys(d.moods).length > 0)
+    || (d.capacities && d.capacities.length > 0);
+  if (!hasData) {
     const existing = readEnvelope(STORAGE_KEY) || readEnvelope(BACKUP_KEY);
     // Also try reading raw legacy format
     if (!existing) {
@@ -974,6 +1011,12 @@ export function getStorageStatus(): StorageStatus {
 
 let data: AppData = loadData();
 
+// Bind the urge surfing store so it can access the global data and notify.
+bindUrgeStore(
+  () => data,
+  () => notify(),
+);
+
 /**
  * Backfill personal records on habits loaded from older storage versions
  * that don't yet have bestStreak/longestGap persisted. Idempotent: only
@@ -1051,6 +1094,17 @@ export function restoreFromBackupIfNewer(): boolean {
   backfillHabitRecords();
   notify();
   return true;
+}
+
+// --- User Preferences (backed up with all other data) ---
+
+export function getPreferences(): UserPreferences {
+  return data.preferences ?? { darkMode: false, theme: '' };
+}
+
+export function updatePreferences(updates: Partial<UserPreferences>): void {
+  data.preferences = { ...getPreferences(), ...updates };
+  notify();
 }
 
 /**
@@ -1505,6 +1559,12 @@ export interface ImportMergeResult {
   checkInsRestored: number;
   notesCreated: number;
   skippedCheckIns: number;
+  // New v0.3.2 — ALL data types are now preserved on import
+  moodsRestored: number;
+  experimentsRestored: number;
+  urgesRestored: number;
+  mantrasRestored: number;
+  chaosDimensionsRestored: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1625,6 +1685,11 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
     checkInsRestored: 0,
     notesCreated: 0,
     skippedCheckIns: 0,
+    moodsRestored: 0,
+    experimentsRestored: 0,
+    urgesRestored: 0,
+    mantrasRestored: 0,
+    chaosDimensionsRestored: 0,
   };
   const idMap = new Map<string, string>();
   const habitsByName = new Map(data.habits.map((habit) => [normalizeHabitName(habit.name), habit]));
@@ -1771,7 +1836,161 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
     ratingsImported++;
   }
 
-  if (metadataChanged || result.habitsCreated > 0 || result.checkInsRestored > 0 || result.notesCreated > 0 || skillsMerged || capacitiesImported > 0 || ratingsImported > 0) {
+  // --- v0.3.2: Import moods (YYYY-MM-DD → mood id) ---
+  let moodsRestored = 0;
+  if (!data.moods) data.moods = {};
+  const rawMoods = (raw as Record<string, unknown>).moods;
+  if (rawMoods && typeof rawMoods === 'object' && !Array.isArray(rawMoods)) {
+    for (const [date, moodId] of Object.entries(rawMoods as Record<string, unknown>)) {
+      if (typeof date === 'string' && typeof moodId === 'string' && isValidDateKey(date) && !data.moods[date]) {
+        data.moods[date] = moodId;
+        moodsRestored++;
+      }
+    }
+  }
+  result.moodsRestored = moodsRestored;
+
+  // --- v0.3.2: Import experiments ---
+  let experimentsRestored = 0;
+  if (!data.experiments) data.experiments = [];
+  const rawExps = Array.isArray((raw as Record<string, unknown>).experiments)
+    ? (raw as Record<string, unknown>).experiments as unknown[]
+    : [];
+  for (const rawExp of rawExps) {
+    if (!rawExp || typeof rawExp !== 'object') continue;
+    const e = rawExp as Record<string, unknown>;
+    if (typeof e.id !== 'string' || typeof e.title !== 'string') continue;
+    if (data.experiments.some(x => x.id === e.id)) continue;
+    data.experiments.push({
+      id: e.id, title: e.title,
+      hypothesis: typeof e.hypothesis === 'string' ? e.hypothesis : '',
+      startDate: typeof e.startDate === 'string' ? e.startDate : '',
+      endDate: typeof e.endDate === 'string' ? e.endDate : '',
+      linkedHabits: Array.isArray(e.linkedHabits) ? (e.linkedHabits as string[]).map(hid => idMap.get(hid) ?? hid) : [],
+      linkedMetrics: Array.isArray(e.linkedMetrics) ? e.linkedMetrics as string[] : [],
+      status: (e.status === 'active' || e.status === 'completed' || e.status === 'cancelled') ? e.status : 'active',
+      conclusion: typeof e.conclusion === 'string' ? e.conclusion : '',
+      createdAt: typeof e.createdAt === 'string' ? e.createdAt : new Date().toISOString(),
+      completedAt: typeof e.completedAt === 'string' ? e.completedAt : undefined,
+    });
+    experimentsRestored++;
+  }
+  result.experimentsRestored = experimentsRestored;
+
+  // --- v0.3.2: Import urges ---
+  let urgesRestored = 0;
+  if (!data.urges) data.urges = [];
+  const rawUrges = Array.isArray((raw as Record<string, unknown>).urges)
+    ? (raw as Record<string, unknown>).urges as unknown[]
+    : [];
+  for (const rawUrge of rawUrges) {
+    if (!rawUrge || typeof rawUrge !== 'object') continue;
+    const u = rawUrge as Record<string, unknown>;
+    if (typeof u.id !== 'string' || typeof u.type !== 'string') continue;
+    if (data.urges.some(x => x.id === u.id)) continue;
+    data.urges.push({
+      id: u.id, type: u.type,
+      intensity: typeof u.intensity === 'number' && Number.isFinite(u.intensity) ? Math.max(1, Math.min(10, u.intensity)) : 5,
+      startTime: typeof u.startTime === 'string' ? u.startTime : new Date().toISOString(),
+      endTime: typeof u.endTime === 'string' ? u.endTime : undefined,
+      outcome: (u.outcome === 'surfed' || u.outcome === 'gave_in' || u.outcome === 'active') ? u.outcome : 'active',
+      note: typeof u.note === 'string' ? u.note : undefined,
+      trigger: typeof u.trigger === 'string' ? u.trigger : undefined,
+      // v0.3.2: preserve counter-habits, remapping through idMap
+      counterHabits: Array.isArray(u.counterHabits)
+        ? (u.counterHabits as string[]).map(hid => idMap.get(hid) ?? hid).filter(Boolean)
+        : undefined,
+    });
+    urgesRestored++;
+  }
+  result.urgesRestored = urgesRestored;
+
+  // --- v0.3.2: Import user-created mantras ---
+  let mantrasRestored = 0;
+  const rawMantras = Array.isArray((raw as Record<string, unknown>).mantras)
+    ? (raw as Record<string, unknown>).mantras as unknown[]
+    : [];
+  for (const rawMantra of rawMantras) {
+    if (!rawMantra || typeof rawMantra !== 'object') continue;
+    const m = rawMantra as Record<string, unknown>;
+    if (typeof m.id !== 'string' || typeof m.text !== 'string') continue;
+    if (m.isDefault === true) continue;
+    if (data.mantras.some(x => x.id === m.id)) continue;
+    data.mantras.push({
+      id: m.id, text: m.text,
+      domain: typeof m.domain === 'string' ? m.domain : 'life',
+      createdAt: typeof m.createdAt === 'string' ? m.createdAt : new Date().toISOString(),
+      isDefault: false,
+    });
+    mantrasRestored++;
+  }
+  result.mantrasRestored = mantrasRestored;
+
+  // --- v0.3.2: Import chaos dimensions (merge triggers) ---
+  let chaosDimensionsRestored = 0;
+  const rawChaos = Array.isArray((raw as Record<string, unknown>).chaosDimensions)
+    ? (raw as Record<string, unknown>).chaosDimensions as unknown[]
+    : [];
+  if (!data.chaosDimensions) data.chaosDimensions = [];
+  for (const rawDim of rawChaos) {
+    if (!rawDim || typeof rawDim !== 'object') continue;
+    const cd = rawDim as Record<string, unknown>;
+    if (typeof cd.id !== 'string') continue;
+    const existing = data.chaosDimensions.find(d => d.id === cd.id);
+    const rawTriggers = Array.isArray(cd.triggers) ? cd.triggers as unknown[] : [];
+    if (existing) {
+      for (const rt of rawTriggers) {
+        if (!rt || typeof rt !== 'object') continue;
+        const t = rt as Record<string, unknown>;
+        if (typeof t.id === 'string' && !existing.triggers.some(et => et.id === t.id)) {
+          existing.triggers.push({ id: t.id, label: typeof t.label === 'string' ? t.label : '', weight: typeof t.weight === 'number' ? t.weight : 0, active: t.active === true });
+          chaosDimensionsRestored++;
+        }
+      }
+    } else {
+      const triggers: ChaosTrigger[] = [];
+      for (const rt of rawTriggers) {
+        if (!rt || typeof rt !== 'object') continue;
+        const t = rt as Record<string, unknown>;
+        if (typeof t.id === 'string') triggers.push({ id: t.id, label: typeof t.label === 'string' ? t.label : '', weight: typeof t.weight === 'number' ? t.weight : 0, active: t.active === true });
+      }
+      data.chaosDimensions.push({ id: cd.id, name: typeof cd.name === 'string' ? cd.name : cd.id, triggers });
+      chaosDimensionsRestored += triggers.length;
+    }
+  }
+  result.chaosDimensionsRestored = chaosDimensionsRestored;
+
+  // --- v0.3.2: Import mantra settings (notification preferences) ---
+  const rawMantraSettings = (raw as Record<string, unknown>).mantraSettings;
+  if (rawMantraSettings && typeof rawMantraSettings === 'object') {
+    const ms = rawMantraSettings as Record<string, unknown>;
+    // Only import if the current settings are still defaults (never customized)
+    const current = data.mantraSettings;
+    if (current.morningTime === DEFAULT_MANTRA_SETTINGS.morningTime
+      && current.eveningTime === DEFAULT_MANTRA_SETTINGS.eveningTime
+      && current.showOnEntry === DEFAULT_MANTRA_SETTINGS.showOnEntry) {
+      if (typeof ms.morningEnabled === 'boolean') current.morningEnabled = ms.morningEnabled;
+      if (typeof ms.eveningEnabled === 'boolean') current.eveningEnabled = ms.eveningEnabled;
+      if (typeof ms.morningTime === 'string') current.morningTime = ms.morningTime;
+      if (typeof ms.eveningTime === 'string') current.eveningTime = ms.eveningTime;
+      if (typeof ms.showOnEntry === 'boolean') current.showOnEntry = ms.showOnEntry;
+    }
+  }
+
+  // --- v0.3.2: Import preferences (darkMode, theme) ---
+  const rawPrefs = (raw as Record<string, unknown>).preferences;
+  if (rawPrefs && typeof rawPrefs === 'object') {
+    const p = rawPrefs as Record<string, unknown>;
+    const currentPrefs = data.preferences ?? { darkMode: false, theme: '' };
+    if (p.darkMode === true && !currentPrefs.darkMode) currentPrefs.darkMode = true;
+    if (typeof p.theme === 'string' && p.theme && !currentPrefs.theme) currentPrefs.theme = p.theme;
+    data.preferences = currentPrefs;
+  }
+
+  const totalRestored = result.habitsCreated + result.checkInsRestored + result.notesCreated
+    + (skillsMerged ? 1 : 0) + capacitiesImported + ratingsImported
+    + moodsRestored + experimentsRestored + urgesRestored + mantrasRestored + chaosDimensionsRestored;
+  if (metadataChanged || totalRestored > 0) {
     notify();
   }
   return result;

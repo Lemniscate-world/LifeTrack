@@ -155,6 +155,21 @@ export interface Experiment {
   completedAt?: string;
 }
 
+// --- Urge Surfing ---
+// Mindfulness technique: observe urges like waves, watch them peak,
+// and let them pass without acting on them. Core of breaking bad habits.
+export interface UrgeEntry {
+  id: string;
+  type: string;       // urge type id, e.g. 'craving', 'procrastination'
+  intensity: number;  // 1-10, set at start
+  startTime: string;  // ISO timestamp
+  endTime?: string;   // ISO timestamp, set when urge passes
+  outcome: 'surfed' | 'gave_in' | 'active';
+  note?: string;      // free-form reflection
+  trigger?: string;   // what triggered the urge
+  counterHabits?: string[]; // habit IDs used as counter-measures
+}
+
 // --- Correlation result (computed, not stored) ---
 export interface CorrelationResult {
   metricA: string;          // label like "Meditation" or "Mood"
@@ -177,4 +192,12 @@ export interface AppData {
   capacityRatings: CapacityRating[];
   moods: Record<string, string>; // date YYYY-MM-DD -> mood id
   experiments: Experiment[];
+  urges: UrgeEntry[];
+  preferences: UserPreferences;
+}
+
+/** User preferences — survives reinstall via the standard backup chain. */
+export interface UserPreferences {
+  darkMode: boolean;
+  theme: string; // CSS class or '' (default)
 }

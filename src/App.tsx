@@ -39,6 +39,8 @@ import {
   setMood,
   getMood,
   getMonthMoods,
+  getPreferences,
+  updatePreferences,
 } from './store';
 import { computeStreakStats, computeCompletionRate, computeWeightedScore, trackingStart } from './stats';
 import { Heatmap, Sparkline } from './Heatmap';
@@ -56,6 +58,7 @@ import ShortcutsHelp from './ShortcutsHelp';
 import YearView from './YearView';
 import ChallengeView from './ChallengeView';
 import ExperimentsView from './ExperimentsView';
+import UrgeSurfingView from './UrgeSurfingView';
 // (Mood view removed — emotional state is tracked via the 'emotional' chaos dimension.)
 import { generateInsights, type Recommendation, type RecKind } from './recommendations';
 import { computeCorrelations } from './correlations';
@@ -107,12 +110,10 @@ const MONTH_NAMES = [
   // compute lifetime streaks (best, longest gap, etc.).
   const [allCheckIns, setAllCheckIns] = useState<CheckIn[]>([]);
   const [darkMode, setDarkMode] = useState(() => {
-    // Persist dark mode preference across sessions
-    try {
-      return localStorage.getItem('lifetrack-darkmode') === '1';
-    } catch {
-      return false;
-    }
+    // v0.3.2: Read from preferences (survives reinstall), fall back to legacy localStorage
+    const prefs = getPreferences();
+    if (prefs.darkMode) return true;
+    try { return localStorage.getItem('lifetrack-darkmode') === '1'; } catch { return false; }
   });
   const [notes, setNotes] = useState<Note[]>([]);
   const [newNoteContent, setNewNoteContent] = useState('');
@@ -135,7 +136,7 @@ const MONTH_NAMES = [
   // Intentions editor (why you do this habit)
   const [editingWhyHabitId, setEditingWhyHabitId] = useState<string | null>(null);
   const [editWhyText, setEditWhyText] = useState('');
-  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'experiments' | 'mantras' | 'settings'>('grid');
+  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'experiments' | 'urges' | 'mantras' | 'settings'>('grid');
   const [savedMsg, setSavedMsg] = useState('');
   // Shortcuts help + toast
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -161,9 +162,10 @@ const MONTH_NAMES = [
       console.log('✅ Auto-restored data from backup');
     }
     // Create a pre-upgrade safety snapshot once per day (survives code updates).
-    // Only creates a backup if one doesn't already exist for today.
-    const todayKey = `lifetrack-upgrade-backup-${new Date().toISOString().slice(0, 10)}`;
-    const todayExists = typeof localStorage !== 'undefined' && localStorage.getItem(todayKey);
+    // Check for ANY backup with today's date prefix (keys include HH-MM suffix).
+    const todayPrefix = `lifetrack-upgrade-backup-${new Date().toISOString().slice(0, 10)}`;
+    const todayExists = typeof localStorage !== 'undefined'
+      && (() => { for (let i = 0; i < localStorage.length; i++) { if (localStorage.key(i)?.startsWith(todayPrefix)) return true; } return false; })();
     if (!todayExists) {
       const backupKey = createUpgradeBackup();
       if (backupKey) {
@@ -317,6 +319,8 @@ const MONTH_NAMES = [
     return () => clearInterval(id);
   }, []);
   const [theme, setTheme] = useState(() => {
+    const prefs = getPreferences();
+    if (prefs.theme) return prefs.theme;
     try { return localStorage.getItem('lifetrack-theme') || ''; } catch { return ''; }
   });
 
@@ -325,6 +329,7 @@ const MONTH_NAMES = [
     const classes = ['theme-ocean', 'theme-forest', 'theme-sunset', 'theme-rose', 'theme-mono', 'theme-midnight', 'theme-emerald'];
     document.documentElement.classList.remove(...classes);
     if (theme) document.documentElement.classList.add(theme);
+    updatePreferences({ theme });
     try { localStorage.setItem('lifetrack-theme', theme); } catch { /* nop */ }
   }, [theme]);
 
@@ -442,9 +447,9 @@ const MONTH_NAMES = [
     } else {
       document.documentElement.classList.remove('dark');
     }
-    try {
-      localStorage.setItem('lifetrack-darkmode', darkMode ? '1' : '0');
-    } catch { /* non-critical */ }
+    // Persist to BOTH preferences (survives reinstall) and legacy localStorage
+    updatePreferences({ darkMode });
+    try { localStorage.setItem('lifetrack-darkmode', darkMode ? '1' : '0'); } catch { /* nop */ }
   }, [darkMode]);
 
   useEffect(() => {
@@ -945,6 +950,9 @@ const MONTH_NAMES = [
           <button role="tab" aria-selected={view === 'experiments'} className={`view-tab ${view === 'experiments' ? 'active' : ''}`} onClick={() => setView('experiments')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Experiments
           </button>
+          <button role="tab" aria-selected={view === 'urges'} className={`view-tab ${view === 'urges' ? 'active' : ''}`} onClick={() => setView('urges')}>
+            🌊 Urges
+          </button>
           <button role="tab" aria-selected={view === 'chaos'} className={`view-tab ${view === 'chaos' ? 'active' : ''}`} onClick={() => setView('chaos')}>Chaos</button>
           <button role="tab" aria-selected={view === 'mantras'} className={`view-tab ${view === 'mantras' ? 'active' : ''}`} onClick={() => setView('mantras')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4.5 12.5l3 3 5-7"/><circle cx="12" cy="12" r="10"/></svg> Mantras
@@ -1244,12 +1252,15 @@ const MONTH_NAMES = [
                         const isFocused = keyboardUsed && focusDay === h.day && focusHabitIdx === habitIdx;
                         const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(h.day).padStart(2, '0')}`;
                         const currentCount = checked ? getCheckInCount(habit.id, dateKey) : 0;
-                        const showCount = currentCount >= 1;
                         // Note indicator
                         const noteKey = `${habit.id}::${dateKey}`;
                         const hasNote = checkInNotes.has(noteKey);
                         const noteText = checkInNotes.get(noteKey) ?? '';
                         const isMultiClick = habit.multiClick !== false; // true by default
+                        // Count badge only shown when multi-click is on: in simple
+                        // toggle mode the count is always 1 (or 0) and a number
+                        // next to the checkmark would just be visual noise.
+                        const showCount = isMultiClick && currentCount >= 1;
                         return (
                           <td
                             key={h.day}
@@ -1493,6 +1504,8 @@ const MONTH_NAMES = [
         <SkillsView />
       ) : view === 'experiments' ? (
         <ExperimentsView />
+      ) : view === 'urges' ? (
+        <UrgeSurfingView />
       ) : (
         <ChaosView />
       )}

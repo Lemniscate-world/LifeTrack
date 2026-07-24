@@ -176,32 +176,63 @@ fn find_newest_in_dir(dir: &std::path::Path) -> Option<String> {
 
 #[tauri::command]
 fn find_latest_backup(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    // Check all backup locations in priority order
-    let locations: Vec<std::path::PathBuf> = vec![
-        app.path().app_data_dir().map_err(|e| e.to_string())?.join("backups"),
-        app.path().document_dir().map_err(|e| e.to_string())?.join("LifeTrack-Backups"),
-        app.path().desktop_dir().unwrap_or_default().join("LifeTrack-Backups"),
-    ];
+    // Priority-ordered list of ALL directories where backups may exist.
+    // Mirrors doFileBackup() in store.ts AND auto_backup() above.
+    let mut locations: Vec<std::path::PathBuf> = Vec::new();
 
-    // Also check Dropbox if it exists
-    if let Ok(home) = app.path().home_dir() {
-        let dropbox = home.join("Dropbox").join("Apps").join("LifeTrack");
-        if dropbox.exists() || home.join("Dropbox").exists() {
-            // Use Dropbox with its own path
-        }
-        // Try Dropbox as well
+    // 1. AppData — rolling timestamped backups written by auto_backup()
+    if let Ok(d) = app.path().app_data_dir() {
+        locations.push(d.join("backups"));
+        // Also check the single-file persistent backup from doFileBackup()
+        locations.push(d.join("LifeTrack"));
     }
 
+    // 2. Documents — both timestamped and single-file backups
+    if let Ok(d) = app.path().document_dir() {
+        locations.push(d.join("LifeTrack-Backups"));
+    }
+
+    // 3. Desktop — easy to find manually
+    if let Ok(d) = app.path().desktop_dir() {
+        locations.push(d.join("LifeTrack-Backups"));
+    }
+
+    // 4. Dropbox (cloud-synced, survives disk failure)
+    // 5. OneDrive (cloud-synced, auto-detected)
+    // 6. Google Drive (cloud-synced, common paths)
+    if let Ok(home) = app.path().home_dir() {
+        // Dropbox
+        let dropbox = home.join("Dropbox").join("Apps").join("LifeTrack");
+        if home.join("Dropbox").exists() {
+            locations.push(dropbox);
+        }
+
+        // OneDrive — try all common variants
+        if let Ok(entries) = std::fs::read_dir(&home) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                if name_str.starts_with("OneDrive") && entry.path().is_dir() {
+                    locations.push(entry.path().join("Apps").join("LifeTrack"));
+                }
+            }
+        }
+
+        // Google Drive — try common paths
+        for gd in &[
+            home.join("Google Drive"),
+            home.join("GoogleDrive"),
+            home.join("Google Drive").join("My Drive"),
+        ] {
+            if gd.exists() {
+                locations.push(gd.join("Apps").join("LifeTrack"));
+            }
+        }
+    }
+
+    // Search all locations, return first match (priority order is preserved)
     for dir in &locations {
         if let Some(content) = find_newest_in_dir(dir) {
-            return Ok(Some(content));
-        }
-    }
-
-    // Try Dropbox
-    if let Ok(home) = app.path().home_dir() {
-        let dropbox = home.join("Dropbox").join("Apps").join("LifeTrack");
-        if let Some(content) = find_newest_in_dir(&dropbox) {
             return Ok(Some(content));
         }
     }
