@@ -14,8 +14,7 @@ beforeEach(() => { localStorage.clear(); resetStore(); });
 describe('Multi-click OFF hides count badge', () => {
   it('toggle mode: checkmark appears but no count badge', async () => {
     const user = userEvent.setup();
-    const h = addHabit('Yoga');
-    updateHabit(h.id, { multiClick: false });
+    addHabit('Yoga'); // multiClick defaults to OFF (v0.3.2)
     render(<App />);
     await user.keyboard(' ');
     expect(document.querySelector('.day-cell.checked')).not.toBeNull();
@@ -24,8 +23,7 @@ describe('Multi-click OFF hides count badge', () => {
 
   it('toggle mode: uncheck removes checkmark, count stays absent', async () => {
     const user = userEvent.setup();
-    const h = addHabit('Meditate');
-    updateHabit(h.id, { multiClick: false });
+    addHabit('Meditate');
     render(<App />);
     await user.keyboard(' ');
     expect(document.querySelector('.day-cell.checked')).not.toBeNull();
@@ -34,16 +32,16 @@ describe('Multi-click OFF hides count badge', () => {
     expect(document.querySelector('.day-cell-count')).toBeNull();
   });
 
-  it('prevents multi-click count when toggled off after building count', async () => {
-    // Build a count > 1 while multiClick is ON, then switch to OFF:
-    // the badge must disappear even though checkIn.count > 1.
-    const h = addHabit('Run');
-    updateHabit(h.id, { multiClick: false });
-    render(<App />);
-    // Check then uncheck: no badge should ever appear
+  it('multi-click OFF is the default for new habits', async () => {
+    // v0.3.2: new habits start with simple toggle (multiClick = false by default)
     const user = userEvent.setup();
+    addHabit('Run');
+    render(<App />);
     await user.keyboard(' ');
     expect(document.querySelector('.day-cell.checked')).not.toBeNull();
+    expect(document.querySelector('.day-cell-count')).toBeNull();
+    await user.keyboard(' ');
+    expect(document.querySelector('.day-cell.checked')).toBeNull();
     expect(document.querySelector('.day-cell-count')).toBeNull();
   });
 });
@@ -51,7 +49,8 @@ describe('Multi-click OFF hides count badge', () => {
 describe('Multi-click ON shows count badge', () => {
   it('shows count that increments on each Space press', async () => {
     const user = userEvent.setup();
-    addHabit('Pushups'); // multiClick defaults to ON
+    const h = addHabit('Pushups');
+    updateHabit(h.id, { multiClick: true }); // explicitly enable
     render(<App />);
     await user.keyboard(' ');
     expect(document.querySelector('.day-cell-count')?.textContent).toBe('1');
@@ -63,7 +62,8 @@ describe('Multi-click ON shows count badge', () => {
 
   it('Ctrl+Space resets count, badge disappears', async () => {
     const user = userEvent.setup();
-    addHabit('Sit-ups');
+    const h = addHabit('Sit-ups');
+    updateHabit(h.id, { multiClick: true }); // explicitly enable
     render(<App />);
     await user.keyboard(' ');
     await user.keyboard(' ');

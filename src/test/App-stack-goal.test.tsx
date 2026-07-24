@@ -93,7 +93,7 @@ describe('Goal editing', () => {
   it('multi-click: increments count per Space press', async () => {
     const user = userEvent.setup();
     const h = addHabit('Meditation');
-    updateHabit(h.id, { goal: 3 });
+    updateHabit(h.id, { goal: 3, multiClick: true });
     render(<App />);
     // Use keyboard toggle (Space) which reliably hits the focused grid cell
     await user.keyboard(' ');
@@ -110,7 +110,7 @@ describe('Goal editing', () => {
   it('multi-click works regardless of goal value', async () => {
     const user = userEvent.setup();
     const h = addHabit('Read');
-    updateHabit(h.id, { goal: 30 });
+    updateHabit(h.id, { goal: 30, multiClick: true });
     render(<App />);
     await user.keyboard(' ');
     expect(document.querySelector('.day-cell.checked')).not.toBeNull();

@@ -1097,9 +1097,9 @@ const MONTH_NAMES = [
                             </svg>
                           </button>
                           <button
-                            className={`habit-multiclick-btn ${habit.multiClick !== false ? 'active' : ''}`}
-                            onClick={() => updateHabit(habit.id, { multiClick: habit.multiClick === false ? true : false })}
-                            title={habit.multiClick !== false ? 'Multi-click: ON (click to disable)' : 'Multi-click: OFF — simple toggle'}
+                            className={`habit-multiclick-btn ${habit.multiClick === true ? 'active' : ''}`}
+                            onClick={() => updateHabit(habit.id, { multiClick: !habit.multiClick })}
+                            title={habit.multiClick === true ? 'Multi-click: ON (click to disable)' : 'Multi-click: OFF — simple toggle'}
                           >
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                           </button>
@@ -1256,7 +1256,7 @@ const MONTH_NAMES = [
                         const noteKey = `${habit.id}::${dateKey}`;
                         const hasNote = checkInNotes.has(noteKey);
                         const noteText = checkInNotes.get(noteKey) ?? '';
-                        const isMultiClick = habit.multiClick !== false; // true by default
+                        const isMultiClick = habit.multiClick === true; // OFF by default, user opts IN
                         // Count badge only shown when multi-click is on: in simple
                         // toggle mode the count is always 1 (or 0) and a number
                         // next to the checkmark would just be visual noise.

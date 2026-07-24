@@ -1199,6 +1199,7 @@ export function addHabit(
     createdAt: new Date().toISOString(),
     archived: false,
     order: maxOrder + 1,
+    multiClick: false, // v0.3.2: OFF by default, user opts IN per habit
     ...(chaosOpts?.chaosDimension ? { chaosDimension: chaosOpts.chaosDimension } : {}),
     ...(chaosOpts?.chaosImpact !== undefined ? { chaosImpact: chaosOpts.chaosImpact } : {}),
     ...(chaosOpts?.chaosThresholdDays !== undefined ? { chaosThresholdDays: chaosOpts.chaosThresholdDays } : {}),
