@@ -13,7 +13,7 @@ import {
   URGE_TYPES,
   type UrgeStats,
 } from './urgeSurfing';
-import type { Habit, UrgeEntry } from './types';
+import type { Habit } from './types';
 import { subscribe, getHabits } from './store';
 
 function UrgeSurfingView() {

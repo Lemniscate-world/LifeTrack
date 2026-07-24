@@ -39,7 +39,7 @@ export function bindUrgeStore(getData: () => AppData, notify: () => void): void 
 
 function urges(): UrgeEntry[] {
   const d = _getData();
-  if (!d.urges) (d as Record<string, unknown>).urges = [];
+  if (!d.urges) (d as unknown as Record<string, unknown>).urges = [];
   return d.urges as unknown as UrgeEntry[];
 }
 
