@@ -1,7 +1,7 @@
 // Urge Surfing View — log urges, ride them out, track success rate.
 // Based on the mindfulness technique of observing urges like waves.
 // v0.3.2: Custom urge types with per-type default counter-habits.
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useCallback, type CSSProperties } from 'react';
 import {
   addUrgeEntry,
   getUrgeEntries,
@@ -47,11 +47,11 @@ function UrgeSurfingView() {
   }, []);
 
   const activeUrge = getActiveUrge();
-  const entries = useMemo(() => getUrgeEntries(), []);
-  const stats: UrgeStats = useMemo(() => computeUrgeStats(30), []);
+  const entries = getUrgeEntries();
+  const stats: UrgeStats = computeUrgeStats(30);
   const recentEntries = entries.slice(0, 20);
-  const habits = useMemo(() => getHabits(), []);
-  const allTypes = useMemo(() => getAllUrgeTypes(), []);
+  const habits = getHabits();
+  const allTypes = getAllUrgeTypes();
 
   // When urge type changes, auto pre-select default counter-habits
   const selectType = useCallback((typeId: string) => {
@@ -126,7 +126,7 @@ function UrgeSurfingView() {
           </div>
           <div className="urge-active-intensity">
             Intensity: <strong>{activeUrge.intensity}/10</strong>
-            <div className="urge-intensity-bar" style={{ '--pct': `${activeUrge.intensity * 10}%` } as React.CSSProperties}>
+            <div className="urge-intensity-bar" style={{ '--pct': `${activeUrge.intensity * 10}%` } as CSSProperties}>
               <div className="urge-intensity-fill" />
             </div>
           </div>

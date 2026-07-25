@@ -5,6 +5,7 @@
 PROTECTED_FILES=(
   "SESSION_SUMMARY.md"
   "PLAN.md"
+  "ROADMAP.md"
   "PRD.md"
   "decision.md"
   "ideas.md"

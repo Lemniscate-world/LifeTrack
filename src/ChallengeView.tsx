@@ -12,7 +12,6 @@ export default function ChallengeView({ habits, checkIns }: ChallengeViewProps) 
 
   const habit = active.find(h => h.id === selectedHabit);
   
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const challenge = (() => {
     if (!habit) return null;
     const now = new Date();

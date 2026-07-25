@@ -1,11 +1,11 @@
 // src/ExperimentsView.tsx
 // N=1 Experiments: hypothesis-driven self-experimentation framework
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { getExperiments, addExperiment, completeExperiment, deleteExperiment, getHabits, subscribe } from './store';
 
 export default function ExperimentsView() {
-  const [tick, setTick] = useState(0);
+  const [, setTick] = useState(0);
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState('');
   const [hypothesis, setHypothesis] = useState('');
@@ -21,8 +21,8 @@ export default function ExperimentsView() {
     return unsub;
   }, []);
 
-  const experiments = useMemo(() => getExperiments(), [tick]);
-  const habits = useMemo(() => getHabits().filter(h => !h.archived), [tick]);
+  const experiments = getExperiments();
+  const habits = getHabits().filter(h => !h.archived);
 
   const activeExps = experiments.filter(e => e.status === 'active');
   const pastExps = experiments.filter(e => e.status !== 'active');

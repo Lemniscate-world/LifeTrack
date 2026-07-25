@@ -29,15 +29,15 @@ describe('MantraView rendering', () => {
 
   it('renders the three tabs: Today, Manage, Settings', () => {
     render(<MantraView />);
-    expect(screen.getByText('📅 Today')).toBeDefined();
-    expect(screen.getByText('✏️ Manage')).toBeDefined();
+    expect(screen.getByText('Today')).toBeDefined();
+    expect(screen.getByText('Manage')).toBeDefined();
     expect(screen.getByText('Settings')).toBeDefined();
   });
 
   it('starts on the Today tab by default', () => {
     render(<MantraView />);
     // Today tab should be active
-    const todayTab = screen.getByText('📅 Today');
+    const todayTab = screen.getByText('Today');
     expect(todayTab.className).toContain('active');
   });
 
@@ -60,8 +60,8 @@ describe('MantraView tab navigation', () => {
   it('switches to Manage tab when clicked', async () => {
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('✏️ Manage'));
-    expect(screen.getByText('✏️ Manage').className).toContain('active');
+    await user.click(screen.getByText('Manage'));
+    expect(screen.getByText('Manage').className).toContain('active');
     expect(screen.getByText('Add your own mantra')).toBeDefined();
   });
 
@@ -77,8 +77,8 @@ describe('MantraView tab navigation', () => {
     const user = userEvent.setup();
     render(<MantraView />);
     await user.click(screen.getByText('Settings'));
-    await user.click(screen.getByText('📅 Today'));
-    expect(screen.getByText('📅 Today').className).toContain('active');
+    await user.click(screen.getByText('Today'));
+    expect(screen.getByText('Today').className).toContain('active');
   });
 });
 
@@ -89,7 +89,7 @@ describe('MantraView — adding custom mantras', () => {
   it('renders the add mantra form in Manage tab', async () => {
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('✏️ Manage'));
+    await user.click(screen.getByText('Manage'));
     expect(screen.getByPlaceholderText('Write your mantra...')).toBeDefined();
     expect(screen.getByText('Add')).toBeDefined();
   });
@@ -97,7 +97,7 @@ describe('MantraView — adding custom mantras', () => {
   it('add button is disabled when input is empty', async () => {
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('✏️ Manage'));
+    await user.click(screen.getByText('Manage'));
     const addBtn = screen.getByText('Add');
     expect((addBtn as HTMLButtonElement).disabled).toBe(true);
   });
@@ -105,7 +105,7 @@ describe('MantraView — adding custom mantras', () => {
   it('adds a mantra when text is entered and Add is clicked', async () => {
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('✏️ Manage'));
+    await user.click(screen.getByText('Manage'));
 
     const input = screen.getByPlaceholderText('Write your mantra...');
     await user.type(input, 'My personal mantra');
@@ -122,7 +122,7 @@ describe('MantraView — adding custom mantras', () => {
   it('adds a mantra in the selected domain', async () => {
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('✏️ Manage'));
+    await user.click(screen.getByText('Manage'));
 
     // Select "Health" domain from the dropdown
     const select = screen.getByRole('combobox');
@@ -146,7 +146,7 @@ describe('MantraView — browsing and deleting', () => {
   it('expands a domain to show its mantras', async () => {
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('✏️ Manage'));
+    await user.click(screen.getByText('Manage'));
 
     // Click on Financial domain to expand
     const financialToggle = screen.getByText('Financial');
@@ -163,7 +163,7 @@ describe('MantraView — browsing and deleting', () => {
 
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('✏️ Manage'));
+    await user.click(screen.getByText('Manage'));
 
     // Expand Financial
     await user.click(screen.getByText('Financial'));
@@ -181,7 +181,7 @@ describe('MantraView — browsing and deleting', () => {
 
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('✏️ Manage'));
+    await user.click(screen.getByText('Manage'));
 
     // Expand Life
     await user.click(screen.getByText('Life'));

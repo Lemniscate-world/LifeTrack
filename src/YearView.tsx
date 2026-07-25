@@ -17,7 +17,7 @@ function getIntensity(date: string, checkIns: CheckIn[], habits: Habit[]): numbe
 }
 
 export default function YearView({ habits, checkIns }: YearViewProps) {
-  const now = new Date();
+  const now = useMemo(() => new Date(), []);
   const activeHabits = habits.filter(h => !h.archived);
 
   const { weeks, monthLabels } = useMemo(() => {

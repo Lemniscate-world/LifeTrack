@@ -31,7 +31,7 @@ describe('Stack editor', () => {
     const parentSelect = selects[1]; // second select = parent picker
     if (parentSelect) {
       await user.selectOptions(parentSelect, parent.id);
-      await user.click(screen.getByText('Done'));
+      await user.click(screen.getByRole('button', { name: 'Done' }));
       expect(getHabits().some((h) => h.stackParent === parent.id)).toBe(true);
     }
   });

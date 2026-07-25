@@ -20,7 +20,7 @@ interface TodayViewProps {
 }
 
 export default function TodayView({ habits, checkIns, todayMantra }: TodayViewProps) {
-  const now = new Date();
+  const now = useMemo(() => new Date(), []);
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
   const todayStats = useMemo(() => {
@@ -37,7 +37,7 @@ export default function TodayView({ habits, checkIns, todayMantra }: TodayViewPr
     })).sort((a, b) => b.stats.current - a.stats.current);
 
     return { active, todayDone, todayTotal, donePct, streaks };
-  }, [habits, checkIns, todayStr]);
+  }, [habits, checkIns, todayStr, now]);
 
   const topStreaks = todayStats.streaks.filter(s => s.stats.current >= 3).slice(0, 3);
   const needsAttention = todayStats.streaks.filter(s => !s.doneToday && s.stats.current === 0).slice(0, 3);

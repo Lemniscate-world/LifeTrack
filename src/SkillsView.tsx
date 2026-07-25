@@ -30,7 +30,7 @@ function getLevelTier(level: number): { title: string; color: string } {
 }
 
 export default function SkillsView() {
-  const [tick, setTick] = useState(0);
+  const [, setTick] = useState(0);
   const [activeTab, setActiveTab] = useState<'browse' | 'create'>('browse');
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
   const [editSkillId, setEditSkillId] = useState<string | null>(null);
@@ -67,15 +67,15 @@ export default function SkillsView() {
     return unsub;
   }, []);
 
-  const habits = useMemo(() => getHabits(), [tick]);
-  const skills = useMemo(() => getSkills(), [tick]);
+  const habits = getHabits();
+  const skills = getSkills();
 
   const skillProgresses = useMemo(() => {
     return skills.map((skill) => {
       const progress = computeSkillProgress(skill.id);
       return { skill, progress };
     }).filter(item => item.progress !== undefined) as { skill: Skill; progress: SkillProgress }[];
-  }, [skills, tick]);
+  }, [skills]);
 
   const selectedItem = useMemo(() => {
     if (!selectedSkillId) return null;
@@ -155,12 +155,12 @@ export default function SkillsView() {
   // --- Capacity handlers ---
   const capacities = useMemo(
     () => (selectedSkillId ? getCapacities(selectedSkillId) : []),
-    [selectedSkillId, tick],
+    [selectedSkillId],
   );
   const capacityProgresses = useMemo(() => {
     return capacities.map((c) => ({ capacity: c, progress: computeCapacityProgress(c.id) }))
       .filter((x) => x.progress !== null) as { capacity: typeof capacities[0]; progress: CapacityProgress }[];
-  }, [capacities, tick]);
+  }, [capacities]);
 
   const handleAddCapacity = () => {
     if (!selectedSkillId || !capName.trim()) return;

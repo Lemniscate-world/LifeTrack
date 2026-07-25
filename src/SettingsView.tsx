@@ -3,7 +3,6 @@ import {
   getStorageStatus,
   getMantraSettings,
   updateMantraSettings,
-  resetChaos,
   getLastSaved,
   flushSave,
   exportAllData,
@@ -73,7 +72,6 @@ export default function SettingsView({
     for (const key of listUpgradeBackups()) {
       try { localStorage.removeItem(key); } catch { /* ignore */ }
     }
-    resetChaos();
     window.location.reload();
   };
 

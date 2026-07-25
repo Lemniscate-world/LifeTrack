@@ -74,19 +74,19 @@ export default function MantraView({ onDismiss }: MantraViewProps) {
           className={`mantra-tab ${activeTab === 'daily' ? 'active' : ''}`}
           onClick={() => setActiveTab('daily')}
         >
-          📅 Today
+          Today
         </button>
         <button
           className={`mantra-tab ${activeTab === 'manage' ? 'active' : ''}`}
           onClick={() => setActiveTab('manage')}
         >
-          ✏️ Manage
+          Manage
         </button>
         <button
           className={`mantra-tab ${activeTab === 'settings' ? 'active' : ''}`}
           onClick={() => setActiveTab('settings')}
         >
-          ⚙️ Settings
+          Settings
         </button>
       </div>
 

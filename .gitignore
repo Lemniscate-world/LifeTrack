@@ -30,7 +30,9 @@ mom_test_script.md
 decision.md
 ideas.md
 PLAN.md
+ROADMAP.md
 PRD.md
+moat.md
 .env
 .env.*
 *.key
@@ -41,6 +43,30 @@ concept/
 
 # Kuro Rules - File Integrity Guard (R101)
 SESSION_SUMMARY.md
+SESSION_SUMMARY.md.bak
+acquisition_tracker.md
+*.p12
+credentials.json
+service_account*.json
+data/
+*.db
+*.sqlite
+build/
+*.exe
+*.dmg
+bandit*.json
+bandit*.txt
+safety-report.json
+trivy*.json
+snyk*.json
+.coverage
+htmlcov/
+.coverage.*
+prompts/
+research/
+infrastructure_planning/
+plans/
+docs/research/
 
 # Tauri
 src-tauri/target
