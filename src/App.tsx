@@ -8,8 +8,10 @@ import {
   getCheckInCount,
   resetCheckInCount,
   decrementCheckInCount,
-  setCheckInNote,
-  getCheckInNote,
+  setCheckInNotes,
+  getCheckInNotes,
+  addCheckInNote,
+  removeCheckInNote,
   getMonthCheckInNotes,
   subscribe,
   addHabit,
@@ -129,10 +131,10 @@ const DEFAULT_CATEGORIES = [
   const [newNoteContent, setNewNoteContent] = useState('');
   const [showNewNoteInput, setShowNewNoteInput] = useState(false);
   // Per-day check-in note popup
-  const [notePopup, setNotePopup] = useState<{ habitId: string; date: string; habitName: string } | null>(null);
+  const [notePopup, setNotePopup] = useState<{ habitId: string; date: string; habitName: string; notes: string[] } | null>(null);
   const [notePopupText, setNotePopupText] = useState('');
   // Map of dateKey -> note for the currently hovered/visible habit (lazy loaded)
-  const [checkInNotes, setCheckInNotes] = useState<Map<string, string>>(new Map());
+  const [checkInNotes, setCheckInNotes] = useState<Map<string, string[]>>(new Map());
   // Monthly moods
   const [monthMoods, setMonthMoods] = useState<Map<number, string>>(new Map());
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
@@ -475,12 +477,12 @@ const DEFAULT_CATEGORIES = [
       // Refresh the lifetime check-in cache so Stats view shows fresh records.
       setAllCheckIns(exportAllData().checkIns);
       // Load per-day check-in notes for the current month (for note indicator dots).
-      const noteMap = new Map<string, string>();
+      const noteMap = new Map<string, string[]>();
       for (const habit of h) {
         const habitNotes = getMonthCheckInNotes(habit.id, year, month);
-        for (const [day, note] of habitNotes) {
+        for (const [day, notes] of habitNotes) {
           const dateKey = parseDateStr(year, month, day);
-          noteMap.set(`${habit.id}::${dateKey}`, note);
+          noteMap.set(`${habit.id}::${dateKey}`, notes);
         }
       }
       setCheckInNotes(noteMap);
@@ -529,8 +531,8 @@ const DEFAULT_CATEGORIES = [
   function handleCellContextMenu(e: React.MouseEvent, habitId: string, habitName: string, day: number) {
     e.preventDefault();
     const dateStr = parseDateStr(year, month, day);
-    const existingNote = getCheckInNote(habitId, dateStr);
-    setNotePopup({ habitId, date: dateStr, habitName });
+    const existingNotes = getCheckInNotes(habitId, dateStr);
+    setNotePopup({ habitId, date: dateStr, habitName, notes: existingNotes });
     setNotePopupText(existingNote);
   }
 
@@ -538,18 +540,19 @@ const DEFAULT_CATEGORIES = [
   function handleNotePopupSave() {
     if (!notePopup) return;
     const trimmed = notePopupText.trim();
-    setCheckInNote(notePopup.habitId, notePopup.date, trimmed || null);
-    // Update local cache
+    if (trimmed) {
+      addCheckInNote(notePopup.habitId, notePopup.date, trimmed);
+    }
+    // Refresh local cache
+    const updated = getCheckInNotes(notePopup.habitId, notePopup.date);
     setCheckInNotes((prev) => {
       const next = new Map(prev);
-      if (trimmed) {
-        next.set(notePopup.date, trimmed);
-      } else {
-        next.delete(notePopup.date);
-      }
+      const key = `${notePopup.habitId}::${notePopup.date}`;
+      if (updated.length > 0) next.set(key, updated);
+      else next.delete(key);
       return next;
     });
-    setNotePopup(null);
+    setNotePopup(prev => prev ? { ...prev, notes: updated } : null);
     setNotePopupText('');
   }
 
@@ -1276,8 +1279,10 @@ const DEFAULT_CATEGORIES = [
                         const currentCount = checked ? getCheckInCount(habit.id, dateKey) : 0;
                         // Note indicator
                         const noteKey = `${habit.id}::${dateKey}`;
-                        const hasNote = checkInNotes.has(noteKey);
-                        const noteText = checkInNotes.get(noteKey) ?? '';
+                        const cellNotes = checkInNotes.get(noteKey);
+                        const hasNote = !!cellNotes && cellNotes.length > 0;
+                        const noteCount = cellNotes?.length ?? 0;
+                        const noteTooltip = hasNote ? `📝 ${cellNotes!.join(' | ')}` : '';
                         const isMultiClick = habit.multiClick === true; // OFF by default, user opts IN
                         // Count badge only shown when multi-click is on: in simple
                         // toggle mode the count is always 1 (or 0) and a number
@@ -1289,7 +1294,7 @@ const DEFAULT_CATEGORIES = [
                             className={`col-day ${isToday ? 'today' : ''} ${isFocused ? 'focused' : ''}`}
                             onClick={(e) => handleCellClick(habit.id, h.day, isMultiClick, e.ctrlKey || e.metaKey, e.shiftKey)}
                             onContextMenu={(e) => handleCellContextMenu(e, habit.id, habit.name, h.day)}
-                            title={hasNote ? `📝 ${noteText}` : isMultiClick ? `Click +1 · Shift+Click −1 · Ctrl+Click reset · Right-click note` : `Click to toggle · Right-click to add note`}
+                            title={hasNote ? noteTooltip : isMultiClick ? `Click +1 · Shift+Click −1 · Ctrl+Click reset · Right-click note` : `Click to toggle · Right-click to add note`}
                           >
                             <div className={`day-cell ${checked ? 'checked' : ''} ${hasNote ? 'has-note' : ''}`}>
                               {checked && (
@@ -1300,7 +1305,7 @@ const DEFAULT_CATEGORIES = [
                               {showCount && (
                                 <span className="day-cell-count">{currentCount}</span>
                               )}
-                              {hasNote && <span className="day-cell-note-dot" title={noteText}>●</span>}
+                              {hasNote && <span className="day-cell-note-dot" title={noteTooltip}>{noteCount > 1 ? noteCount : '●'}</span>}
                             </div>
                           </td>
                         );
@@ -1716,22 +1721,48 @@ const DEFAULT_CATEGORIES = [
                 </svg>
               </button>
             </div>
+            {/* Existing notes list */}
+            {notePopup.notes.length > 0 && (
+              <div className="note-popup-list">
+                {notePopup.notes.map((n, i) => (
+                  <div key={i} className="note-popup-item">
+                    <span className="note-popup-item-text">{n}</span>
+                    <button
+                      className="note-popup-item-del"
+                      onClick={() => {
+                        removeCheckInNote(notePopup.habitId, notePopup.date, i);
+                        const updated = getCheckInNotes(notePopup.habitId, notePopup.date);
+                        setNotePopup(prev => prev ? { ...prev, notes: updated } : null);
+                        setCheckInNotes(prev => {
+                          const next = new Map(prev);
+                          const key = `${notePopup.habitId}::${notePopup.date}`;
+                          if (updated.length > 0) next.set(key, updated);
+                          else next.delete(key);
+                          return next;
+                        });
+                      }}
+                      title="Delete note"
+                    >×</button>
+                  </div>
+                ))}
+              </div>
+            )}
             <textarea
               className="note-popup-input"
-              placeholder="What did you observe or detect today thanks to this habit?"
+              placeholder="Add a note... (Ctrl+Enter to save)"
               value={notePopupText}
               onChange={(e) => setNotePopupText(e.target.value)}
               autoFocus
-              rows={4}
+              rows={3}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && e.ctrlKey) handleNotePopupSave();
                 if (e.key === 'Escape') handleNotePopupClose();
               }}
             />
             <div className="note-popup-actions">
-              <span className="note-popup-hint">Ctrl+Enter to save</span>
-              <button className="btn btn-sm btn-primary" onClick={handleNotePopupSave}>Save</button>
-              <button className="btn btn-sm btn-ghost" onClick={handleNotePopupClose}>Cancel</button>
+              <span className="note-popup-hint">Ctrl+Enter to add</span>
+              <button className="btn btn-sm btn-primary" onClick={handleNotePopupSave}>Add Note</button>
+              <button className="btn btn-sm btn-ghost" onClick={handleNotePopupClose}>Close</button>
             </div>
           </div>
         </div>

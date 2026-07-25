@@ -1433,41 +1433,64 @@ export function getCheckInCount(habitId: string, date: string): number {
   return ci.count ?? 1;
 }
 
-/** Set or clear the note on a check-in for a specific habit+day. */
-export function setCheckInNote(habitId: string, date: string, note: string | null): void {
+/** Set notes (replaces ALL notes) for a check-in on a specific habit+day. */
+export function setCheckInNotes(habitId: string, date: string, notes: string[] | null): void {
   const existing = getCheckIn(habitId, date);
   if (existing) {
-    if (note === null || note === '') {
-      delete existing.note;
+    if (!notes || notes.length === 0) {
+      delete existing.notes;
     } else {
-      existing.note = note;
+      existing.notes = notes;
     }
     notify();
     return;
   }
-  // Create a non-completed entry just to hold the note (observation without completion)
-  if (note) {
-    const checkIn: CheckIn = { habitId, date, completed: false, note };
+  if (notes && notes.length > 0) {
+    const checkIn: CheckIn = { habitId, date, completed: false, notes };
     data.checkIns.push(checkIn);
     notify();
   }
 }
 
-/** Get the note for a check-in on a specific habit+day, or empty string. */
-export function getCheckInNote(habitId: string, date: string): string {
-  const ci = getCheckIn(habitId, date);
-  return ci?.note ?? '';
+/** Add a single note to a check-in (appends, does not replace). */
+export function addCheckInNote(habitId: string, date: string, note: string): void {
+  const existing = getCheckIn(habitId, date);
+  if (existing) {
+    if (!existing.notes) existing.notes = [];
+    existing.notes.push(note);
+    notify();
+    return;
+  }
+  const checkIn: CheckIn = { habitId, date, completed: false, notes: [note] };
+  data.checkIns.push(checkIn);
+  notify();
 }
 
-/** Get all check-in notes for a month (habitId -> day -> note). */
-export function getMonthCheckInNotes(habitId: string, year: number, month: number): Map<number, string> {
-  const map = new Map<number, string>();
+/** Remove a note at a specific index from a check-in. */
+export function removeCheckInNote(habitId: string, date: string, index: number): void {
+  const existing = getCheckIn(habitId, date);
+  if (existing?.notes) {
+    existing.notes.splice(index, 1);
+    if (existing.notes.length === 0) delete existing.notes;
+    notify();
+  }
+}
+
+/** Get all notes for a check-in on a specific habit+day. */
+export function getCheckInNotes(habitId: string, date: string): string[] {
+  const ci = getCheckIn(habitId, date);
+  return ci?.notes ?? [];
+}
+
+/** Get all check-in notes for a month (habitId -> day -> notes). */
+export function getMonthCheckInNotes(habitId: string, year: number, month: number): Map<number, string[]> {
+  const map = new Map<number, string[]>();
   const prefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
   const checks = data.checkIns.filter((c) => c.habitId === habitId && c.date.startsWith(prefix));
   for (const c of checks) {
-    if (c.note) {
+    if (c.notes && c.notes.length > 0) {
       const day = parseInt(c.date.split('-')[2], 10);
-      map.set(day, c.note);
+      map.set(day, c.notes);
     }
   }
   return map;
@@ -1631,6 +1654,9 @@ function parseImportedCheckIn(raw: unknown): ImportedCheckIn | null {
     completed: raw.completed === true,
     count: typeof raw.count === 'number' && raw.count > 0 && Number.isFinite(raw.count) ? raw.count : undefined,
     note: typeof raw.note === 'string' && raw.note.trim() ? raw.note.trim() : undefined,
+    notes: Array.isArray(raw.notes)
+      ? (raw.notes as unknown[]).filter((n: unknown): n is string => typeof n === 'string' && n.trim().length > 0).map((n: string) => n.trim())
+      : (typeof raw.note === 'string' && raw.note.trim() ? [raw.note.trim()] : undefined),
   };
 }
 
@@ -1757,19 +1783,27 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
         date: imported.date,
         completed: imported.completed ?? false,
         count: imported.count,
-        note: imported.note,
+        notes: imported.notes,
       });
       result.checkInsRestored++;
-    } else if (!existing.completed) {
-      existing.completed = true;
-      // Preserve imported count if higher than existing
+    } else {
+      let restored = false;
+      if (imported.completed && !existing.completed) {
+        existing.completed = true;
+        restored = true;
+      }
       if (imported.count && (!existing.count || imported.count > existing.count)) {
         existing.count = imported.count;
+        restored = true;
       }
-      if (imported.note && !existing.note) {
-        existing.note = imported.note;
+      if (imported.notes && imported.notes.length > 0) {
+        if (!existing.notes) existing.notes = [];
+        for (const n of imported.notes) {
+          if (!existing.notes.includes(n)) existing.notes.push(n);
+        }
+        restored = true;
       }
-      result.checkInsRestored++;
+      if (restored) result.checkInsRestored++;
     }
   }
 

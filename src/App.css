@@ -6087,3 +6087,46 @@ body {
 .habit-row-dragging td {
   border-color: transparent !important;
 }
+
+/* ============ MULTI-NOTE POPUP v0.3.2 ============ */
+
+.note-popup-list {
+  max-height: 160px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+.note-popup-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 4px 6px;
+  margin-bottom: 3px;
+  background: var(--bg-alt);
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.note-popup-item-text {
+  flex: 1;
+  color: var(--text);
+}
+
+.note-popup-item-del {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+  line-height: 1;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+
+.note-popup-item-del:hover {
+  color: #ef4444;
+}

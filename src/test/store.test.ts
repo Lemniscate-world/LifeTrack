@@ -354,6 +354,20 @@ describe('Persistence and fallbacks', () => {
     expect(getCheckIn(existing.id, '2026-06-01')?.completed).toBe(true);
   });
 
+  it('merges a richer imported check-in into an existing completed check-in', () => {
+    const existing = addHabit('Gym');
+    toggleCheckIn(existing.id, '2026-06-01');
+
+    const result = mergeImportedData({
+      habits: [{ id: 'old-gym', name: 'Gym', color: '#fff', goal: 20, createdAt: '', archived: false, order: 0 }],
+      checkIns: [{ habitId: 'old-gym', date: '2026-06-01', completed: true, count: 3, note: 'Three sets' }],
+      notes: [],
+    });
+
+    expect(result.checkInsRestored).toBe(1);
+    expect(getCheckIn(existing.id, '2026-06-01')).toMatchObject({ completed: true, count: 3, notes: ['Three sets'] });
+  });
+
   it('rejects invalid imported check-in dates', () => {
     const result = mergeImportedData({
       habits: [{ id: 'old-gym', name: 'Gym', color: '#fff', goal: 0, createdAt: '', archived: false, order: 0 }],

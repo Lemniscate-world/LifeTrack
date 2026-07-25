@@ -38,7 +38,7 @@ export interface CheckIn {
   date: string; // YYYY-MM-DD
   habitId: string;
   completed: boolean;
-  note?: string; // optional note for this check-in
+  notes?: string[]; // optional notes for this check-in (multiple per day)
   count?: number; // number of completions today (1 by default, up to goal)
 }
 
