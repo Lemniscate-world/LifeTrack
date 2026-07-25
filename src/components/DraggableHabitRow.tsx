@@ -10,9 +10,10 @@ import { Draggable } from '@hello-pangea/dnd';
 interface Props {
   habitId: string;
   index: number;
+  className?: string;
 }
 
-export function DraggableHabitRow({ habitId, index, children }: PropsWithChildren<Props>) {
+export function DraggableHabitRow({ habitId, index, children, className }: PropsWithChildren<Props>) {
   return (
     <Draggable draggableId={habitId} index={index}>
       {(provided, snapshot) => (
@@ -20,7 +21,7 @@ export function DraggableHabitRow({ habitId, index, children }: PropsWithChildre
           ref={provided.innerRef}
           {...provided.draggableProps}
           {...provided.dragHandleProps}
-          className={snapshot.isDragging ? 'habit-row-dragging' : undefined}
+          className={[snapshot.isDragging ? 'habit-row-dragging' : '', className ?? ''].filter(Boolean).join(' ')}
         >
           {children}
         </tr>

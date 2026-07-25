@@ -87,6 +87,16 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
+// --- Habit Categories ---
+const DEFAULT_CATEGORIES = [
+  { id: 'health', name: 'Health', color: '#10b981', emoji: '💪' },
+  { id: 'work', name: 'Work', color: '#6366f1', emoji: '💼' },
+  { id: 'personal', name: 'Personal', color: '#f59e0b', emoji: '🌟' },
+  { id: 'learning', name: 'Learning', color: '#8b5cf6', emoji: '📚' },
+  { id: 'mindfulness', name: 'Mindfulness', color: '#ec4899', emoji: '🧘' },
+  { id: 'finance', name: 'Finance', color: '#14b8a6', emoji: '💰' },
+];
+
   export default function App() {
   const now = new Date();
   // Per-instance guard so React StrictMode's double-mount (or HMR remounts)
@@ -417,7 +427,7 @@ const MONTH_NAMES = [
       // Tab switching: Ctrl+1..9 + Ctrl+0
       if (ctrl && e.key >= '0' && e.key <= '9') {
         e.preventDefault();
-        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'experiments', 'chaos', 'mantras'];
+        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'mantras', 'experiments'];
         const idx = e.key === '0' ? 0 : parseInt(e.key, 10);
         const viewKey = tabs[idx] as typeof view;
         if (viewKey) setView(viewKey);
@@ -842,33 +852,32 @@ const MONTH_NAMES = [
       {/* Navbar — minimal */}
       <nav className="navbar" aria-label="Main navigation">
         <span className="logo">
-          <svg className="logo-icon" width="26" height="26" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-            {/* Rounded square background */}
-            <rect x="2" y="2" width="44" height="44" rx="11" fill="url(#logoGrad)" />
-            {/* Rising streak line — represents progress, habit building */}
-            <path
-              d="M10 34 L16 28 L20 30 L26 20 L30 22 L36 12"
-              stroke="white"
-              strokeWidth="3"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              fill="none"
-              opacity="0.7"
-            />
-            {/* Checkmark — represents completion */}
-            <polyline
-              points="12,24 18,30 28,18"
-              stroke="white"
-              strokeWidth="3.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              fill="none"
-            />
+          <svg className="logo-icon" width="28" height="28" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            {/* Outer ring — represents the cycle of habit formation */}
+            <circle cx="24" cy="24" r="21" stroke="url(#logoRing)" strokeWidth="3" fill="none" opacity="0.5" />
+            {/* Inner circle — the daily commitment */}
+            <circle cx="24" cy="24" r="14" stroke="url(#logoInner)" strokeWidth="2" fill="none" />
+            {/* Ascending path — progress, growth, streak building */}
+            <path d="M10 30 L17 22 L21 25 L27 15 L31 18 L37 8" stroke="url(#logoLine)" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            {/* Checkmark — completion, satisfaction */}
+            <circle cx="24" cy="24" r="5" fill="url(#logoDot)" />
             <defs>
-              <linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#94a3b8" />
-                <stop offset="100%" stopColor="#475569" />
+              <linearGradient id="logoRing" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#818cf8" />
+                <stop offset="100%" stopColor="#6366f1" />
               </linearGradient>
+              <linearGradient id="logoInner" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#a78bfa" />
+                <stop offset="100%" stopColor="#7c3aed" />
+              </linearGradient>
+              <linearGradient id="logoLine" x1="0" y1="1" x2="1" y2="0">
+                <stop offset="0%" stopColor="#34d399" />
+                <stop offset="100%" stopColor="#10b981" />
+              </linearGradient>
+              <radialGradient id="logoDot" cx="0.4" cy="0.35">
+                <stop offset="0%" stopColor="#fbbf24" />
+                <stop offset="100%" stopColor="#f59e0b" />
+              </radialGradient>
             </defs>
           </svg>
           <span className="logo-text">
@@ -1022,7 +1031,7 @@ const MONTH_NAMES = [
                   const goal = habit.goal || daysInMonth;
 
                   return (
-                    <DraggableHabitRow key={habit.id} habitId={habit.id} index={habitIdx}>
+                    <DraggableHabitRow key={habit.id} habitId={habit.id} index={habitIdx} className={habit.stackParent ? 'has-stack' : ''}>
                       <td className={`col-habits streak-level-${streakLevel}`}>
                         <div className="habit-row">
                           {editingHabitId === habit.id ? (
@@ -1068,6 +1077,18 @@ const MONTH_NAMES = [
                               </span>
                             );
                           })()}
+                          <select
+                            className="habit-category-select"
+                            value={habit.category ?? ''}
+                            onChange={(e) => updateHabit(habit.id, { category: e.target.value || undefined })}
+                            title={habit.category ? `Category: ${habit.category}` : 'Set category'}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <option value="">—</option>
+                            {DEFAULT_CATEGORIES.map(c => (
+                              <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>
+                            ))}
+                          </select>
                           <button
                             className="habit-archive"
                             onClick={() => archiveHabit(habit.id)}

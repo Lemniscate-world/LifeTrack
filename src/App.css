@@ -5986,3 +5986,62 @@ body {
   color: #DC2626;
   background: #FEE2E2;
 }
+
+/* ============ CATEGORIES & STACKING v0.3.2 ============ */
+
+/* Category selector (dropdown in habit row) */
+.habit-category-select {
+  font-size: 10px;
+  font-family: var(--font);
+  padding: 1px 3px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s, border-color 0.1s;
+  max-width: 85px;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.habit-grid tbody tr:hover .habit-category-select {
+  opacity: 1;
+}
+
+.habit-category-select:hover,
+.habit-category-select:focus {
+  border-color: var(--border);
+  background: var(--bg-alt);
+  outline: none;
+}
+
+/* Stacked habits: subtle left indent + connector */
+.habit-grid tbody tr.has-stack td.col-habits {
+  padding-left: 20px !important;
+  position: relative;
+}
+
+.habit-grid tbody tr.has-stack td.col-habits::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  opacity: 0.4;
+}
+
+/* Category dot next to habit name */
+.habit-cat-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 3px;
+  vertical-align: middle;
+  opacity: 0.6;
+}
