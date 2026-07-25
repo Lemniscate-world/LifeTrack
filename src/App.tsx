@@ -1943,9 +1943,26 @@ function InsightsView({
             Track your habits consistently for a week, and I'll start surfacing
             personalized insights — no cloud, no AI API, all local.
           </p>
-          <button className="btn btn-primary" onClick={() => onView('grid')}>
-            Go to Grid
-          </button>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button className="btn btn-primary" onClick={() => onView('grid')}>
+              Go to Grid
+            </button>
+            <button
+              className="btn btn-sm btn-ghost ai-analyze-btn"
+              onClick={handleDeepAnalysis}
+              disabled={aiLoading}
+              title="Run local AI analysis via Ollama (requires Ollama installed)"
+            >
+              {aiLoading ? 'Analyzing...' : 'Deep Analysis'}
+            </button>
+          </div>
+          {aiError && <div className="ai-error">{aiError}</div>}
+          {aiResponse && (
+            <div className="ai-response-card" style={{ marginTop: 16 }}>
+              <div className="ai-response-header">AI Analysis <span className="ai-badge">Ollama</span></div>
+              <div className="ai-response-body">{aiResponse}</div>
+            </div>
+          )}
         </div>
       </div>
     );
