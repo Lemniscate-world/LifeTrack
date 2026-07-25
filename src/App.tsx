@@ -1820,19 +1820,25 @@ function InsightsView({
     return m;
   }, [habits]);
 
-  // --- Ollama Deep Analysis state ---
+  // --- Ollama Deep Analysis (auto-runs on mount, debounced) ---
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResponse, setAiResponse] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [aiLastRun, setAiLastRun] = useState<number>(0);
+  const aiRanRef = useRef(false);
+  const aiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleDeepAnalysis = useCallback(async () => {
+  const runDeepAnalysis = useCallback(async (force = false) => {
+    // Debounce: don't re-run within 5 minutes unless forced
+    const now = Date.now();
+    if (!force && aiLastRun > 0 && now - aiLastRun < 5 * 60 * 1000) return;
+
     setAiLoading(true);
     setAiError(null);
-    setAiResponse(null);
+    if (force) setAiResponse(null);
     try {
-      // Build a rich summary including recent notes for AI analysis.
-      const now = new Date();
-      const thirtyDaysAgo = new Date(now);
+      const today = new Date();
+      const thirtyDaysAgo = new Date(today);
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const recentCutoff = thirtyDaysAgo.toISOString().slice(0, 10);
 
@@ -1849,11 +1855,9 @@ function InsightsView({
           ? `after: ${habits.find((p) => p.id === h.stackParent)?.name ?? '?'}`
           : 'none';
 
-        // Collect recent notes for this habit
         const recentNotes: string[] = [];
         for (const ci of habitCheckIns) {
           if (ci.date < recentCutoff) continue;
-          // Support both new `notes[]` and legacy `note` (singular)
           const candidates: string[] = ci.notes ?? [];
           const legacyNote = (ci as unknown as Record<string, unknown>).note;
           if (typeof legacyNote === 'string' && legacyNote.trim()) candidates.push(legacyNote.trim());
@@ -1874,7 +1878,7 @@ function InsightsView({
         + (allNotes.length > 0 ? '\n\nALL RECENT NOTES (last 30 days):\n' + allNotes.join('\n') : '');
       const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
       if (!isTauriEnv) {
-        setAiResponse('🤖 Deep Analysis requires the desktop app (Tauri). Ollama is not available in the browser.');
+        setAiResponse('Deep Analysis requires the desktop app. Ollama is not available in the browser.');
         return;
       }
       const { invoke } = await import('@tauri-apps/api/core');
@@ -1883,12 +1887,24 @@ function InsightsView({
         model: null,
       });
       setAiResponse(response);
+      setAiLastRun(Date.now());
     } catch (e) {
       setAiError(e instanceof Error ? e.message : 'AI analysis failed');
     } finally {
       setAiLoading(false);
     }
-  }, [habits, checkIns]);
+  }, [habits, checkIns, aiLastRun]);
+
+  // Auto-run on first mount (after a short delay to let UI render)
+  useEffect(() => {
+    if (aiRanRef.current) return;
+    aiRanRef.current = true;
+    if (aiDebounceRef.current) clearTimeout(aiDebounceRef.current);
+    aiDebounceRef.current = setTimeout(() => runDeepAnalysis(false), 1500);
+    return () => {
+      if (aiDebounceRef.current) clearTimeout(aiDebounceRef.current);
+    };
+  }, [runDeepAnalysis]);
 
   const kindIcon: Record<RecKind, string> = {
     MISS_PATTERN: '📉',
@@ -1949,7 +1965,7 @@ function InsightsView({
             </button>
             <button
               className="btn btn-sm btn-ghost ai-analyze-btn"
-              onClick={handleDeepAnalysis}
+              onClick={() => runDeepAnalysis(true)}
               disabled={aiLoading}
               title="Run local AI analysis via Ollama (requires Ollama installed)"
             >
@@ -1970,6 +1986,54 @@ function InsightsView({
 
   return (
     <div className="insights-view">
+      {/* --- AI Analysis Section (auto-runs, always visible at top) --- */}
+      <div className="ai-section">
+        <div className="ai-section-header">
+          <span className="ai-section-title">
+            🤖 AI Coach <span className="ai-badge">Ollama</span>
+          </span>
+          <span className="ai-section-status">
+            {aiLoading ? (
+              <span className="ai-loading">Analyzing your habits...</span>
+            ) : aiResponse ? (
+              <span className="ai-fresh">Updated {new Date(aiLastRun).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
+            ) : aiError ? (
+              <span className="ai-error-text">{aiError}</span>
+            ) : (
+              <span className="ai-pending">Starting analysis...</span>
+            )}
+          </span>
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() => runDeepAnalysis(true)}
+            disabled={aiLoading}
+            title="Refresh AI analysis"
+          >
+            {aiLoading ? '⏳' : '🔄'}
+          </button>
+        </div>
+        {aiResponse && (
+          <div className="ai-response-card">
+            <div className="ai-response-body">{aiResponse}</div>
+          </div>
+        )}
+        {!aiResponse && !aiLoading && !aiError && (
+          <div className="ai-response-card ai-placeholder">
+            <div className="ai-response-body" style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
+              AI analysis will appear here automatically. Make sure Ollama is running.
+            </div>
+          </div>
+        )}
+        {aiLoading && !aiResponse && (
+          <div className="ai-response-card ai-placeholder">
+            <div className="ai-response-body" style={{ color: 'var(--text-muted)' }}>
+              ⏳ Connecting to Ollama...
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* --- Local Recommendations --- */}
       <div className="insights-header">
         <h2><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:6}}><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>Insights</h2>
         <span className="insights-subtitle">
@@ -1978,24 +2042,7 @@ function InsightsView({
             · {new Date(generatedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
           </span>
         </span>
-        <button
-          className="btn btn-sm btn-ghost ai-analyze-btn"
-          onClick={handleDeepAnalysis}
-          disabled={aiLoading}
-          title="Run local AI analysis via Ollama"
-        >
-          {aiLoading ? '⏳ Analyzing...' : '🤖 Deep Analysis'}
-        </button>
       </div>
-
-      {aiError && <div className="ai-error">{aiError}</div>}
-
-      {aiResponse && (
-        <div className="ai-response-card">
-          <div className="ai-response-header">🤖 AI Analysis <span className="ai-badge">Ollama</span></div>
-          <div className="ai-response-body">{aiResponse}</div>
-        </div>
-      )}
 
       <div className="insights-list">
         {recommendations.map((rec, i) => {

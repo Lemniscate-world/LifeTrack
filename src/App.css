@@ -6241,3 +6241,75 @@ body {
 .onboarding-skip:hover {
   color: var(--text-secondary);
 }
+
+/* ============ AI COACH SECTION (auto-analysis) v0.3.2 ============ */
+
+.ai-section {
+  background: var(--card-bg, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
+.ai-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.ai-section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ai-badge {
+  font-size: 10px;
+  background: var(--primary);
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 6px;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+
+.ai-section-status {
+  flex: 1;
+  font-size: 12px;
+}
+
+.ai-loading {
+  color: var(--primary);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.ai-fresh {
+  color: var(--text-muted);
+}
+
+.ai-error-text {
+  color: #ef4444;
+}
+
+.ai-pending {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.ai-placeholder {
+  opacity: 0.6;
+}
+
+.ai-response-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+  white-space: pre-line;
+}
