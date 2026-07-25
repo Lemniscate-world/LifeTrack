@@ -745,7 +745,7 @@ function detectNoteInsights(
   const hasAnyNotes = checkIns.some(ci => {
     if (ci.date < cutoff) return false;
     if (ci.notes && ci.notes.length > 0) return true;
-    const legacyNote = (ci as Record<string, unknown>).note;
+    const legacyNote = (ci as unknown as Record<string, unknown>).note;
     return typeof legacyNote === 'string' && legacyNote.trim().length > 0;
   });
   if (!hasAnyNotes) return [];
@@ -756,7 +756,7 @@ function detectNoteInsights(
   for (const ci of checkIns) {
     if (ci.date < cutoff) continue;
     const notes: string[] = ci.notes ?? [];
-    const legacyNote = (ci as Record<string, unknown>).note;
+    const legacyNote = (ci as unknown as Record<string, unknown>).note;
     if (typeof legacyNote === 'string' && legacyNote.trim()) notes.push(legacyNote.trim());
     if (notes.length === 0) continue;
 
@@ -822,7 +822,7 @@ function detectMoodHabitLink(
   habits: Habit[],
   checkIns: CheckIn[],
   moods: Record<string, string>,
-  now: Date,
+  _now: Date,
 ): Recommendation[] {
   const recs: Recommendation[] = [];
   const moodDates = Object.keys(moods);
@@ -848,7 +848,8 @@ function detectMoodHabitLink(
     if (habit.archived) continue;
     const habitDates = habitCheckDates(habit.id, checkIns);
     const habitSet = new Set(habitDates);
-    const moodDatesWithHabit = moodDates.filter(d => d >= habitDates[0] ?? '');
+    const firstHabitDate = habitDates[0] ?? '';
+    const moodDatesWithHabit = moodDates.filter(d => d >= firstHabitDate);
     if (moodDatesWithHabit.length < 7) continue;
 
     // Compare mood on days with vs without this habit

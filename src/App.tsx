@@ -8,7 +8,6 @@ import {
   getCheckInCount,
   resetCheckInCount,
   decrementCheckInCount,
-  setCheckInNotes,
   getCheckInNotes,
   addCheckInNote,
   removeCheckInNote,
@@ -1856,7 +1855,7 @@ function InsightsView({
           if (ci.date < recentCutoff) continue;
           // Support both new `notes[]` and legacy `note` (singular)
           const candidates: string[] = ci.notes ?? [];
-          const legacyNote = (ci as Record<string, unknown>).note;
+          const legacyNote = (ci as unknown as Record<string, unknown>).note;
           if (typeof legacyNote === 'string' && legacyNote.trim()) candidates.push(legacyNote.trim());
           for (const n of candidates) {
             if (n && n.trim()) recentNotes.push(n.trim());

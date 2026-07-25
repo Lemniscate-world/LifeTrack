@@ -1579,6 +1579,7 @@ interface ImportedCheckIn {
   completed: boolean;
   count?: number;
   note?: string;
+  notes?: string[];
 }
 
 interface ImportedNote {
