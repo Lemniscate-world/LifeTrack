@@ -1826,19 +1826,48 @@ function InsightsView({
     setAiError(null);
     setAiResponse(null);
     try {
-      const summary = habits
-        .filter((h) => !h.archived)
-        .map((h) => {
-          const completed = checkIns.filter((ci) => ci.habitId === h.id && ci.completed).length;
-          const total = checkIns.filter((ci) => ci.habitId === h.id).length;
-          const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
-          const best = h.bestStreak ?? 0;
-          const stacked = h.stackParent
-            ? `after: ${habits.find((p) => p.id === h.stackParent)?.name ?? '?'}`
-            : 'none';
-          return `${h.name}: ${completed}/${total} done (${rate}%), best streak ${best}, stack ${stacked}`;
-        })
-        .join('\n');
+      // Build a rich summary including recent notes for AI analysis.
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now);
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const recentCutoff = thirtyDaysAgo.toISOString().slice(0, 10);
+
+      const habitSummaries: string[] = [];
+      const allNotes: string[] = [];
+
+      for (const h of habits.filter(h => !h.archived)) {
+        const habitCheckIns = checkIns.filter(ci => ci.habitId === h.id);
+        const completed = habitCheckIns.filter(ci => ci.completed).length;
+        const total = habitCheckIns.length;
+        const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
+        const best = h.bestStreak ?? 0;
+        const stacked = h.stackParent
+          ? `after: ${habits.find((p) => p.id === h.stackParent)?.name ?? '?'}`
+          : 'none';
+
+        // Collect recent notes for this habit
+        const recentNotes: string[] = [];
+        for (const ci of habitCheckIns) {
+          if (ci.date < recentCutoff) continue;
+          // Support both new `notes[]` and legacy `note` (singular)
+          const candidates: string[] = ci.notes ?? [];
+          const legacyNote = (ci as Record<string, unknown>).note;
+          if (typeof legacyNote === 'string' && legacyNote.trim()) candidates.push(legacyNote.trim());
+          for (const n of candidates) {
+            if (n && n.trim()) recentNotes.push(n.trim());
+          }
+        }
+
+        let line = `${h.name}: ${completed}/${total} done (${rate}%), best streak ${best}, stack ${stacked}`;
+        if (recentNotes.length > 0) {
+          line += `\n  notes: ${recentNotes.join(' | ')}`;
+          allNotes.push(...recentNotes.map(n => `[${h.name}] ${n}`));
+        }
+        habitSummaries.push(line);
+      }
+
+      const summary = habitSummaries.join('\n')
+        + (allNotes.length > 0 ? '\n\nALL RECENT NOTES (last 30 days):\n' + allNotes.join('\n') : '');
       const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
       if (!isTauriEnv) {
         setAiResponse('🤖 Deep Analysis requires the desktop app (Tauri). Ollama is not available in the browser.');

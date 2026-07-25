@@ -275,7 +275,9 @@ async fn analyze_habits(summary_json: String, model: Option<String>) -> Result<S
     let prompt = format!(
         "You are a kind, supportive habit coach. Analyze the following habit data and give 3-5 concise, actionable insights.\n\
          Focus on: patterns, correlations, suggestions for habit stacking, and motivational observations.\n\
-         Be warm but direct. Use bullet points. No markdown headers. Max 200 words.\n\n\
+         If notes are present, analyze them for triggers, patterns, emotional states, obstacles, and wins.\n\
+         Suggest concrete actions based on what the user wrote in their notes.\n\
+         Be warm but direct. Use bullet points. No markdown headers. Max 250 words.\n\n\
          HABIT DATA (anonymized):\n{}",
         summary_json
     );
