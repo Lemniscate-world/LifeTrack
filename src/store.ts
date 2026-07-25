@@ -1571,6 +1571,12 @@ interface ImportedHabit {
   chaosDimension?: string;
   chaosImpact?: number;
   chaosThresholdDays?: number;
+  focusMonth?: string;
+  category?: string;
+  multiClick?: boolean;
+  stackParent?: string;
+  stackWhen?: 'before' | 'after' | 'with';
+  why?: string[];
 }
 
 interface ImportedCheckIn {
@@ -1642,6 +1648,12 @@ function parseImportedHabit(raw: unknown): ImportedHabit | null {
     chaosDimension: dim,
     chaosImpact: impact,
     chaosThresholdDays: threshold,
+    focusMonth: typeof raw.focusMonth === 'string' && /^\d{4}-\d{2}$/.test(raw.focusMonth) ? raw.focusMonth : undefined,
+    category: typeof raw.category === 'string' && raw.category.length > 0 ? raw.category : undefined,
+    multiClick: typeof raw.multiClick === 'boolean' ? raw.multiClick : undefined,
+    stackParent: typeof raw.stackParent === 'string' ? raw.stackParent : undefined,
+    stackWhen: (raw.stackWhen === 'before' || raw.stackWhen === 'after' || raw.stackWhen === 'with') ? raw.stackWhen : undefined,
+    why: Array.isArray(raw.why) ? (raw.why as unknown[]).filter((w): w is string => typeof w === 'string' && w.trim().length > 0).slice(0, 5) : undefined,
   };
 }
 
@@ -1690,6 +1702,12 @@ function createImportedHabit(source: ImportedHabit): Habit {
     ...(source.chaosDimension ? { chaosDimension: source.chaosDimension } : {}),
     ...(source.chaosImpact !== undefined ? { chaosImpact: source.chaosImpact } : {}),
     ...(source.chaosThresholdDays !== undefined ? { chaosThresholdDays: source.chaosThresholdDays } : {}),
+    ...(source.focusMonth ? { focusMonth: source.focusMonth } : {}),
+    ...(source.category ? { category: source.category } : {}),
+    ...(source.multiClick !== undefined ? { multiClick: source.multiClick } : {}),
+    ...(source.stackParent ? { stackParent: source.stackParent } : {}),
+    ...(source.stackWhen ? { stackWhen: source.stackWhen } : {}),
+    ...(source.why && source.why.length > 0 ? { why: source.why } : {}),
   };
 }
 
@@ -1713,6 +1731,31 @@ function applyImportedHabitMetadata(target: Habit, source: ImportedHabit): boole
   }
   if (target.chaosThresholdDays === undefined && source.chaosThresholdDays !== undefined) {
     target.chaosThresholdDays = source.chaosThresholdDays;
+    changed = true;
+  }
+  // v0.3.2: preserve user-facing metadata that was previously lost on import
+  if (!target.focusMonth && source.focusMonth) {
+    target.focusMonth = source.focusMonth;
+    changed = true;
+  }
+  if (!target.category && source.category) {
+    target.category = source.category;
+    changed = true;
+  }
+  if (target.multiClick === undefined && source.multiClick !== undefined) {
+    target.multiClick = source.multiClick;
+    changed = true;
+  }
+  if (!target.stackParent && source.stackParent) {
+    target.stackParent = source.stackParent;
+    changed = true;
+  }
+  if (!target.stackWhen && source.stackWhen) {
+    target.stackWhen = source.stackWhen;
+    changed = true;
+  }
+  if ((!target.why || target.why.length === 0) && source.why && source.why.length > 0) {
+    target.why = source.why;
     changed = true;
   }
   return changed;
