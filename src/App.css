@@ -6045,3 +6045,45 @@ body {
   vertical-align: middle;
   opacity: 0.6;
 }
+
+/* ============ DRAG HANDLE v0.3.2 ============ */
+
+.col-drag-handle {
+  width: 24px !important;
+  min-width: 24px !important;
+  padding: 2px !important;
+  text-align: center !important;
+  cursor: grab;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.1s;
+  user-select: none;
+  vertical-align: middle !important;
+}
+
+.habit-grid tbody tr:hover .col-drag-handle {
+  opacity: 0.5;
+}
+
+.col-drag-handle:active {
+  cursor: grabbing;
+  opacity: 1;
+}
+
+.habit-grid thead .col-drag-handle {
+  opacity: 1;
+  cursor: default;
+}
+
+/* Drag visual feedback */
+.habit-row-dragging {
+  background: var(--bg-alt) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  opacity: 0.85;
+  cursor: grabbing !important;
+  z-index: 10;
+}
+
+.habit-row-dragging td {
+  border-color: transparent !important;
+}

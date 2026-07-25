@@ -71,20 +71,21 @@ describe('Habit reordering (UI integration)', () => {
     expect(droppable).not.toBeNull();
   });
 
-  it('the full row acts as both draggable and drag handle', async () => {
+  it('the drag handle is a dedicated grip column, not the full row', async () => {
     const user = userEvent.setup();
     render(<App />);
     await addHabitUI(user, 'Alpha');
 
-    // The row should have both data-rfd-draggable-id and data-rfd-drag-handle-draggable-id
+    // The TR has draggable attributes
     const draggable = document.querySelector('[data-rfd-draggable-id]');
     expect(draggable).not.toBeNull();
     expect(draggable?.tagName).toBe('TR');
 
-    // The entire row is also the drag handle (dragHandleProps spread on TR)
+    // The drag handle is now a dedicated <td> with grip icon, not the TR
     const handle = document.querySelector('[data-rfd-drag-handle-draggable-id]');
     expect(handle).not.toBeNull();
-    expect(handle?.tagName).toBe('TR');
+    expect(handle?.tagName).toBe('TD');
+    expect(handle?.classList.contains('col-drag-handle')).toBe(true);
   });
 
   it('the DragDropContext wrapper renders without throwing even with no habits', () => {
@@ -109,7 +110,7 @@ import { DraggableHabitRow } from '../components/DraggableHabitRow';
 import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 
 describe('DraggableHabitRow (unit)', () => {
-  it('renders children inside a <tr> with draggable attributes', () => {
+  it('renders children plus a drag handle grip td', () => {
     const { container } = render(
       <DragDropContext onDragEnd={() => {}}>
         <Droppable droppableId="test-list">
@@ -132,9 +133,11 @@ describe('DraggableHabitRow (unit)', () => {
     expect(tr).not.toBeNull();
     expect(tr?.hasAttribute('data-rfd-draggable-id')).toBe(true);
     expect(tr?.querySelector('.habit-name')?.textContent).toBe('Test');
+    // Drag handle is a dedicated <td>, not the <tr>
+    expect(tr?.querySelector('.col-drag-handle')).not.toBeNull();
   });
 
-  it('spreads dragHandleProps on the TR (entire row is the handle)', () => {
+  it('drag handle is a td.col-drag-handle, not the tr', () => {
     const { container } = render(
       <DragDropContext onDragEnd={() => {}}>
         <Droppable droppableId="test-list-2">
@@ -152,10 +155,11 @@ describe('DraggableHabitRow (unit)', () => {
       </DragDropContext>
     );
 
-    // The TR acts as both draggable and drag handle
-    const tr = container.querySelector('tr');
-    expect(tr?.hasAttribute('data-rfd-draggable-id')).toBe(true);
-    expect(tr?.hasAttribute('data-rfd-drag-handle-draggable-id')).toBe(true);
+    // Drag handle is on a <td>, not the <tr>
+    const handle = container.querySelector('[data-rfd-drag-handle-draggable-id]');
+    expect(handle).not.toBeNull();
+    expect(handle?.tagName).toBe('TD');
+    expect(handle?.classList.contains('col-drag-handle')).toBe(true);
   });
 });
 

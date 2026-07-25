@@ -991,6 +991,7 @@ const DEFAULT_CATEGORIES = [
             <table className="habit-grid">
               <thead>
                 <tr>
+                  <th className="col-drag-handle"></th>
                   <th className="col-habits">Habits</th>
                   {dayHeaders.map((h) => (
                     <th
@@ -1346,6 +1347,7 @@ const DEFAULT_CATEGORIES = [
                 })}
                     {/* Mood tracker row */}
                     <tr className="mood-row">
+                      <td className="col-drag-handle"></td>
                       <td className="col-habits">
                         <span className="mood-label">Mood</span>
                       </td>
