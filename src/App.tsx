@@ -61,6 +61,7 @@ import YearView from './YearView';
 import ChallengeView from './ChallengeView';
 import ExperimentsView from './ExperimentsView';
 import UrgeSurfingView from './UrgeSurfingView';
+import OnboardingHelp from './OnboardingHelp';
 // (Mood view removed — emotional state is tracked via the 'emotional' chaos dimension.)
 import { generateInsights, type Recommendation, type RecKind } from './recommendations';
 import { computeCorrelations } from './correlations';
@@ -152,6 +153,7 @@ const DEFAULT_CATEGORIES = [
   const [savedMsg, setSavedMsg] = useState('');
   // Shortcuts help + toast
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -533,7 +535,7 @@ const DEFAULT_CATEGORIES = [
     const dateStr = parseDateStr(year, month, day);
     const existingNotes = getCheckInNotes(habitId, dateStr);
     setNotePopup({ habitId, date: dateStr, habitName, notes: existingNotes });
-    setNotePopupText(existingNote);
+    setNotePopupText('');
   }
 
   // Save the note from the popup.
@@ -920,6 +922,11 @@ const DEFAULT_CATEGORIES = [
               }}>Restore from Backup</button>
             </div>
           </div>
+          <button className="btn-icon" onClick={() => setShowOnboarding(true)} title="How to use LifeTrack" aria-label="Open tutorial">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </button>
           <button className="btn-icon" onClick={() => setDarkMode(!darkMode)} title="Toggle dark mode" aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
@@ -1767,6 +1774,9 @@ const DEFAULT_CATEGORIES = [
           </div>
         </div>
       )}
+
+      {/* Onboarding tutorial */}
+      {showOnboarding && <OnboardingHelp onDismiss={() => setShowOnboarding(false)} />}
 
     </div>
   );

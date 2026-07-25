@@ -4,6 +4,28 @@ All notable changes to LifeTrack are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-07-25
+
+### Added
+- **Onboarding tutorial** — 10-step guided walkthrough for new users, accessible via "?" button in navbar. Covers check-ins, multi-click, notes, categories, urges, stacks, shortcuts, settings, and more.
+- **Multi-notes per check-in** — each daily check-in now supports multiple notes instead of a single note. "Add note" opens a popup where notes can be added/removed individually (Ctrl+Enter to save).
+- **Note dots always visible** — small blue dots appear on every cell that has notes, no hover required. A ring highlights the currently selected day.
+- **Dedicated drag handle** — habit reordering now uses a grip icon column (≡) instead of dragging the entire row, preventing accidental drags during button clicks.
+
+### Changed
+- **Multi-click OFF by default** — new habits default to single-click mode. Users can re-enable multi-click in Settings.
+- **SVG logo redesigned** — concentric circles with ascending path and final dot, symbolizing progress.
+- **Habit categories** — 6 default categories (Health, Work, Learning, Creativity, Social, Other) with a selector dropdown per habit row.
+
+### Fixed
+- **mergeImportedData now preserves all 13 data types** — previously lost moods, experiments, urges, mantras, chaos dimensions, mantra settings, and preferences during import.
+- **Preferences (darkMode/theme) survive reinstall** — moved into AppData.preferences with full backup chain + legacy localStorage fallback.
+- **find_latest_backup now searches 7+ locations** — including Google Drive, OneDrive, and AppData/LifeTrack/.
+- **SettingsView reset cleans all keys** — no longer leaves orphaned localStorage keys.
+- **Count + note preserved on import** — parseImportedCheckIn now extracts count and notes; merge keeps highest count and merges notes arrays.
+- **Upgrade backup date-key bug** — fixed prefix search to match date-only keys created with time-suffixed keys.
+- **package.json BOM encoding** — fixed UTF-8 BOM causing PostCSS config parse failure.
+
 ## [0.2.1] — 2026-06-29
 
 ### Fixed
