@@ -1797,7 +1797,12 @@ function InsightsView({
   onView: (_v: 'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights' | 'mantras' | 'settings' | 'today' | 'year' | 'challenge' | 'experiments') => void;
 }) {
   const { recommendations, generatedAt } = useMemo(
-    () => generateInsights(habits, checkIns),
+    () => {
+      try {
+        const allData = exportAllData();
+        return generateInsights(habits, checkIns, new Date(), allData.moods ?? {});
+      } catch { return generateInsights(habits, checkIns); }
+    },
     [habits, checkIns],
   );
 
@@ -1900,6 +1905,9 @@ function InsightsView({
     STREAK_MILESTONE: '🎯',
     PERFECT_WEEK: '✨',
     MANTRA_MATCH: '🧘',
+    NOTE_POSITIVE: '💚',
+    NOTE_OBSTACLE: '💡',
+    GOAL_PROGRESS: '🎯',
   };
 
   // eslint-disable-next-line no-unused-vars
@@ -1921,6 +1929,9 @@ function InsightsView({
     STREAK_MILESTONE: () => onView('stats'),
     PERFECT_WEEK: () => onView('history'),
     MANTRA_MATCH: () => onView('mantras'),
+    NOTE_POSITIVE: () => onView('grid'),
+    NOTE_OBSTACLE: () => onView('grid'),
+    GOAL_PROGRESS: () => onView('stats'),
   };
 
   if (recommendations.length === 0) {

@@ -26,7 +26,10 @@ export type RecKind =
   | 'WEEKLY_SUMMARY'
   | 'STREAK_MILESTONE'
   | 'PERFECT_WEEK'
-  | 'MANTRA_MATCH';
+  | 'MANTRA_MATCH'
+  | 'NOTE_POSITIVE'
+  | 'NOTE_OBSTACLE'
+  | 'GOAL_PROGRESS';
 
 export interface Recommendation {
   kind: RecKind;
@@ -698,6 +701,312 @@ function detectMantraMatches(
   return recs.slice(0, 2);
 }
 
+// --- Rule 13: Note Keyword Insights ---
+// Scan recent check-in notes for keywords indicating triggers, wins, or obstacles.
+// Pure local analysis — no AI needed.
+const NOTE_KEYWORDS: Record<string, { label: string; sentiment: 'positive' | 'negative' | 'neutral' }> = {
+  tired: { label: 'fatigue', sentiment: 'negative' },
+  exhausted: { label: 'épuisement', sentiment: 'negative' },
+  stress: { label: 'stress', sentiment: 'negative' },
+  anxious: { label: 'anxiété', sentiment: 'negative' },
+  'hard day': { label: 'journée difficile', sentiment: 'negative' },
+  sick: { label: 'maladie', sentiment: 'negative' },
+  'no energy': { label: "manque d'énergie", sentiment: 'negative' },
+  skipped: { label: 'oubli', sentiment: 'negative' },
+  forgot: { label: 'oubli', sentiment: 'negative' },
+  'didn\'t feel': { label: 'manque de motivation', sentiment: 'negative' },
+  lazy: { label: 'paresse', sentiment: 'negative' },
+  great: { label: 'super journée', sentiment: 'positive' },
+  awesome: { label: 'excellente session', sentiment: 'positive' },
+  amazing: { label: 'session incroyable', sentiment: 'positive' },
+  proud: { label: 'fierté', sentiment: 'positive' },
+  'felt good': { label: 'bien-être', sentiment: 'positive' },
+  energized: { label: 'plein d\'énergie', sentiment: 'positive' },
+  'best streak': { label: 'record personnel', sentiment: 'positive' },
+  easy: { label: 'facilité', sentiment: 'positive' },
+  morning: { label: 'routine du matin', sentiment: 'neutral' },
+  evening: { label: 'routine du soir', sentiment: 'neutral' },
+  weekend: { label: 'week-end', sentiment: 'neutral' },
+  travel: { label: 'voyage', sentiment: 'neutral' },
+  busy: { label: 'emploi du temps chargé', sentiment: 'negative' },
+};
+
+function detectNoteInsights(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  now: Date,
+): Recommendation[] {
+  const recs: Recommendation[] = [];
+  const thirtyDaysAgo = new Date(now);
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const cutoff = thirtyDaysAgo.toISOString().slice(0, 10);
+
+  // Early exit: no notes in any check-in
+  const hasAnyNotes = checkIns.some(ci => {
+    if (ci.date < cutoff) return false;
+    if (ci.notes && ci.notes.length > 0) return true;
+    const legacyNote = (ci as Record<string, unknown>).note;
+    return typeof legacyNote === 'string' && legacyNote.trim().length > 0;
+  });
+  if (!hasAnyNotes) return [];
+
+  // Collect keyword matches per habit
+  const habitKeywords = new Map<string, Map<string, { count: number; sentiment: string; label: string }>>();
+
+  for (const ci of checkIns) {
+    if (ci.date < cutoff) continue;
+    const notes: string[] = ci.notes ?? [];
+    const legacyNote = (ci as Record<string, unknown>).note;
+    if (typeof legacyNote === 'string' && legacyNote.trim()) notes.push(legacyNote.trim());
+    if (notes.length === 0) continue;
+
+    const combinedText = notes.join(' ').toLowerCase();
+
+    for (const [keyword, info] of Object.entries(NOTE_KEYWORDS)) {
+      if (combinedText.includes(keyword)) {
+        let hk = habitKeywords.get(ci.habitId);
+        if (!hk) { hk = new Map(); habitKeywords.set(ci.habitId, hk); }
+        const existing = hk.get(keyword);
+        if (existing) {
+          existing.count++;
+        } else {
+          hk.set(keyword, { count: 1, sentiment: info.sentiment, label: info.label });
+        }
+      }
+    }
+  }
+
+  // Generate insights from keyword matches
+  for (const habit of habits) {
+    if (habit.archived) continue;
+    const hk = habitKeywords.get(habit.id);
+    if (!hk || hk.size === 0) continue;
+
+    const positives: string[] = [];
+    const negatives: string[] = [];
+    for (const [, info] of hk) {
+      if (info.sentiment === 'positive') positives.push(info.label);
+      if (info.sentiment === 'negative') negatives.push(info.label);
+    }
+
+    if (positives.length > 0) {
+      recs.push({
+        kind: 'NOTE_POSITIVE',
+        title: `✨ "${habit.name}" — you're doing great!`,
+        detail: `Your recent notes show positive patterns: ${positives.slice(0, 3).join(', ')}. Whatever approach you're using — it's working. Keep that momentum.`,
+        habitIds: [habit.id],
+        strength: 75,
+        actionLabel: 'View notes',
+      });
+    }
+
+    if (negatives.length > 0) {
+      recs.push({
+        kind: 'NOTE_OBSTACLE',
+        title: `💡 "${habit.name}" — obstacles detected`,
+        detail: `Your notes mention: ${negatives.slice(0, 3).join(', ')}. Consider adjusting your approach — smaller steps, different timing, or stacking with a stronger habit can help overcome these.`,
+        habitIds: [habit.id],
+        strength: 70,
+        actionLabel: 'Adjust habit',
+      });
+    }
+  }
+
+  return recs.slice(0, 3);
+}
+
+// --- Rule 14: Mood-Habit Link ---
+// Identify habits whose completion correlates with better mood days.
+// Pure local analysis — uses mood data stored in AppData.
+function detectMoodHabitLink(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  moods: Record<string, string>,
+  now: Date,
+): Recommendation[] {
+  const recs: Recommendation[] = [];
+  const moodDates = Object.keys(moods);
+  if (moodDates.length < 7) return []; // need at least a week of mood data
+
+  // Mood value mapping (higher = better)
+  const moodValue: Record<string, number> = {
+    amazing: 5, great: 4, calm: 3, okay: 2, tired: 1, sick: 0, bad: -1, angry: -2,
+  };
+
+  // Build a map: date -> habit completion count
+  const byDate = new Map<string, number>();
+  for (const ci of checkIns) {
+    if (!ci.completed) continue;
+    byDate.set(ci.date, (byDate.get(ci.date) ?? 0) + (ci.count ?? 1));
+  }
+
+  // Days with BOTH mood and habit data
+  const sharedDates = moodDates.filter(d => byDate.has(d) || checkIns.some(ci => ci.habitId && ci.date === d));
+  if (sharedDates.length < 7) return [];
+
+  for (const habit of habits) {
+    if (habit.archived) continue;
+    const habitDates = habitCheckDates(habit.id, checkIns);
+    const habitSet = new Set(habitDates);
+    const moodDatesWithHabit = moodDates.filter(d => d >= habitDates[0] ?? '');
+    if (moodDatesWithHabit.length < 7) continue;
+
+    // Compare mood on days with vs without this habit
+    const withHabitMoods: number[] = [];
+    const withoutHabitMoods: number[] = [];
+    for (const d of moodDatesWithHabit) {
+      const mv = moodValue[moods[d]] ?? 0;
+      if (habitSet.has(d)) {
+        withHabitMoods.push(mv);
+      } else {
+        withoutHabitMoods.push(mv);
+      }
+    }
+
+    if (withHabitMoods.length < 3 || withoutHabitMoods.length < 3) continue;
+
+    const avgWith = withHabitMoods.reduce((a, b) => a + b, 0) / withHabitMoods.length;
+    const avgWithout = withoutHabitMoods.reduce((a, b) => a + b, 0) / withoutHabitMoods.length;
+    const delta = avgWith - avgWithout;
+
+    // Only flag meaningful differences
+    if (delta >= 1.0) {
+      recs.push({
+        kind: 'CORRELATION',
+        title: `😊 "${habit.name}" linked to better mood days`,
+        detail: `On days you complete "${habit.name}", your average mood is ${avgWith.toFixed(1)}/5 vs ${avgWithout.toFixed(1)}/5 when you skip it (${withHabitMoods.length} vs ${withoutHabitMoods.length} days). This habit seems to lift your mood — protect it.`,
+        habitIds: [habit.id],
+        strength: Math.min(90, Math.round(delta * 20 + 40)),
+        actionLabel: 'Track mood',
+      });
+    } else if (delta <= -1.0) {
+      recs.push({
+        kind: 'CORRELATION',
+        title: `🤔 "${habit.name}" — lower mood on completion days`,
+        detail: `Interestingly, your mood averages ${avgWith.toFixed(1)}/5 on days you complete "${habit.name}" vs ${avgWithout.toFixed(1)}/5 on days you skip. It might be a tough habit — or it might be something you turn to on harder days. Either way, awareness helps.`,
+        habitIds: [habit.id],
+        strength: Math.min(80, Math.round(Math.abs(delta) * 15 + 30)),
+        actionLabel: 'View stats',
+      });
+    }
+  }
+  recs.sort((a, b) => b.strength - a.strength);
+  return recs.slice(0, 2);
+}
+
+// --- Rule 15: Chaos Habit Link ---
+// Flag habits whose neglect is actively contributing to chaos.
+function detectChaosHabitLink(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  now: Date,
+): Recommendation[] {
+  const recs: Recommendation[] = [];
+  const chaosHabits = habits.filter(h => !h.archived && h.chaosDimension && h.chaosThresholdDays);
+  if (chaosHabits.length === 0) return [];
+
+  for (const habit of chaosHabits) {
+    const dates = habitCheckDates(habit.id, checkIns);
+    if (dates.length === 0) continue;
+
+    // Find consecutive missed days
+    const today = now.toISOString().slice(0, 10);
+    const lastCompleted = dates[dates.length - 1];
+    const missedDays = Math.floor((new Date(today + 'T00:00:00Z').getTime() - new Date(lastCompleted + 'T00:00:00Z').getTime()) / 86400000);
+    const threshold = habit.chaosThresholdDays ?? 3;
+
+    if (missedDays >= threshold && threshold > 0) {
+      const impact = habit.chaosImpact ?? 50;
+      const dimName = habit.chaosDimension ?? 'unknown';
+      recs.push({
+        kind: 'CHAOS_CORRELATION',
+        title: `🌀 "${habit.name}" — ${missedDays} days missed, chaos risk +${impact}%`,
+        detail: `You've missed "${habit.name}" for ${missedDays} consecutive days (threshold: ${threshold}d). This is adding ~${impact}% to your "${dimName}" chaos dimension. One check-in today reduces it.`,
+        habitIds: [habit.id],
+        strength: Math.min(95, Math.round((missedDays / threshold) * 60 + 30)),
+        actionLabel: 'Check in now',
+      });
+    }
+  }
+  recs.sort((a, b) => b.strength - a.strength);
+  return recs.slice(0, 2);
+}
+
+// --- Rule 16: Goal Progress ---
+// Warn when habits are far from or approaching their monthly goal.
+function detectGoalProgress(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  now: Date,
+): Recommendation[] {
+  const recs: Recommendation[] = [];
+  const monthStart = new Date(now);
+  monthStart.setDate(1);
+  monthStart.setUTCHours(0, 0, 0, 0);
+  const monthStartStr = monthStart.toISOString().slice(0, 10);
+  const todayStr = now.toISOString().slice(0, 10);
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const dayOfMonth = now.getDate();
+  const monthProgress = dayOfMonth / daysInMonth; // 0..1
+
+  for (const habit of habits) {
+    if (habit.archived) continue;
+    if (!habit.goal || habit.goal <= 0) continue;
+
+    // Count completions this month
+    const monthCompletions = checkIns
+      .filter(ci => ci.habitId === habit.id && ci.date >= monthStartStr && ci.date <= todayStr && ci.completed)
+      .reduce((sum, ci) => sum + (ci.count ?? 1), 0);
+
+    // Require at least 5 check-ins total for meaningful goal analysis
+    const totalCheckIns = checkIns.filter(ci => ci.habitId === habit.id).length;
+    if (totalCheckIns < 5) continue;
+
+    const expectedAtThisPoint = Math.round(habit.goal * monthProgress);
+    const remaining = habit.goal - monthCompletions;
+    const daysLeft = daysInMonth - dayOfMonth;
+
+    // Ahead of pace
+    if (monthCompletions >= expectedAtThisPoint * 1.3 && monthCompletions >= 3) {
+      const ahead = monthCompletions - expectedAtThisPoint;
+      recs.push({
+        kind: 'GOAL_PROGRESS',
+        title: `🚀 "${habit.name}" — ${ahead} ahead of monthly pace`,
+        detail: `You've completed ${monthCompletions}/${habit.goal} (${Math.round(monthCompletions / habit.goal * 100)}%). At this rate, you'll finish ${Math.round(monthCompletions / monthProgress - habit.goal)} above your goal of ${habit.goal}.`,
+        habitIds: [habit.id],
+        strength: 85,
+        actionLabel: 'View stats',
+      });
+    }
+
+    // Behind pace and goal at risk
+    if (monthProgress > 0.4 && remaining > daysLeft * 1.5 && remaining >= 3) {
+      const shortfall = expectedAtThisPoint - monthCompletions;
+      recs.push({
+        kind: 'GOAL_PROGRESS',
+        title: `⚠️ "${habit.name}" — ${shortfall} behind monthly goal`,
+        detail: `You're at ${monthCompletions}/${habit.goal} with ${daysLeft} days left. You need ${remaining} more — about ${Math.ceil(remaining / Math.max(1, daysLeft))}/day. A small push now prevents a big gap later.`,
+        habitIds: [habit.id],
+        strength: Math.min(90, Math.round((shortfall / habit.goal) * 100) + 40),
+        actionLabel: 'Go to habit',
+      });
+    }
+
+    // Goal achieved!
+    if (monthCompletions >= habit.goal && habit.goal > 0) {
+      recs.push({
+        kind: 'GOAL_PROGRESS',
+        title: `🎉 "${habit.name}" — monthly goal REACHED!`,
+        detail: `You've hit ${monthCompletions}/${habit.goal} with ${daysLeft} days to spare. Time to celebrate — and maybe raise the bar next month!`,
+        habitIds: [habit.id],
+        strength: 95,
+        actionLabel: 'View stats',
+      });
+    }
+  }
+  return recs.slice(0, 3);
+}
+
 // --- Main entry point ---
 
 export interface InsightsResult {
@@ -709,6 +1018,7 @@ export function generateInsights(
   habits: Habit[],
   checkIns: CheckIn[],
   now: Date = new Date(),
+  moods: Record<string, string> = {},
 ): InsightsResult {
   const activeHabits = habits.filter((h) => !h.archived);
   if (activeHabits.length === 0) {
@@ -731,6 +1041,12 @@ export function generateInsights(
     ...detectStreakMilestones(habits, checkIns, now),
     ...detectPerfectWeeks(activeHabits, checkIns, now),
     ...detectMantraMatches(activeHabits, checkIns, now),
+    // v0.3.2: New insight rules
+    ...detectNoteInsights(activeHabits, checkIns, now),
+    ...detectGoalProgress(habits, checkIns, now),
+    // v0.3.3: Mood & Chaos insights
+    ...detectMoodHabitLink(activeHabits, checkIns, moods, now),
+    ...detectChaosHabitLink(habits, checkIns, now),
   ];
 
   // Deduplicate by title
@@ -750,6 +1066,9 @@ export function generateInsights(
     STACK_SUGGESTION: 0,
     STREAK_MILESTONE: 0,
     PERFECT_WEEK: 0,
+    GOAL_PROGRESS: 0,
+    NOTE_POSITIVE: 0,
+    NOTE_OBSTACLE: 0,
     CORRELATION: 1,
     TREND: 1,
     WEEKLY_SUMMARY: 1,
