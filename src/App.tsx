@@ -49,6 +49,7 @@ import { HistoryView } from './HistoryView';
 import { StacksView } from './StacksView';
 import SkillsView from './SkillsView';
 import { DraggableHabitRow } from './components/DraggableHabitRow';
+import { CapacitiesSummary } from './components/CapacitiesSummary';
 import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import './App.css';
 import ChaosView from './ChaosView';
@@ -148,6 +149,8 @@ const DEFAULT_CATEGORIES = [
   // Intentions editor (why you do this habit)
   const [editingWhyHabitId, setEditingWhyHabitId] = useState<string | null>(null);
   const [editWhyText, setEditWhyText] = useState('');
+  // v0.3.2: Toggle to display archived habits in the grid
+  const [showArchived, setShowArchived] = useState(false);
   const [view, setView] = useState<'today' | 'grid' | 'stats' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'experiments' | 'urges' | 'mantras' | 'settings'>('grid');
   const [savedMsg, setSavedMsg] = useState('');
   // Shortcuts help + toast
@@ -995,7 +998,20 @@ const DEFAULT_CATEGORIES = [
               <p className="empty-hint">Click the button below or press <kbd>Ctrl+N</kbd> to add your first habit.</p>
             </div>
           ) : (
-          <DragDropContext onDragEnd={handleDragEnd}>
+            <>
+              <div className="grid-toolbar">
+                <span className="grid-toolbar-info">
+                  {habits.filter((h) => !h.archived).length} active · {habits.filter((h) => h.archived).length} archived
+                </span>
+                <button
+                  className={`btn btn-sm ${showArchived ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => setShowArchived((v) => !v)}
+                  title="Toggle archived habits"
+                >
+                  {showArchived ? 'Hide archived' : 'Show archived'}
+                </button>
+              </div>
+            <DragDropContext onDragEnd={handleDragEnd}>
           <div className="table-scroll">
             <table className="habit-grid">
               <thead>
@@ -1021,7 +1037,9 @@ const DEFAULT_CATEGORIES = [
                     ref={dropProvided.innerRef}
                     {...dropProvided.droppableProps}
                   >
-                    {habits.map((habit, habitIdx) => {
+                    {habits
+                      .filter((habit) => showArchived || !habit.archived)
+                      .map((habit, habitIdx) => {
                       const habitChecks = checkIns.get(habit.id) || new Map();
                   const hs = habitStats.find(s => s.habitId === habit.id);
                   const streakLevel = hs ? (hs.currentStreak >= 30 ? 3 : hs.currentStreak >= 7 ? 2 : hs.currentStreak >= 3 ? 1 : 0) : 0;
@@ -1396,6 +1414,7 @@ const DEFAULT_CATEGORIES = [
             </table>
           </div>
           </DragDropContext>
+            </>
           )}
         </div>
       ) : view === 'stats' ? (
@@ -1484,6 +1503,9 @@ const DEFAULT_CATEGORIES = [
                 ))}
               </div>
             )}
+
+            {/* Life Aspect Ratings (Capacities) — v0.3.2 */}
+            <CapacitiesSummary habits={habits} allCheckIns={allCheckIns} />
           </div>
         </>
       ) : view === 'history' ? (

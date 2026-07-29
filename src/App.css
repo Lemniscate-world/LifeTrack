@@ -6313,3 +6313,115 @@ body {
   color: var(--text);
   white-space: pre-line;
 }
+
+/* ============ v0.3.2 - GRID TOOLBAR + ARCHIVE TOGGLE ============ */
+
+.grid-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: var(--card-bg, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.grid-toolbar-info {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ============ v0.3.2 - LIFE ASPECTS / CAPACITIES ============ */
+
+.capacities-summary {
+  margin-top: 28px;
+  padding: 20px;
+  background: var(--card-bg, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.capacities-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  margin: 0 0 6px;
+  color: var(--text);
+}
+
+.capacities-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 16px;
+}
+
+.capacities-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.aspect-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  padding: 12px;
+  transition: transform 0.15s;
+}
+
+.aspect-card:hover {
+  transform: translateY(-1px);
+}
+
+.aspect-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.aspect-emoji {
+  font-size: 18px;
+}
+
+.aspect-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.aspect-score-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.aspect-score-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  min-width: 50px;
+}
+
+.aspect-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.aspect-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.aspect-detail {
+  font-size: 11px;
+  color: var(--text-muted);
+}
