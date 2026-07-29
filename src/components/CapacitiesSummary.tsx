@@ -1,8 +1,8 @@
 // CapacitiesSummary — shows life-aspect ratings derived from habit performance.
 // For each Skill, computes a score (0-100%) from its linked habits' completion rates.
 // Provides a Niko-Niko-style view: "Athleticism: 8.5%" / "Mindfulness: 25%".
-import React, { useMemo } from 'react';
-import type { Habit, CheckIn, AppData, Capacity, CapacityRating } from './types';
+import React from 'react';
+import type { Habit, CheckIn, AppData, CapacityRating } from '../types';
 
 interface CapacitiesSummaryProps {
   habits: Habit[];
@@ -117,8 +117,8 @@ function computeGoalScores(
       rows.push({
         id: capacity.id,
         name: capacity.name,
-        emoji: capacity.emoji ?? '📈',
-        color: capacity.color ?? '#E5E7EB',
+        emoji: '📈',
+        color: '#E5E7EB',
         score: 0,
         source: 'goal_completion',
         detail: 'No ratings yet',
@@ -129,12 +129,12 @@ function computeGoalScores(
     const recent = [...capRatings]
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 5);
-    const avg = recent.reduce((sum, r) => sum + r.rating, 0) / recent.length;
+    const avg = recent.reduce((sum, r) => sum + (r.rating ?? 0), 0) / recent.length;
     rows.push({
       id: capacity.id,
       name: capacity.name,
-      emoji: capacity.emoji ?? '📈',
-      color: capacity.color ?? '#E5E7EB',
+      emoji: '📈',
+      color: '#E5E7EB',
       score: Math.round(avg * 10), // rating is 0-10 → 0-100
       source: 'goal_completion',
       detail: `Last ${recent.length} rating${recent.length > 1 ? 's' : ''} · max 10`,
@@ -144,14 +144,6 @@ function computeGoalScores(
 }
 
 export function CapacitiesSummary({ habits, allCheckIns }: CapacitiesSummaryProps) {
-  const allData = useMemo(() => {
-    // Build an AppData-shaped object from what we have
-    return {
-      habits,
-      skills: [], // Loaded lazily via store import — see effect
-    } as Pick<AppData, 'habits' | 'skills' | 'capacities' | 'capacityRatings'>;
-  }, [habits]);
-
   const [skillRows, setSkillRows] = React.useState<AspectRow[]>([]);
   const [goalRows, setGoalRows] = React.useState<AspectRow[]>([]);
 
