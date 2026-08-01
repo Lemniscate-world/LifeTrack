@@ -1,4 +1,4 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory } from './types';
 import { computeStreakStats } from './stats';
 import {
   linkHabitToParentInPlace,
@@ -141,6 +141,7 @@ function sanitizeData(raw: unknown): AppData {
     checkIns: [],
     notes: [],
     chaosDimensions: [],
+    achievementCategories: [],
     mantras: createDefaultMantras(),
     mantraSettings: { ...DEFAULT_MANTRA_SETTINGS },
     skills: createDefaultSkills(),
@@ -268,6 +269,9 @@ function sanitizeData(raw: unknown): AppData {
     // while preserving any user-customised labels or manual triggers.
     chaosDimensions: mergeChaosDimensions(
       Array.isArray(obj.chaosDimensions) ? obj.chaosDimensions as ChaosDimension[] : []
+    ),
+    achievementCategories: mergeAchievementCategories(
+      Array.isArray(obj.achievementCategories) ? obj.achievementCategories as AchievementCategory[] : []
     ),
     mantras: mergedMantras,
     mantraSettings,
@@ -539,6 +543,7 @@ function freshData(): AppData {
     checkIns: [],
     notes: [],
     chaosDimensions: [],
+    achievementCategories: [],
     mantras: createDefaultMantras(),
     mantraSettings: { ...DEFAULT_MANTRA_SETTINGS },
     skills: createDefaultSkills(),
@@ -1546,12 +1551,13 @@ export function getNotes(): Note[] {
   });
 }
 
-export function addNote(content: string): Note {
+export function addNote(content: string, achievementCategory?: string): Note {
   const note: Note = {
     id: crypto.randomUUID(),
     habitId: '',
     content,
     createdAt: new Date().toISOString(),
+    ...(achievementCategory ? { achievementCategory } : {}),
   };
   data.notes.push(note);
   notify();
@@ -1592,6 +1598,7 @@ interface ImportedNote {
   habitId?: string;
   content: string;
   createdAt?: string;
+  achievementCategory?: string;
 }
 
 export interface ImportMergeResult {
@@ -1681,6 +1688,8 @@ function parseImportedNote(raw: unknown): ImportedNote | null {
     habitId: typeof raw.habitId === 'string' ? raw.habitId : undefined,
     content,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : undefined,
+    achievementCategory: typeof raw.achievementCategory === 'string' && raw.achievementCategory.length > 0
+      ? raw.achievementCategory : undefined,
   };
 }
 
@@ -1859,6 +1868,7 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
       habitId: imported.habitId ? idMap.get(imported.habitId) ?? '' : '',
       content: imported.content,
       createdAt: imported.createdAt ?? new Date().toISOString(),
+      ...(imported.achievementCategory ? { achievementCategory: imported.achievementCategory } : {}),
     });
     result.notesCreated++;
   }
@@ -2067,6 +2077,32 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
   // Merge imported dims with defaults so newer dimensions (e.g. 'energy')
   // appear even when the imported backup was written by an older version.
   data.chaosDimensions = mergeChaosDimensions(data.chaosDimensions ?? []);
+
+  // --- v0.3.3: Import achievement categories (merge with defaults) ---
+  const rawAchievementCats = Array.isArray((raw as Record<string, unknown>).achievementCategories)
+    ? (raw as Record<string, unknown>).achievementCategories as unknown[]
+    : [];
+  if (!data.achievementCategories) data.achievementCategories = [];
+  for (const rawCat of rawAchievementCats) {
+    if (!rawCat || typeof rawCat !== 'object') continue;
+    const cat = rawCat as Record<string, unknown>;
+    if (typeof cat.id !== 'string') continue;
+    const existing = data.achievementCategories.find(c => c.id === cat.id);
+    if (existing) {
+      if (typeof cat.name === 'string' && cat.name) existing.name = cat.name;
+      if (typeof cat.emoji === 'string' && cat.emoji) existing.emoji = cat.emoji;
+      if (typeof cat.color === 'string' && cat.color) existing.color = cat.color;
+    } else {
+      data.achievementCategories.push({
+        id: cat.id,
+        name: typeof cat.name === 'string' && cat.name ? cat.name : cat.id,
+        emoji: typeof cat.emoji === 'string' && cat.emoji ? cat.emoji : '🏆',
+        color: typeof cat.color === 'string' && cat.color ? cat.color : '#FEF3C7',
+      });
+    }
+  }
+  // Ensure newer defaults are present after import.
+  data.achievementCategories = mergeAchievementCategories(data.achievementCategories ?? []);
 
   // --- v0.3.2: Import mantra settings (notification preferences) ---
   const rawMantraSettings = (raw as Record<string, unknown>).mantraSettings;
@@ -2311,6 +2347,72 @@ export function getChaosDimensions(): ChaosDimension[] {
     }
   }
   return data.chaosDimensions;
+}
+
+// --- Achievements ---
+// Achievements are notes tagged with a category. Defaults reuse the seven
+// chaos dimensions plus a dedicated 'Psychological' category so that life
+// progress is tracked on the same axes the user already knows.
+const DEFAULT_ACHIEVEMENT_CATEGORIES: AchievementCategory[] = [
+  { id: 'physical', name: 'Physical', emoji: '🏃', color: '#D1FAE5' },
+  { id: 'financial', name: 'Financial', emoji: '💰', color: '#FEF3C7' },
+  { id: 'social', name: 'Social', emoji: '👥', color: '#DBEAFE' },
+  { id: 'structural', name: 'Structural', emoji: '🏗️', color: '#E0E7FF' },
+  { id: 'spiritual', name: 'Spiritual', emoji: '🧘', color: '#FCE7F3' },
+  { id: 'emotional', name: 'Emotional', emoji: '💗', color: '#FEE2E2' },
+  { id: 'energy', name: 'Energy', emoji: '⚡', color: '#FEF9C3' },
+  { id: 'psychological', name: 'Psychological', emoji: '🧠', color: '#EDE9FE' },
+];
+
+export function getDefaultAchievementCategories(): AchievementCategory[] {
+  return JSON.parse(JSON.stringify(DEFAULT_ACHIEVEMENT_CATEGORIES));
+}
+
+// Merge stored categories with the current defaults (same strategy as chaos
+// dimensions): newer defaults are appended, existing ones keep stored data.
+export function mergeAchievementCategories(stored: AchievementCategory[]): AchievementCategory[] {
+  const defaults = getDefaultAchievementCategories();
+  const storedById = new Map(stored.filter((d) => d && d.id).map((d) => [d.id, d]));
+  return defaults.map((d) => {
+    const prior = storedById.get(d.id);
+    return prior ? { ...d, name: prior.name ?? d.name, emoji: prior.emoji ?? d.emoji, color: prior.color ?? d.color } : d;
+  });
+}
+
+export function getAchievementCategories(): AchievementCategory[] {
+  const defaults = getDefaultAchievementCategories();
+  if (!data.achievementCategories || data.achievementCategories.length === 0) {
+    data.achievementCategories = defaults;
+  } else {
+    const storedIds = new Set(data.achievementCategories.map((d) => d.id));
+    if (defaults.some((d) => !storedIds.has(d.id))) {
+      data.achievementCategories = mergeAchievementCategories(data.achievementCategories);
+    }
+  }
+  return data.achievementCategories;
+}
+
+// Tag an existing note as an achievement of `categoryId` (or untag with null).
+// Returns the updated note, or null if the note doesn't exist.
+export function tagNoteAchievement(noteId: string, categoryId: string | null): Note | null {
+  const note = data.notes.find((n) => n.id === noteId);
+  if (!note) return null;
+  if (categoryId === null) {
+    delete note.achievementCategory;
+  } else {
+    note.achievementCategory = categoryId;
+  }
+  notify();
+  return note;
+}
+
+// All achievement-tagged notes, newest first.
+export function getAchievements(): Note[] {
+  return getNotes().filter((n) => n.achievementCategory);
+}
+
+export function getAchievementCategoryById(id: string): AchievementCategory | undefined {
+  return getAchievementCategories().find((c) => c.id === id);
 }
 
 export function toggleChaosTrigger(dimId: string, triggerId: string): void {

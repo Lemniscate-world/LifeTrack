@@ -13,7 +13,7 @@
  */
 
 import type { AppData, Habit, CheckIn, CapacityRating, Experiment, UrgeEntry } from './types';
-import { computeChaosReport, MOODS } from './store';
+import { computeChaosReport, getAchievementCategories, MOODS } from './store';
 import { computeCorrelations } from './correlations';
 
 const MOOD_LABEL: Record<string, string> = Object.fromEntries(MOODS.map((m) => [m.id, m.label]));
@@ -182,6 +182,24 @@ function summarizeMantras(data: AppData): string {
   return userMantras.map((m) => `  “${m.text}”`).join('\n');
 }
 
+function summarizeAchievements(data: AppData): string {
+  const tagged = (data.notes ?? []).filter((n) => n.achievementCategory);
+  if (tagged.length === 0) return '  (no achievements yet)';
+  const byCat = new Map<string, string[]>();
+  for (const n of tagged) {
+    const key = n.achievementCategory ?? 'other';
+    const list = byCat.get(key) ?? [];
+    list.push(`[${n.createdAt.slice(0, 10)}] ${n.content}`);
+    byCat.set(key, list);
+  }
+  const catName = (id: string) => getAchievementCategories().find((c) => c.id === id)?.name ?? id;
+  const lines: string[] = [];
+  for (const [catId, list] of byCat) {
+    lines.push(`  ${catName(catId)} (${list.length}): ${list.join(' | ')}`);
+  }
+  return lines.join('\n');
+}
+
 /**
  * Build the complete AI report from a snapshot of the entire app data.
  * Resilient to corrupt inputs: any malformed section falls back gracefully.
@@ -233,8 +251,12 @@ export function buildAiContext(data: AppData): string {
   sections.push(`## URGES (urge surfing)\n${summarizeUrges(data)}`);
   sections.push(`## CHAOS PRESSURE\n${summarizeChaos()}`);
   sections.push(`## CUSTOM MANTRAS (user values)\n${summarizeMantras(data)}`);
+  sections.push(`## ACHIEVEMENTS (tagged notes by category)\n${summarizeAchievements(data)}`);
 
-  const standaloneNotes = (data.notes ?? []).map((n) => `  [${n.createdAt.slice(0, 10)}] ${n.content}`).join('\n');
+  const standaloneNotes = (data.notes ?? []).map((n) => {
+    const tag = n.achievementCategory ? ` (achievement:${n.achievementCategory})` : '';
+    return `  [${n.createdAt.slice(0, 10)}] ${n.content}${tag}`;
+  }).join('\n');
   sections.push(`## ALL STANDALONE NOTES\n${standaloneNotes || '  (none)'}`);
 
   const totalCheckIns = Array.isArray(data.checkIns) ? data.checkIns.length : 0;

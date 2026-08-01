@@ -19,6 +19,8 @@ import {
   getNotes,
   addNote,
   deleteNote,
+  getAchievementCategories,
+  tagNoteAchievement,
   exportAllData,
   flushSave,
   getStorageStatus,
@@ -53,6 +55,7 @@ import { CapacitiesSummary } from './components/CapacitiesSummary';
 import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import './App.css';
 import ChaosView from './ChaosView';
+import AchievementsView from './AchievementsView';
 import MantraView from './MantraView';
 import SettingsView from './SettingsView';
 import TodayView from './TodayView';
@@ -131,6 +134,7 @@ const DEFAULT_CATEGORIES = [
   });
   const [notes, setNotes] = useState<Note[]>([]);
   const [newNoteContent, setNewNoteContent] = useState('');
+  const [newNoteCategory, setNewNoteCategory] = useState('');
   const [showNewNoteInput, setShowNewNoteInput] = useState(false);
   // Per-day check-in note popup
   const [notePopup, setNotePopup] = useState<{ habitId: string; date: string; habitName: string; notes: string[] } | null>(null);
@@ -152,7 +156,7 @@ const DEFAULT_CATEGORIES = [
   const [editWhyText, setEditWhyText] = useState('');
   // v0.3.2: Toggle to display archived habits in the grid
   const [showArchived, setShowArchived] = useState(false);
-  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'experiments' | 'urges' | 'mantras' | 'settings'>('grid');
+  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'experiments' | 'urges' | 'mantras' | 'achievements' | 'settings'>('grid');
   const [savedMsg, setSavedMsg] = useState('');
   // Shortcuts help + toast
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -434,7 +438,7 @@ const DEFAULT_CATEGORIES = [
       // Tab switching: Ctrl+1..9 + Ctrl+0
       if (ctrl && e.key >= '0' && e.key <= '9') {
         e.preventDefault();
-        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'mantras', 'experiments'];
+        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'mantras', 'experiments', 'achievements'];
         const idx = e.key === '0' ? 0 : parseInt(e.key, 10);
         const viewKey = tabs[idx] as typeof view;
         if (viewKey) setView(viewKey);
@@ -628,8 +632,9 @@ const DEFAULT_CATEGORIES = [
   // Track new note content per keystroke, no intermediate state needed beyond newNoteContent
   function handleAddNote() {
     if (newNoteContent.trim()) {
-      addNote(newNoteContent.trim());
+      addNote(newNoteContent.trim(), newNoteCategory || undefined);
       setNewNoteContent('');
+      setNewNoteCategory('');
       // Keep panel open so user can see the note they just added
     }
   }
@@ -978,6 +983,9 @@ const DEFAULT_CATEGORIES = [
           <button role="tab" aria-selected={view === 'chaos'} className={`view-tab ${view === 'chaos' ? 'active' : ''}`} onClick={() => setView('chaos')}>Chaos</button>
           <button role="tab" aria-selected={view === 'mantras'} className={`view-tab ${view === 'mantras' ? 'active' : ''}`} onClick={() => setView('mantras')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4.5 12.5l3 3 5-7"/><circle cx="12" cy="12" r="10"/></svg> Mantras
+          </button>
+          <button role="tab" aria-selected={view === 'achievements'} className={`view-tab ${view === 'achievements' ? 'active' : ''}`} onClick={() => setView('achievements')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 15a7 7 0 100-14 7 7 0 000 14z"/><path d="M8.21 13.89L7 23l5-3 5 3-1.21-9.12"/></svg> Achievements
           </button>
           <button role="tab" aria-selected={view === 'settings'} className={`view-tab ${view === 'settings' ? 'active' : ''}`} onClick={() => setView('settings')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg> Settings
@@ -1525,6 +1533,8 @@ const DEFAULT_CATEGORIES = [
         }} onView={(newView) => setView(newView)} />
       ) : view === 'mantras' ? (
         <MantraView />
+      ) : view === 'achievements' ? (
+        <AchievementsView />
       ) : view === 'settings' ? (
         <SettingsView
           darkMode={darkMode}
@@ -1703,26 +1713,56 @@ const DEFAULT_CATEGORIES = [
               rows={2}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && e.ctrlKey) handleAddNote();
-                if (e.key === 'Escape') { setShowNewNoteInput(false); setNewNoteContent(''); }
+                if (e.key === 'Escape') { setShowNewNoteInput(false); setNewNoteContent(''); setNewNoteCategory(''); }
               }}
             />
-            <button className="btn btn-sm btn-primary" onClick={handleAddNote}>Save</button>
+            <div className="add-note-row">
+              <select
+                className="note-category-select"
+                value={newNoteCategory}
+                onChange={(e) => setNewNoteCategory(e.target.value)}
+                title="Tag this note as an achievement"
+              >
+                <option value="">— Not an achievement —</option>
+                {getAchievementCategories().map((cat) => (
+                  <option key={cat.id} value={cat.id}>{cat.emoji} {cat.name}</option>
+                ))}
+              </select>
+              <button className="btn btn-sm btn-primary" onClick={handleAddNote}>Save</button>
+            </div>
           </div>
           {notes.length > 0 && (
             <ul className="notes-list">
-              {notes.map((note) => (
-                <li key={note.id} className="notes-item">
-                  <span className="notes-content">{note.content}</span>
-                  <span className="notes-date">
-                    {new Date(note.createdAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
-                  </span>
-                  <button className="notes-delete" onClick={() => handleDeleteNote(note.id)} title="Delete">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                    </svg>
-                  </button>
-                </li>
-              ))}
+              {notes.map((note) => {
+                const catId = note.achievementCategory;
+                const cat = catId ? getAchievementCategories().find((c) => c.id === catId) : undefined;
+                return (
+                  <li key={note.id} className="notes-item">
+                    <span className="notes-content">{note.content}</span>
+                    <select
+                      className={`note-category-badge ${cat ? 'tagged' : ''}`}
+                      value={catId ?? ''}
+                      onChange={(e) => tagNoteAchievement(note.id, e.target.value || null)}
+                      title={cat ? `Achievement: ${cat.name}` : 'Tag as achievement'}
+                      aria-label="Achievement category"
+                      style={cat ? { background: cat.color } : undefined}
+                    >
+                      <option value="">Tag…</option>
+                      {getAchievementCategories().map((c) => (
+                        <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>
+                      ))}
+                    </select>
+                    <span className="notes-date">
+                      {new Date(note.createdAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                    </span>
+                    <button className="notes-delete" onClick={() => handleDeleteNote(note.id)} title="Delete">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                      </svg>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

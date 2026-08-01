@@ -94,7 +94,19 @@ describe('buildAiContext — coverage of all data domains', () => {
     expect(report).toContain('(no capacity ratings)');
     expect(report).toContain('(no experiments)');
     expect(report).toContain('(no urges logged)');
+    expect(report).toContain('(no achievements yet)');
     expect(report).toContain('(none)');
+  });
+
+  it('includes achievements grouped by category', () => {
+    addNote('Course de 10km bouclée', 'energy');
+    addNote('Conversation difficile réussie', 'psychological');
+    const report = buildAiContext(exportAllData());
+    expect(report).toContain('ACHIEVEMENTS');
+    expect(report).toContain('Energy (1)');
+    expect(report).toContain('Course de 10km bouclée');
+    expect(report).toContain('Psychological (1)');
+    expect(report).toContain('(achievement:psychological)');
   });
 
   it('includes overview counts', () => {

@@ -47,6 +47,7 @@ export interface Note {
   habitId: string;
   content: string;
   createdAt: string;
+  achievementCategory?: string; // when set, this note is an achievement in that category
 }
 
 // --- Chaos Tracker ---
@@ -61,6 +62,16 @@ export interface ChaosDimension {
   id: string;
   name: string; // Social, Financial, Physical, Structural, Spiritual
   triggers: ChaosTrigger[];
+}
+
+// --- Achievements ---
+// A category an achievement (tagged note) belongs to. Defaults reuse the seven
+// chaos dimensions plus a dedicated 'Psychological' category.
+export interface AchievementCategory {
+  id: string;
+  name: string;
+  emoji: string;
+  color: string;
 }
 
 // --- Mantras ---
@@ -196,6 +207,7 @@ export interface AppData {
   checkIns: CheckIn[];
   notes: Note[];
   chaosDimensions: ChaosDimension[];
+  achievementCategories: AchievementCategory[];
   mantras: Mantra[];
   mantraSettings: MantraSettings;
   skills: Skill[];
