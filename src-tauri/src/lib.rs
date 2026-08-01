@@ -4,8 +4,9 @@ use tauri_plugin_dialog::DialogExt;
 use serde::{Deserialize, Serialize};
 
 static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    // Generous timeout: local Ollama models can take several minutes to cold-load.
     reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(600))
         .build()
         .expect("Failed to build HTTP client")
 });
@@ -264,21 +265,98 @@ struct OllamaResponse {
     done: bool,
 }
 
+#[derive(Deserialize)]
+struct OllamaModelEntry {
+    name: String,
+    #[serde(default)]
+    remote_host: Option<String>,
+    #[serde(default)]
+    capabilities: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct OllamaTagsResponse {
+    models: Vec<OllamaModelEntry>,
+}
+
+/// Auto-select a local (non-cloud) chat-capable model from Ollama.
+/// Cloud models (e.g. `minimax-m3:cloud`) require a paid plan and hit
+/// usage limits, so we prefer locally-served models that are always free.
+async fn pick_local_model() -> Result<String, String> {
+    let resp = HTTP_CLIENT
+        .get("http://localhost:11434/api/tags")
+        .send()
+        .await
+        .map_err(|e| format!("Ollama connection failed: {}. Is Ollama running?", e))?;
+    let tags: OllamaTagsResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Ollama model list: {}", e))?;
+
+    // Preference order: small local models that load quickly and reliably.
+    const PREFERRED: &[&str] = &[
+        "gemma3:4b",
+        "gemma3:1b-it-qat",
+        "llama3.2:3b",
+        "qwen3.5:2b",
+        "ministral-3:3b",
+        "qwen2.5-coder:3b",
+    ];
+
+    let local_models: Vec<String> = tags
+        .models
+        .into_iter()
+        .filter(|m| m.remote_host.is_none())
+        .filter(|m| m.capabilities.iter().any(|c| c == "completion"))
+        .map(|m| m.name)
+        .collect();
+
+    for preferred in PREFERRED {
+        if let Some(name) = local_models.iter().find(|n| n == &preferred) {
+            return Ok(name.clone());
+        }
+    }
+
+    if let Some(first) = local_models.first() {
+        return Ok(first.clone());
+    }
+
+    Err("No local Ollama model found. Pull one with `ollama pull gemma3:4b`.".to_string())
+}
+
 /// Call Ollama's local API for AI-powered habit analysis.
 /// Sends a structured prompt about the user's habits and returns insights.
 /// Respects privacy: only statistical summaries are sent, never raw data.
 #[tauri::command]
 async fn analyze_habits(summary_json: String, model: Option<String>) -> Result<String, String> {
-    let model = model.unwrap_or_else(|| "minimax-m3:cloud".to_string());
+    let model = match model {
+        Some(m) if !m.trim().is_empty() => m,
+        _ => pick_local_model().await?,
+    };
 
-    // Build a structured but privacy-respecting prompt
+    // Build a structured but privacy-respecting prompt.
+    // The report (summary_json) covers ALL tracked domains: habits, check-ins,
+    // every note, moods, skills, capacities, experiments, urges, chaos, mantras.
     let prompt = format!(
-        "You are a kind, supportive habit coach. Analyze the following habit data and give 3-5 concise, actionable insights.\n\
-         Focus on: patterns, correlations, suggestions for habit stacking, and motivational observations.\n\
-         If notes are present, analyze them for triggers, patterns, emotional states, obstacles, and wins.\n\
-         Suggest concrete actions based on what the user wrote in their notes.\n\
-         Be warm but direct. Use bullet points. No markdown headers. Max 250 words.\n\n\
-         HABIT DATA (anonymized):\n{}",
+        "You are a kind, deeply insightful life coach and habit coach. The data below is the user's entire LifeTrack database (habits, all notes, moods, skills, capacities, experiments, urges, chaos pressure, mantras).\n\
+         Your job is to help the user go further in life.\n\n\
+         Analyze deeply and give 4-6 concrete, prioritized recommendations. Consider:\n\
+         - Habit patterns: completion rates, streaks, gaps, and which habits are thriving or at risk.\n\
+         - Cross-correlations: mood ↔ habits, capacity trends, chaos pressure in each life dimension.\n\
+         - ALL notes the user wrote: extract recurring triggers, emotional states, obstacles, wins, and root causes.\n\
+         - Urge-surfing data: which urges they resist or give in to, and what counter-measures could help.\n\
+         - Experiments: whether hypotheses are being validated, and what to test next.\n\
+         - Skills & capacities: where they're progressing and where to invest next.\n\
+         - Their own mantras as signals of what they value.\n\n\
+         For each recommendation: state the WHY with the evidence from their data, then give ONE concrete next action.\n\
+         Be warm, direct, non-judgmental, and specific. Use bullet points, no markdown headers.\n\
+         Structure:\n\
+         🔥 TOP PRIORITY — 1-2 recommendations that would have the biggest life impact right now.\n\
+         📈 TRENDS — what is working and should be kept or doubled down on.\n\
+         ⚠️ RISKS — habits/dimensions sliding toward chaos and how to course-correct.\n\
+         💡 NEXT STEP — one small, specific action to take today.\n\
+         Max 350 words.\n\n\
+         FULL LIFETRACK DATA (on-device, anonymous to you):\n{}",
         summary_json
     );
 
@@ -288,7 +366,7 @@ async fn analyze_habits(summary_json: String, model: Option<String>) -> Result<S
         stream: false,
         options: Some(OllamaOptions {
             temperature: 0.7,
-            num_predict: 300,
+            num_predict: 700,
         }),
     };
 
@@ -299,6 +377,15 @@ async fn analyze_habits(summary_json: String, model: Option<String>) -> Result<S
         .send()
         .await
         .map_err(|e| format!("Ollama connection failed: {}. Is Ollama running?", e))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let err_body = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "Ollama returned HTTP {}: {}. Try a local model with `ollama pull gemma3:4b`.",
+            status, err_body
+        ));
+    }
 
     let ollama_resp: OllamaResponse = resp
         .json()

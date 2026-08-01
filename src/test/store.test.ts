@@ -448,11 +448,11 @@ describe('Undo / Redo', () => {
 });
 
 describe('Chaos Tracker', () => {
-  it('seeds 6 default dimensions on a fresh store', () => {
+  it('seeds 7 default dimensions on a fresh store', () => {
     const dims = getChaosDimensions();
-    expect(dims).toHaveLength(6);
+    expect(dims).toHaveLength(7);
     const ids = dims.map((d) => d.id);
-    expect(ids).toEqual(expect.arrayContaining(['physical', 'financial', 'social', 'structural', 'spiritual', 'emotional']));
+    expect(ids).toEqual(expect.arrayContaining(['physical', 'financial', 'social', 'structural', 'spiritual', 'emotional', 'energy']));
   });
 
   it('toggles a non-existent trigger gracefully (no manual triggers by default)', () => {
@@ -643,7 +643,7 @@ describe('Chaos Tracker', () => {
     // After reset, all dimensions have empty triggers
     resetChaos();
     const fresh = getChaosDimensions();
-    expect(fresh).toHaveLength(6);
+    expect(fresh).toHaveLength(7);
     for (const d of fresh) {
       expect(d.triggers).toEqual([]);
     }
@@ -831,9 +831,9 @@ describe('Chaos Tracker', () => {
     expect(a).toBe(b); // same reference — by design, for reactivity
   });
 
-  it('all 6 default dimensions exist with empty triggers (auto-only)', () => {
+  it('all 7 default dimensions exist with empty triggers (auto-only)', () => {
     const dims = getChaosDimensions();
-    expect(dims).toHaveLength(6);
+    expect(dims).toHaveLength(7);
     for (const d of dims) {
       expect(d.triggers).toEqual([]);
     }

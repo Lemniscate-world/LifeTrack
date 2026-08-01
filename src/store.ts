@@ -2272,6 +2272,7 @@ const DEFAULT_CHAOS: ChaosDimension[] = [
   { id: 'structural', name: 'Structural', triggers: [] },
   { id: 'spiritual', name: 'Spiritual', triggers: [] },
   { id: 'emotional', name: 'Emotional', triggers: [] },
+  { id: 'energy', name: 'Energy', triggers: [] },
 ];
 
 export function getDefaultChaosDimensions(): ChaosDimension[] {

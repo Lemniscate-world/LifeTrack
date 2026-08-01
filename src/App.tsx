@@ -62,6 +62,7 @@ import ChallengeView from './ChallengeView';
 import ExperimentsView from './ExperimentsView';
 import UrgeSurfingView from './UrgeSurfingView';
 import OnboardingHelp from './OnboardingHelp';
+import { buildAiContext } from './aiContext';
 // (Mood view removed — emotional state is tracked via the 'emotional' chaos dimension.)
 import { generateInsights, type Recommendation, type RecKind } from './recommendations';
 import { computeCorrelations } from './correlations';
@@ -1232,6 +1233,7 @@ const DEFAULT_CATEGORIES = [
                               <option value="structural">Structural</option>
                               <option value="spiritual">Spiritual</option>
                               <option value="emotional">Emotional</option>
+                              <option value="energy">Energy</option>
                             </select>
                             <input type="number" min="1" max="100" value={Number.isFinite(editChaosImpact) ? editChaosImpact : ''} onChange={(e) => {
                               const raw = e.target.value;
@@ -1632,6 +1634,7 @@ const DEFAULT_CATEGORIES = [
                     <option value="structural">Structural</option>
                     <option value="spiritual">Spiritual</option>
                     <option value="emotional">Emotional</option>
+                    <option value="energy">Energy</option>
                   </select>
                   <label className="chaos-field">
                     Impact %
@@ -1859,45 +1862,9 @@ function InsightsView({
     setAiError(null);
     if (force) setAiResponse(null);
     try {
-      const today = new Date();
-      const thirtyDaysAgo = new Date(today);
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const recentCutoff = thirtyDaysAgo.toISOString().slice(0, 10);
-
-      const habitSummaries: string[] = [];
-      const allNotes: string[] = [];
-
-      for (const h of habits.filter(h => !h.archived)) {
-        const habitCheckIns = checkIns.filter(ci => ci.habitId === h.id);
-        const completed = habitCheckIns.filter(ci => ci.completed).length;
-        const total = habitCheckIns.length;
-        const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
-        const best = h.bestStreak ?? 0;
-        const stacked = h.stackParent
-          ? `after: ${habits.find((p) => p.id === h.stackParent)?.name ?? '?'}`
-          : 'none';
-
-        const recentNotes: string[] = [];
-        for (const ci of habitCheckIns) {
-          if (ci.date < recentCutoff) continue;
-          const candidates: string[] = ci.notes ?? [];
-          const legacyNote = (ci as unknown as Record<string, unknown>).note;
-          if (typeof legacyNote === 'string' && legacyNote.trim()) candidates.push(legacyNote.trim());
-          for (const n of candidates) {
-            if (n && n.trim()) recentNotes.push(n.trim());
-          }
-        }
-
-        let line = `${h.name}: ${completed}/${total} done (${rate}%), best streak ${best}, stack ${stacked}`;
-        if (recentNotes.length > 0) {
-          line += `\n  notes: ${recentNotes.join(' | ')}`;
-          allNotes.push(...recentNotes.map(n => `[${h.name}] ${n}`));
-        }
-        habitSummaries.push(line);
-      }
-
-      const summary = habitSummaries.join('\n')
-        + (allNotes.length > 0 ? '\n\nALL RECENT NOTES (last 30 days):\n' + allNotes.join('\n') : '');
+      // Build a comprehensive report from ALL data (every note, every domain)
+      // so the AI can analyze correlations and give life-level recommendations.
+      const summary = buildAiContext(exportAllData());
       const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
       if (!isTauriEnv) {
         setAiResponse('Deep Analysis requires the desktop app. Ollama is not available in the browser.');
@@ -1915,7 +1882,7 @@ function InsightsView({
     } finally {
       setAiLoading(false);
     }
-  }, [habits, checkIns, aiLastRun]);
+  }, [aiLastRun]);
 
   // Auto-run on first mount (after a short delay to let UI render)
   useEffect(() => {
@@ -1971,9 +1938,70 @@ function InsightsView({
     GOAL_PROGRESS: () => onView('stats'),
   };
 
+  // AI Section component (always rendered, even when no recommendations yet)
+  const aiSection = (
+    <div className="ai-section">
+      <div className="ai-section-header">
+        <span className="ai-section-title">
+          🤖 AI Coach <span className="ai-badge">Ollama</span>
+        </span>
+        <span className="ai-section-status">
+          {aiLoading ? (
+            <span className="ai-loading">Analyzing your habits...</span>
+          ) : aiResponse ? (
+            <span className="ai-fresh">Updated {new Date(aiLastRun).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
+          ) : aiError ? (
+            <span className="ai-error-text">{aiError}</span>
+          ) : (
+            <span className="ai-pending">Starting analysis...</span>
+          )}
+        </span>
+        <button
+          className="btn btn-sm btn-ghost"
+          onClick={() => runDeepAnalysis(true)}
+          disabled={aiLoading}
+          title="Refresh AI analysis"
+        >
+          {aiLoading ? '⏳' : '🔄'}
+        </button>
+      </div>
+      {aiResponse ? (
+        <div className="ai-response-card">
+          <div className="ai-response-body">{aiResponse}</div>
+        </div>
+      ) : aiLoading ? (
+        <div className="ai-response-card ai-placeholder">
+          <div className="ai-response-body" style={{ color: 'var(--text-muted)' }}>
+            ⏳ Connecting to Ollama... (first load may take 1-3 min while a local model loads)
+          </div>
+        </div>
+      ) : aiError ? (
+        <div className="ai-response-card ai-placeholder">
+          <div className="ai-response-body" style={{ color: 'var(--text-muted)' }}>
+            ❌ {aiError}
+            <br /><br />
+            <strong>Troubleshooting:</strong>
+            <ol style={{textAlign:'left', display:'inline-block', marginTop:8}}>
+              <li>Make sure Ollama is running: <code>ollama serve</code></li>
+              <li>Test it: <code>curl http://localhost:11434/api/tags</code></li>
+              <li>Click the 🔄 button to retry</li>
+            </ol>
+          </div>
+        </div>
+      ) : (
+        <div className="ai-response-card ai-placeholder">
+          <div className="ai-response-body" style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
+            AI analysis will appear here automatically. Make sure Ollama is running (<code>ollama serve</code>).
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   if (recommendations.length === 0) {
     return (
       <div className="insights-view">
+        {aiSection}
         <div className="insights-empty">
           <span style={{ fontSize: 40, display: 'block', marginBottom: 16 }}>💡</span>
           <h3>Not enough data yet</h3>
@@ -1985,22 +2013,7 @@ function InsightsView({
             <button className="btn btn-primary" onClick={() => onView('grid')}>
               Go to Grid
             </button>
-            <button
-              className="btn btn-sm btn-ghost ai-analyze-btn"
-              onClick={() => runDeepAnalysis(true)}
-              disabled={aiLoading}
-              title="Run local AI analysis via Ollama (requires Ollama installed)"
-            >
-              {aiLoading ? 'Analyzing...' : 'Deep Analysis'}
-            </button>
           </div>
-          {aiError && <div className="ai-error">{aiError}</div>}
-          {aiResponse && (
-            <div className="ai-response-card" style={{ marginTop: 16 }}>
-              <div className="ai-response-header">AI Analysis <span className="ai-badge">Ollama</span></div>
-              <div className="ai-response-body">{aiResponse}</div>
-            </div>
-          )}
         </div>
       </div>
     );
@@ -2009,51 +2022,7 @@ function InsightsView({
   return (
     <div className="insights-view">
       {/* --- AI Analysis Section (auto-runs, always visible at top) --- */}
-      <div className="ai-section">
-        <div className="ai-section-header">
-          <span className="ai-section-title">
-            🤖 AI Coach <span className="ai-badge">Ollama</span>
-          </span>
-          <span className="ai-section-status">
-            {aiLoading ? (
-              <span className="ai-loading">Analyzing your habits...</span>
-            ) : aiResponse ? (
-              <span className="ai-fresh">Updated {new Date(aiLastRun).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
-            ) : aiError ? (
-              <span className="ai-error-text">{aiError}</span>
-            ) : (
-              <span className="ai-pending">Starting analysis...</span>
-            )}
-          </span>
-          <button
-            className="btn btn-sm btn-ghost"
-            onClick={() => runDeepAnalysis(true)}
-            disabled={aiLoading}
-            title="Refresh AI analysis"
-          >
-            {aiLoading ? '⏳' : '🔄'}
-          </button>
-        </div>
-        {aiResponse && (
-          <div className="ai-response-card">
-            <div className="ai-response-body">{aiResponse}</div>
-          </div>
-        )}
-        {!aiResponse && !aiLoading && !aiError && (
-          <div className="ai-response-card ai-placeholder">
-            <div className="ai-response-body" style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
-              AI analysis will appear here automatically. Make sure Ollama is running.
-            </div>
-          </div>
-        )}
-        {aiLoading && !aiResponse && (
-          <div className="ai-response-card ai-placeholder">
-            <div className="ai-response-body" style={{ color: 'var(--text-muted)' }}>
-              ⏳ Connecting to Ollama...
-            </div>
-          </div>
-        )}
-      </div>
+      {aiSection}
 
       {/* --- Local Recommendations --- */}
       <div className="insights-header">

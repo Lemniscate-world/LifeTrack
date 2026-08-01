@@ -324,7 +324,7 @@ describe('App component', () => {
   it('toggles dark mode', async () => {
     const user = userEvent.setup();
     render(<App />);
-    const darkBtn = document.querySelectorAll('.btn-icon')[2];
+    const darkBtn = screen.getByRole('button', { name: /toggle dark mode|switch to dark mode|switch to light mode/i });
     await user.click(darkBtn);
     expect(document.documentElement.classList.contains('dark')).toBe(true);
     await user.click(darkBtn);

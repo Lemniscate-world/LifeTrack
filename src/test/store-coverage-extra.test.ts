@@ -39,12 +39,12 @@ describe('resetChaos', () => {
     addHabit('Test');
     expect(() => resetChaos()).not.toThrow();
     const dims = getChaosDimensions();
-    expect(dims.length).toBe(6);
+    expect(dims.length).toBe(7);
   });
 });
 
 describe('mergeChaosDimensions — backward compatibility', () => {
-  it('adds new default dimensions (emotional) to old 5-dim data', () => {
+  it('adds new default dimensions (emotional, energy) to old 5-dim data', () => {
     // Simulate data saved by an older version that only had 5 dimensions.
     const oldData = [
       { id: 'social', name: 'Social', triggers: [] },
@@ -54,8 +54,9 @@ describe('mergeChaosDimensions — backward compatibility', () => {
       { id: 'spiritual', name: 'Spiritual', triggers: [] },
     ];
     const merged = mergeChaosDimensions(oldData);
-    expect(merged).toHaveLength(6);
+    expect(merged).toHaveLength(7);
     expect(merged.map((d) => d.id)).toContain('emotional');
+    expect(merged.map((d) => d.id)).toContain('energy');
   });
 
   it('preserves user triggers on existing dimensions', () => {
@@ -70,7 +71,7 @@ describe('mergeChaosDimensions — backward compatibility', () => {
 
   it('returns full defaults when stored is empty', () => {
     const merged = mergeChaosDimensions([]);
-    expect(merged).toHaveLength(6);
+    expect(merged).toHaveLength(7);
     expect(merged.every((d) => d.triggers.length === 0)).toBe(true);
   });
 });

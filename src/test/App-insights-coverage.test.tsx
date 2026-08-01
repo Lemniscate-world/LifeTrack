@@ -85,13 +85,13 @@ describe('InsightsView — with recommendations', () => {
     expect(screen.getByText(/100% local/)).toBeInTheDocument();
   });
 
-  it('Deep Analysis button is present', async () => {
+  it('AI Coach section is present', async () => {
     const user = userEvent.setup();
     addHabit('Test');
     render(<App />);
     await user.click(screen.getByText('Insights'));
 
-    expect(screen.getByText('🤖 Deep Analysis')).toBeInTheDocument();
+    expect(screen.getByText(/AI Coach/)).toBeInTheDocument();
   });
 });
 
