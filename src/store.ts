@@ -2064,6 +2064,10 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
   }
   result.chaosDimensionsRestored = chaosDimensionsRestored;
 
+  // Merge imported dims with defaults so newer dimensions (e.g. 'energy')
+  // appear even when the imported backup was written by an older version.
+  data.chaosDimensions = mergeChaosDimensions(data.chaosDimensions ?? []);
+
   // --- v0.3.2: Import mantra settings (notification preferences) ---
   const rawMantraSettings = (raw as Record<string, unknown>).mantraSettings;
   if (rawMantraSettings && typeof rawMantraSettings === 'object') {
@@ -2293,8 +2297,18 @@ export function mergeChaosDimensions(stored: ChaosDimension[]): ChaosDimension[]
 }
 
 export function getChaosDimensions(): ChaosDimension[] {
+  const defaults = getDefaultChaosDimensions();
   if (!data.chaosDimensions || data.chaosDimensions.length === 0) {
-    data.chaosDimensions = getDefaultChaosDimensions();
+    data.chaosDimensions = defaults;
+  } else {
+    // Self-heal: if any default dimension is missing from persisted data
+    // (e.g. 'energy' written by an older build), merge with defaults. When
+    // nothing is missing we keep the same array reference to preserve
+    // reactivity in components that rely on identity.
+    const storedIds = new Set(data.chaosDimensions.map((d) => d.id));
+    if (defaults.some((d) => !storedIds.has(d.id))) {
+      data.chaosDimensions = mergeChaosDimensions(data.chaosDimensions);
+    }
   }
   return data.chaosDimensions;
 }

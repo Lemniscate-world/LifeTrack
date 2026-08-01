@@ -5,7 +5,7 @@ import {
   forceMigrateLegacyData, recomputeHabitRecords,
   toggleChaosTrigger, getChaosDimensions, resetChaos,
   getHabits, exportAllData, archiveHabit,
-  mergeChaosDimensions,
+  mergeChaosDimensions, mergeImportedData, getDefaultChaosDimensions,
 } from '../store';
 
 beforeEach(() => { localStorage.clear(); resetStore(); });
@@ -73,6 +73,33 @@ describe('mergeChaosDimensions — backward compatibility', () => {
     const merged = mergeChaosDimensions([]);
     expect(merged).toHaveLength(7);
     expect(merged.every((d) => d.triggers.length === 0)).toBe(true);
+  });
+});
+
+describe('mergeImportedData — adds newer chaos dimensions', () => {
+  it('adds energy when importing a backup saved without it', () => {
+    // Simulate an old backup (6 dimensions, no 'energy').
+    const oldBackup = {
+      habits: [{ id: 'h1', name: 'Sport', createdAt: '2026-01-01T00:00:00.000Z', order: 0 }],
+      checkIns: [],
+      notes: [],
+      chaosDimensions: getDefaultChaosDimensions().filter((d) => d.id !== 'energy'),
+      mantras: [],
+      mantraSettings: {},
+      skills: [],
+      capacities: [],
+      capacityRatings: [],
+      moods: {},
+      experiments: [],
+      urges: [],
+      customUrgeTypes: [],
+      preferences: {},
+    };
+    const result = mergeImportedData(oldBackup);
+    expect(result.chaosDimensionsRestored).toBe(0);
+    const dims = getChaosDimensions();
+    expect(dims.map((d) => d.id)).toContain('energy');
+    expect(dims).toHaveLength(7);
   });
 });
 
