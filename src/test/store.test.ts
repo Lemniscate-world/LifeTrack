@@ -1304,7 +1304,7 @@ describe('deduplicateDataInPlace', () => {
       ],
       checkIns: [],
       notes: [],
-      chaosDimensions: [],
+      chaosDimensions: [], achievementCategories: [],
       mantras: [],
       moods: {},
       mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
@@ -1327,7 +1327,7 @@ describe('deduplicateDataInPlace', () => {
       ],
       checkIns: [],
       notes: [],
-      chaosDimensions: [],
+      chaosDimensions: [], achievementCategories: [],
       mantras: [],
       moods: {},
       mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
@@ -1357,7 +1357,7 @@ describe('deduplicateDataInPlace', () => {
         { habitId: 'run-1', date: '2026-06-15', completed: true },
       ],
       notes: [],
-      chaosDimensions: [],
+      chaosDimensions: [], achievementCategories: [],
       mantras: [],
       moods: {},
       mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
@@ -1385,7 +1385,7 @@ describe('deduplicateDataInPlace', () => {
         { id: 'n2', habitId: 'h1', content: 'note on primary', createdAt: '2026-06-02' },
         { id: 'n3', habitId: 'orphan', content: 'orphan note', createdAt: '2026-06-03' },
       ],
-      chaosDimensions: [],
+      chaosDimensions: [], achievementCategories: [],
       mantras: [],
       moods: {},
       mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
@@ -1412,7 +1412,7 @@ describe('deduplicateDataInPlace', () => {
         { habitId: 'ghost-2', date: '2026-06-17', completed: false },
       ],
       notes: [],
-      chaosDimensions: [],
+      chaosDimensions: [], achievementCategories: [],
       mantras: [],
       moods: {},
       mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
@@ -1437,7 +1437,7 @@ describe('deduplicateDataInPlace', () => {
         habits.push({ id: `${name.toLowerCase().replace(/\s+/g, '-')}-${i}`, name, color: '#fff', goal: 0, createdAt: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00.000Z`, archived: false, order: order++ });
       }
     }
-    const data = { habits, checkIns: [], notes: [], chaosDimensions: [], moods: {}, mantras: [], mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' }, skills: [], capacities: [], capacityRatings: [], experiments: [], urges: [], customUrgeTypes: [], preferences: { darkMode: false, theme: '' } };
+    const data = { habits, checkIns: [], notes: [], chaosDimensions: [], achievementCategories: [], moods: {}, mantras: [], mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' }, skills: [], capacities: [], capacityRatings: [], experiments: [], urges: [], customUrgeTypes: [], preferences: { darkMode: false, theme: '' } };
     expect(data.habits).toHaveLength(326);
 
     const result = deduplicateDataInPlace(data);
@@ -1450,7 +1450,7 @@ describe('deduplicateDataInPlace', () => {
   });
 
   it('handles empty data without throwing', () => {
-    const data = { habits: [], checkIns: [], notes: [], chaosDimensions: [], moods: {}, mantras: [], mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' }, skills: [], capacities: [], capacityRatings: [], experiments: [], urges: [], customUrgeTypes: [], preferences: { darkMode: false, theme: '' } };
+    const data = { habits: [], checkIns: [], notes: [], chaosDimensions: [], achievementCategories: [], moods: {}, mantras: [], mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' }, skills: [], capacities: [], capacityRatings: [], experiments: [], urges: [], customUrgeTypes: [], preferences: { darkMode: false, theme: '' } };
     const result = deduplicateDataInPlace(data);
     expect(result.removed).toBe(0);
     expect(data.habits).toHaveLength(0);

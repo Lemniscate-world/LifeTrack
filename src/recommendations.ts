@@ -822,7 +822,6 @@ function detectMoodHabitLink(
   habits: Habit[],
   checkIns: CheckIn[],
   moods: Record<string, string>,
-  _now: Date,
 ): Recommendation[] {
   const recs: Recommendation[] = [];
   const moodDates = Object.keys(moods);
@@ -1046,7 +1045,7 @@ export function generateInsights(
     ...detectNoteInsights(activeHabits, checkIns, now),
     ...detectGoalProgress(habits, checkIns, now),
     // v0.3.3: Mood & Chaos insights
-    ...detectMoodHabitLink(activeHabits, checkIns, moods, now),
+    ...detectMoodHabitLink(activeHabits, checkIns, moods),
     ...detectChaosHabitLink(habits, checkIns, now),
   ];
 
