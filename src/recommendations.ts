@@ -29,7 +29,10 @@ export type RecKind =
   | 'MANTRA_MATCH'
   | 'NOTE_POSITIVE'
   | 'NOTE_OBSTACLE'
-  | 'GOAL_PROGRESS';
+  | 'GOAL_PROGRESS'
+  | 'BURNOUT_RISK'
+  | 'WEEKLY_TREND'
+  | 'SYNERGY';
 
 export interface Recommendation {
   kind: RecKind;
@@ -1007,6 +1010,229 @@ function detectGoalProgress(
   return recs.slice(0, 3);
 }
 
+// --- Rule 17: Burnout / energy risk ---
+// v0.3.4: Watches the energy/physical/emotional side of life. A habit linked to
+// one of these dimensions that is visibly declining, combined with several
+// low-mood days, is a leading signal of burnout — not a judgement, just an
+// early-warning so the user can dial back instead of crashing.
+const BURNOUT_DIMS = ['energy', 'physical', 'emotional', 'psychological'];
+const LOW_MOOD_IDS = ['sick', 'tired', 'bad', 'angry'];
+
+function detectBurnoutRisk(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  now: Date,
+  moods: Record<string, string> = {},
+): Recommendation[] {
+  const candidates = habits.filter((h) => !h.archived && h.chaosDimension && BURNOUT_DIMS.includes(h.chaosDimension));
+  if (candidates.length === 0) return [];
+
+  const inWindow = (daysAgoStart: number, daysAgoEnd: number) => {
+    const start = dateStrDaysAgo(daysAgoStart, now);
+    const end = dateStrDaysAgo(daysAgoEnd, now);
+    return (ci: CheckIn) => ci.date <= start && ci.date >= end;
+  };
+
+  // Completion rate within a rolling window (completions / tracked days).
+  const rateIn = (habitId: string, daysAgoStart: number, daysAgoEnd: number) => {
+    const inWin = inWindow(daysAgoStart, daysAgoEnd);
+    const tracked = checkIns.filter((ci) => ci.habitId === habitId && inWin(ci));
+    if (tracked.length === 0) return null;
+    const completed = tracked.filter((c) => c.completed).length;
+    return completed / tracked.length;
+  };
+
+  let worstHabit: { habit: Habit; decline: number; recent: number } | null = null;
+  for (const habit of candidates) {
+    const recent14 = rateIn(habit.id, 0, 13);
+    const prior28 = rateIn(habit.id, 14, 41);
+    if (recent14 === null || prior28 === null) continue;
+    // A meaningful decline = drop of ≥25 points AND a genuinely low recent rate.
+    if (prior28 >= 0.4 && prior28 - recent14 >= 0.25 && recent14 < 0.55) {
+      const decline = Math.round((prior28 - recent14) * 100);
+      if (!worstHabit || decline > worstHabit.decline) {
+        worstHabit = { habit, decline, recent: recent14 };
+      }
+    }
+  }
+
+  // Low-mood pressure over the last 14 days.
+  let lowMoodDays = 0;
+  let moodDays = 0;
+  for (let d = 0; d < 14; d++) {
+    const ds = dateStrDaysAgo(d, now);
+    const moodId = moods[ds];
+    if (!moodId) continue;
+    moodDays++;
+    if (LOW_MOOD_IDS.includes(moodId)) lowMoodDays++;
+  }
+  const lowMoodRatio = moodDays > 0 ? lowMoodDays / moodDays : 0;
+
+  const hasWorst = worstHabit !== null;
+  const score = (hasWorst ? Math.min(60, 25 + worstHabit!.decline * 0.8) : 0)
+    + Math.min(40, lowMoodRatio * 100 * 0.55);
+
+  if (score < 45) return [];
+  if (!hasWorst && lowMoodRatio < 0.4) return [];
+
+  const dimName = worstHabit ? worstHabit.habit.chaosDimension : '';
+  const title = worstHabit
+    ? `🫀 Burnout watch — "${worstHabit.habit.name}" is slipping (${worstHabit.decline}% decline)`
+    : `🫀 Burnout watch — energy low (${lowMoodDays} low-mood days in 2 weeks)`;
+  const detail = worstHabit
+    ? `"${worstHabit.habit.name}" went from ${Math.round(worstHabit.habit ? priorRate(worstHabit.habit.id, checkIns, now) : 0)}% down to ${Math.round(worstHabit.recent * 100)}% completion in the last 2 weeks.${lowMoodRatio >= 0.3 ? ` Combined with ${lowMoodDays} low-mood day${lowMoodDays > 1 ? 's' : ''}, this points to ${dimName} overload.` : ''} The smartest move right now is usually to REST one dimension, not push harder.`
+    : `You logged ${lowMoodDays} low-mood day${lowMoodDays > 1 ? 's' : ''} in the last 2 weeks with no clear habit trigger. Check in with yourself — sometimes the highest-leverage habit is rest.`;
+
+  return [{
+    kind: 'BURNOUT_RISK',
+    title,
+    detail,
+    habitIds: worstHabit ? [worstHabit.habit.id] : [],
+    strength: Math.min(95, Math.round(score)),
+    actionLabel: 'View history',
+  }];
+}
+
+function priorRate(habitId: string, checkIns: CheckIn[], now: Date): number {
+  const prior = checkIns.filter((ci) => ci.habitId === habitId && ci.date >= dateStrDaysAgo(41, now) && ci.date <= dateStrDaysAgo(14, now));
+  if (prior.length === 0) return 0;
+  return prior.filter((c) => c.completed).length / prior.length;
+}
+
+// --- Rule 18: Weekly trend report ---
+// v0.3.4: Compares the last 4 completed weeks so the user can see momentum
+// (improving vs slipping) plus their best/worst day of the week.
+function detectWeeklyTrend(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  now: Date,
+): Recommendation[] {
+  const recs: Recommendation[] = [];
+  const todayIdx = now.getUTCDay(); // 0=Sun
+  const daysAgoForWeek = (weekOffset: number) => todayIdx + 1 + weekOffset * 7; // start of week (Monday-ish) N weeks ago
+
+  const weekRate = (habitId: string, weekOffset: number): number | null => {
+    const start = dateStrDaysAgo(daysAgoForWeek(weekOffset) + 6, now); // oldest day of that week
+    const end = dateStrDaysAgo(daysAgoForWeek(weekOffset), now); // newest day
+    const inWin = checkIns.filter((ci) => ci.habitId === habitId && ci.date >= start && ci.date <= end);
+    if (inWin.length < 4) return null; // not enough tracked days in that week
+    return inWin.filter((c) => c.completed).length / inWin.length;
+  };
+
+  const completedSet = new Set<string>();
+  for (const ci of checkIns) if (ci.completed) completedSet.add(ci.date);
+  const last28 = new Set<string>();
+  for (let d = 1; d <= 28; d++) last28.add(dateStrDaysAgo(d, now));
+
+  // Per-habit momentum: week 4 (oldest) vs week 1 (recent).
+  for (const habit of habits) {
+    if (habit.archived) continue;
+    const w1 = weekRate(habit.id, 0);
+    const w4 = weekRate(habit.id, 3);
+    if (w1 === null || w4 === null) continue;
+    const delta = Math.round((w1 - w4) * 100);
+    if (delta >= 20) {
+      recs.push({
+        kind: 'WEEKLY_TREND',
+        title: `📈 "${habit.name}" — ${delta}% better than 3 weeks ago`,
+        detail: `Your completion for "${habit.name}" went from ${Math.round(w4 * 100)}% (4 weeks ago) to ${Math.round(w1 * 100)}% this week. Whatever changed, it's working — keep the momentum.`,
+        habitIds: [habit.id],
+        strength: 75,
+        actionLabel: 'View history',
+      });
+    } else if (delta <= -20) {
+      recs.push({
+        kind: 'WEEKLY_TREND',
+        title: `📉 "${habit.name}" — ${-delta}% below where you were 3 weeks ago`,
+        detail: `You were at ${Math.round(w4 * 100)}% for "${habit.name}" four weeks ago, and ${Math.round(w1 * 100)}% this week. Before it becomes a habit gap, find the smallest version of this habit you can still do daily.`,
+        habitIds: [habit.id],
+        strength: Math.min(90, 70 + Math.min(20, -delta)),
+        actionLabel: 'View history',
+      });
+    }
+  }
+
+  // Best / worst weekday across all habits (last 28 tracked days).
+  if (last28.size > 0) {
+    const dayScores: { completed: number; tracked: number }[] = Array.from({ length: 7 }, () => ({ completed: 0, tracked: 0 }));
+    for (let d = 1; d <= 28; d++) {
+      const ds = dateStrDaysAgo(d, now);
+      if (!last28.has(ds)) continue;
+      const dayIdx = new Date(ds + 'T00:00:00Z').getUTCDay();
+      const hadTracked = checkIns.some((ci) => ci.date === ds);
+      dayScores[dayIdx].tracked += hadTracked ? 1 : 0;
+      if (completedSet.has(ds)) dayScores[dayIdx].completed++;
+    }
+    let best = -1, worst = -1;
+    for (let i = 0; i < 7; i++) {
+      if (dayScores[i].tracked < 3) continue;
+      const rate = dayScores[i].completed / dayScores[i].tracked;
+      if (best === -1 || rate > dayScores[best].completed / Math.max(1, dayScores[best].tracked)) best = i;
+      if (worst === -1 || rate < dayScores[worst].completed / Math.max(1, dayScores[worst].tracked)) worst = i;
+    }
+    if (best !== -1 && worst !== -1 && best !== worst) {
+      const bestRate = Math.round((dayScores[best].completed / dayScores[best].tracked) * 100);
+      const worstRate = Math.round((dayScores[worst].completed / dayScores[worst].tracked) * 100);
+      recs.push({
+        kind: 'WEEKLY_TREND',
+        title: `🗓️ Your best day is ${DAY_NAMES[best]} (${bestRate}%), hardest is ${DAY_NAMES[worst]} (${worstRate}%)`,
+        detail: `Over the last 4 weeks you complete habits most on ${DAY_NAMES[best]} and least on ${DAY_NAMES[worst]}. Plan easy wins for ${DAY_NAMES[worst]} — that's where the real gains are.`,
+        habitIds: [],
+        strength: 60,
+        actionLabel: 'View history',
+      });
+    }
+  }
+
+  recs.sort((a, b) => b.strength - a.strength);
+  return recs.slice(0, 3);
+}
+
+// --- Rule 19: Habit synergy ---
+// v0.3.4: Habits you already complete together on the same day are natural
+// stack candidates — lean into the pattern instead of fighting it.
+function detectSynergy(
+  habits: Habit[],
+  checkIns: CheckIn[],
+): Recommendation[] {
+  const active = habits.filter((h) => !h.archived);
+  if (active.length < 2) return [];
+
+  const byHabit = new Map<string, Set<string>>();
+  for (const ci of checkIns) {
+    if (!ci.completed) continue;
+    if (!byHabit.has(ci.habitId)) byHabit.set(ci.habitId, new Set());
+    byHabit.get(ci.habitId)!.add(ci.date);
+  }
+
+  const recs: Recommendation[] = [];
+  for (let i = 0; i < active.length; i++) {
+    for (let j = i + 1; j < active.length; j++) {
+      const a = active[i], b = active[j];
+      const datesA = byHabit.get(a.id);
+      const datesB = byHabit.get(b.id);
+      if (!datesA || !datesB) continue;
+      const both = [...datesA].filter((d) => datesB.has(d));
+      if (both.length < 5) continue;
+      const union = new Set([...datesA, ...datesB]);
+      const ratio = both.length / union.size;
+      if (ratio >= 0.45) {
+        recs.push({
+          kind: 'SYNERGY',
+          title: `🤝 "${a.name}" & "${b.name}" — you already do them together`,
+          detail: `You completed both on ${both.length} shared day${both.length > 1 ? 's' : ''} (${Math.round(ratio * 100)}% of days you did either). Bundle them into an explicit routine so one triggers the other automatically.`,
+          habitIds: [a.id, b.id],
+          strength: Math.min(85, Math.round(ratio * 60 + 30)),
+          actionLabel: 'Link habits',
+        });
+      }
+    }
+  }
+
+  recs.sort((a, b) => b.strength - a.strength);
+  return recs.slice(0, 2);
+}
+
 // --- Main entry point ---
 
 export interface InsightsResult {
@@ -1047,6 +1273,10 @@ export function generateInsights(
     // v0.3.3: Mood & Chaos insights
     ...detectMoodHabitLink(activeHabits, checkIns, moods),
     ...detectChaosHabitLink(habits, checkIns, now),
+    // v0.3.4: Smarter insights — burnout watch, weekly momentum, synergy
+    ...detectBurnoutRisk(activeHabits, checkIns, now, moods),
+    ...detectWeeklyTrend(habits, checkIns, now),
+    ...detectSynergy(activeHabits, checkIns),
   ];
 
   // Deduplicate by title
@@ -1055,6 +1285,22 @@ export function generateInsights(
     const key = r.title;
     if (seen.has(key)) return false;
     seen.add(key);
+    return true;
+  });
+
+  // CORRELATION and SYNERGY both detect same-day habit pairs. When they
+  // overlap for the same pair, keep the established CORRELATION insight and
+  // drop the SYNERGY duplicate so the pair isn't reported twice.
+  const corrPairs = new Set<string>();
+  for (const r of unique) {
+    if (r.kind === 'CORRELATION' && r.habitIds.length === 2) {
+      corrPairs.add([...r.habitIds].sort().join('|'));
+    }
+  }
+  const pairDeduped = unique.filter((r) => {
+    if (r.kind === 'SYNERGY' && r.habitIds.length === 2) {
+      return !corrPairs.has([...r.habitIds].sort().join('|'));
+    }
     return true;
   });
 
@@ -1069,7 +1315,7 @@ export function generateInsights(
     GOAL_PROGRESS: 0,
     NOTE_POSITIVE: 0,
     NOTE_OBSTACLE: 0,
-    CORRELATION: 1,
+    CORRELATION: 0,
     TREND: 1,
     WEEKLY_SUMMARY: 1,
     MANTRA_MATCH: 1,
@@ -1077,8 +1323,12 @@ export function generateInsights(
     PRIME_TIME: 2,
     CHAOS_CORRELATION: 2,
     MISS_PATTERN: 3,
+    // v0.3.4: burnout & momentum rank high (time-sensitive)
+    BURNOUT_RISK: 0,
+    WEEKLY_TREND: 1,
+    SYNERGY: 1,
   };
-  unique.sort((a, b) => {
+  pairDeduped.sort((a, b) => {
     const pa = kindPriority[a.kind] ?? 2;
     const pb = kindPriority[b.kind] ?? 2;
     if (pa !== pb) return pa - pb;
@@ -1088,7 +1338,7 @@ export function generateInsights(
   // Limit to top 8, and max 2 per kind to avoid flooding
   const perKind = new Map<RecKind, number>();
   const limited: Recommendation[] = [];
-  for (const r of unique) {
+  for (const r of pairDeduped) {
     const count = perKind.get(r.kind) ?? 0;
     if (count >= 2) continue;
     perKind.set(r.kind, count + 1);

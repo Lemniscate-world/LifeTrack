@@ -824,3 +824,133 @@ describe('generateInsights — dedup, limits, caps', () => {
     if (nIdx >= 0 && mIdx >= 0) expect(nIdx).toBeLessThan(mIdx);
   });
 });
+
+// ============================================================================
+// BURNOUT_RISK — energy/physical/emotional decline + low mood
+// ============================================================================
+describe('BURNOUT_RISK detection', () => {
+  it('flags a habit linked to energy that declined sharply with low mood', () => {
+    const habit = makeHabit('h1', 'Sport', {
+      chaosDimension: 'energy',
+      chaosImpact: 50,
+      chaosThresholdDays: 2,
+    });
+    const checks: CheckIn[] = [];
+    // Weeks 3-6 (past): good — 85% completion
+    for (let d = 7; d < 42; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      const ds = date.toISOString().slice(0, 10);
+      const day = date.getUTCDay();
+      checks.push(makeCheckIn('h1', ds, day !== 0)); // 6/7 ≈ 86%
+    }
+    // Last 14 days: mostly missed (~30%)
+    for (let d = 0; d < 14; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      const ds = date.toISOString().slice(0, 10);
+      checks.push(makeCheckIn('h1', ds, d % 7 < 2)); // 2/7 ≈ 29%
+    }
+    // Low mood on 5 of the last 14 days
+    const moods: Record<string, string> = {};
+    for (let d = 0; d < 14; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      const ds = date.toISOString().slice(0, 10);
+      moods[ds] = d % 3 === 0 ? 'tired' : 'calm';
+    }
+    const result = generateInsights([habit], checks, NOW, moods);
+    const burnouts = result.recommendations.filter((r) => r.kind === 'BURNOUT_RISK');
+    expect(burnouts.length).toBeGreaterThanOrEqual(1);
+    expect(burnouts[0].title).toContain('Burnout watch');
+    expect(burnouts[0].habitIds).toContain('h1');
+  });
+
+  it('produces no burnout risk when habits are steady', () => {
+    const habit = makeHabit('h1', 'Sport', {
+      chaosDimension: 'energy',
+      chaosImpact: 50,
+      chaosThresholdDays: 2,
+    });
+    const checks: CheckIn[] = [];
+    for (let d = 0; d < 42; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      const ds = date.toISOString().slice(0, 10);
+      checks.push(makeCheckIn('h1', ds, date.getUTCDay() !== 0));
+    }
+    const result = generateInsights([habit], checks, NOW, {});
+    expect(result.recommendations.filter((r) => r.kind === 'BURNOUT_RISK')).toHaveLength(0);
+  });
+});
+
+// ============================================================================
+// WEEKLY_TREND — 4-week momentum + best/worst weekday
+// ============================================================================
+describe('WEEKLY_TREND detection', () => {
+  it('reports improving and declining habits over 4 weeks', () => {
+    const improving = makeHabit('h1', 'Lecture');
+    const checks: CheckIn[] = [];
+    // 4 weeks ago: weak (2/7), this week: strong (6/7)
+    const weekRates = [0.86, 0.57, 0.29, 0.14]; // w0(recent)..w3(oldest)
+    for (let w = 0; w < 4; w++) {
+      for (let d = 0; d < 7; d++) {
+        const date = new Date(NOW);
+        date.setUTCDate(date.getUTCDate() - (w * 7 + d) - 1); // exclude today
+        const ds = date.toISOString().slice(0, 10);
+        const day = date.getUTCDay();
+        const completed = day < Math.round(7 * weekRates[w]);
+        checks.push(makeCheckIn('h1', ds, completed));
+      }
+    }
+    const result = generateInsights([improving], checks, NOW);
+    const trends = result.recommendations.filter((r) => r.kind === 'WEEKLY_TREND');
+    expect(trends.some((t) => t.title.includes('📈'))).toBe(true);
+  });
+
+  it('produces best/worst day insight from 4 weeks of data', () => {
+    const habit = makeHabit('h1', 'Hab');
+    const checks: CheckIn[] = [];
+    for (let d = 1; d <= 28; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      const ds = date.toISOString().slice(0, 10);
+      const day = date.getUTCDay();
+      checks.push(makeCheckIn('h1', ds, day !== 6)); // never on Saturday
+    }
+    const result = generateInsights([habit], checks, NOW);
+    const dayRec = result.recommendations.find((r) => r.kind === 'WEEKLY_TREND' && r.title.includes('best day'));
+    expect(dayRec).toBeDefined();
+    expect(dayRec!.title).toContain('hardest is Sat');
+  });
+});
+
+// ============================================================================
+// SYNERGY — habit pairs completed together
+// ============================================================================
+describe('SYNERGY detection', () => {
+  it('suggests pairing habits done together often', () => {
+    const a = makeHabit('h1', 'Méditation');
+    const b = makeHabit('h2', 'Lecture');
+    const checks: CheckIn[] = [];
+    // 12 shared days + a few solo days each
+    for (let d = 0; d < 12; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d);
+      const ds = date.toISOString().slice(0, 10);
+      checks.push(makeCheckIn('h1', ds, true));
+      checks.push(makeCheckIn('h2', ds, true));
+    }
+    for (let d = 0; d < 4; d++) {
+      const date = new Date(NOW);
+      date.setUTCDate(date.getUTCDate() - d - 20);
+      const ds = date.toISOString().slice(0, 10);
+      checks.push(makeCheckIn('h1', ds, true));
+      checks.push(makeCheckIn('h2', ds, false));
+    }
+    const result = generateInsights([a, b], checks, NOW);
+    const synergies = result.recommendations.filter((r) => r.kind === 'SYNERGY');
+    expect(synergies.length).toBeGreaterThanOrEqual(1);
+    expect(synergies[0].habitIds.sort()).toEqual(['h1', 'h2']);
+  });
+});

@@ -6489,6 +6489,171 @@ body {
   white-space: pre-line;
 }
 
+/* ============ v0.3.4 - AI COACH STRUCTURED OUTPUT + CHAT ============ */
+
+.ai-analysis {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-summary {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+  padding: 10px 12px;
+  background: var(--bg-muted, rgba(127,127,127,0.06));
+  border-radius: 8px;
+}
+
+.ai-block {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.ai-block-priority {
+  border-left: 3px solid #f97316;
+}
+
+.ai-block-trends {
+  border-left: 3px solid #10b981;
+}
+
+.ai-block-risks {
+  border-left: 3px solid #ef4444;
+}
+
+.ai-block-next {
+  border-left: 3px solid #6366f1;
+}
+
+.ai-block-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.ai-item {
+  margin-bottom: 8px;
+}
+
+.ai-item:last-child {
+  margin-bottom: 0;
+}
+
+.ai-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ai-item-detail {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.ai-item-action {
+  font-size: 13px;
+  color: var(--primary);
+  margin-top: 2px;
+}
+
+/* --- Conversational coach --- */
+
+.ai-chat {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.ai-chat-history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+
+.ai-chat-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+  padding: 8px;
+}
+
+.ai-chat-msg {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--bg-muted, rgba(127,127,127,0.06));
+}
+
+.ai-chat-user {
+  align-self: flex-end;
+  background: var(--primary);
+  color: #fff;
+  max-width: 80%;
+}
+
+.ai-chat-coach {
+  align-self: flex-start;
+  max-width: 90%;
+}
+
+.ai-chat-who {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  opacity: 0.7;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.ai-chat-user .ai-chat-who {
+  order: 2;
+}
+
+.ai-chat-content {
+  word-break: break-word;
+  white-space: pre-line;
+}
+
+.ai-chat-thinking {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.ai-chat-form {
+  display: flex;
+  gap: 8px;
+}
+
+.ai-chat-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.ai-chat-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+
 /* ============ v0.3.2 - GRID TOOLBAR + ARCHIVE TOGGLE ============ */
 
 .grid-toolbar {

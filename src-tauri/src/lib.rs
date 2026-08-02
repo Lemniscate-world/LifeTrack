@@ -249,6 +249,8 @@ struct OllamaRequest {
     prompt: String,
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     options: Option<OllamaOptions>,
 }
 
@@ -327,6 +329,8 @@ async fn pick_local_model() -> Result<String, String> {
 /// Call Ollama's local API for AI-powered habit analysis.
 /// Sends a structured prompt about the user's habits and returns insights.
 /// Respects privacy: only statistical summaries are sent, never raw data.
+/// v0.3.4: the model is asked to reply as strict JSON so the UI can render
+/// it as structured cards (priorities / trends / risks / next step).
 #[tauri::command]
 async fn analyze_habits(summary_json: String, model: Option<String>) -> Result<String, String> {
     let model = match model {
@@ -348,14 +352,15 @@ async fn analyze_habits(summary_json: String, model: Option<String>) -> Result<S
          - Experiments: whether hypotheses are being validated, and what to test next.\n\
          - Skills & capacities: where they're progressing and where to invest next.\n\
          - Their own mantras as signals of what they value.\n\n\
-         For each recommendation: state the WHY with the evidence from their data, then give ONE concrete next action.\n\
-         Be warm, direct, non-judgmental, and specific. Use bullet points, no markdown headers.\n\
-         Structure:\n\
-         🔥 TOP PRIORITY — 1-2 recommendations that would have the biggest life impact right now.\n\
-         📈 TRENDS — what is working and should be kept or doubled down on.\n\
-         ⚠️ RISKS — habits/dimensions sliding toward chaos and how to course-correct.\n\
-         💡 NEXT STEP — one small, specific action to take today.\n\
-         Max 350 words.\n\n\
+         Respond ONLY with strict JSON (no markdown, no code fences), with exactly this schema:\n\
+         {{\n  \
+           \"summary\": \"1-2 sentence warm overview of the user's state\",\n  \
+           \"top_priorities\": [{{\"title\": \"short label\", \"why\": \"the evidence from their data\", \"action\": \"ONE concrete next action\"}}],\n  \
+           \"trends\": [{{\"title\": \"short label\", \"detail\": \"what is working and should be kept or doubled down\"}}],\n  \
+           \"risks\": [{{\"title\": \"short label\", \"detail\": \"what is sliding toward chaos\", \"action\": \"how to course-correct\"}}],\n  \
+           \"next_step\": \"one small, specific action to take today\"\n\
+         }}\n\
+         Rules: 1-2 top_priorities, 1-3 trends, 1-3 risks. Be warm, direct, non-judgmental, specific.\n\n\
          FULL LIFETRACK DATA (on-device, anonymous to you):\n{}",
         summary_json
     );
@@ -364,9 +369,10 @@ async fn analyze_habits(summary_json: String, model: Option<String>) -> Result<S
         model,
         prompt,
         stream: false,
+        format: Some("json".to_string()),
         options: Some(OllamaOptions {
             temperature: 0.7,
-            num_predict: 700,
+            num_predict: 1200,
         }),
     };
 
@@ -392,7 +398,81 @@ async fn analyze_habits(summary_json: String, model: Option<String>) -> Result<S
         .await
         .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
 
-    Ok(ollama_resp.response)
+    // Strip markdown code fences some models add even when asked not to.
+    let raw = ollama_resp.response.trim().to_string();
+    let stripped = raw
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim()
+        .to_string();
+    if serde_json::from_str::<serde_json::Value>(&stripped).is_ok() {
+        Ok(stripped)
+    } else {
+        Ok(raw)
+    }
+}
+
+/// Conversational follow-up with the AI coach.
+/// `summary_json` is the full data report; `last_analysis` is the most recent
+/// structured analysis so the coach "remembers" what it already told the user.
+#[tauri::command]
+async fn ask_coach(
+    question: String,
+    summary_json: String,
+    last_analysis: String,
+    model: Option<String>,
+) -> Result<String, String> {
+    let model = match model {
+        Some(m) if !m.trim().is_empty() => m,
+        _ => pick_local_model().await?,
+    };
+
+    let prompt = format!(
+        "You are the same kind, deeply insightful life coach from LifeTrack. You already analyzed the user's data and said:\n\
+         <LAST_ANALYSIS>\n{}\n</LAST_ANALYSIS>\n\n\
+         The user now asks a follow-up question. Answer it directly, using ONLY the context above and the data below.\n\
+         Be warm, concrete and action-oriented. If the question asks for something not in the data, say so kindly.\n\
+         Keep it under 200 words.\n\n\
+         USER QUESTION: {}\n\n\
+         DATA (on-device, anonymous):\n{}",
+        last_analysis, question, summary_json
+    );
+
+    let body = OllamaRequest {
+        model,
+        prompt,
+        stream: false,
+        format: None,
+        options: Some(OllamaOptions {
+            temperature: 0.6,
+            num_predict: 600,
+        }),
+    };
+
+    let client = &*HTTP_CLIENT;
+    let resp = client
+        .post("http://localhost:11434/api/generate")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Ollama connection failed: {}. Is Ollama running?", e))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let err_body = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "Ollama returned HTTP {}: {}. Try a local model with `ollama pull gemma3:4b`.",
+            status, err_body
+        ));
+    }
+
+    let ollama_resp: OllamaResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
+
+    Ok(ollama_resp.response.trim().to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -405,7 +485,8 @@ pub fn run() {
             export_file,
             import_file,
             find_latest_backup,
-            analyze_habits
+            analyze_habits,
+            ask_coach
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

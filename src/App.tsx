@@ -66,6 +66,7 @@ import ExperimentsView from './ExperimentsView';
 import UrgeSurfingView from './UrgeSurfingView';
 import OnboardingHelp from './OnboardingHelp';
 import { buildAiContext } from './aiContext';
+import { parseAiAnalysis, type AiAnalysis, type AiChatMessage } from './aiAnalysis';
 // (Mood view removed — emotional state is tracked via the 'emotional' chaos dimension.)
 import { generateInsights, type Recommendation, type RecKind } from './recommendations';
 import { computeCorrelations } from './correlations';
@@ -93,6 +94,9 @@ const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
+
+// --- AI Coach structured output (v0.3.4) ---
+// Types + parser live in ./aiAnalysis.ts (shared with tests).
 
 // --- Habit Categories ---
 const DEFAULT_CATEGORIES = [
@@ -1888,8 +1892,14 @@ function InsightsView({
   // --- Ollama Deep Analysis (auto-runs on mount, debounced) ---
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResponse, setAiResponse] = useState<string | null>(null);
+  const [aiStructured, setAiStructured] = useState<AiAnalysis | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiLastRun, setAiLastRun] = useState<number>(0);
+  // Conversational coach (v0.3.4): keeps a short chat history so the AI
+  // "remembers" the last analysis and can answer follow-up questions.
+  const [chatHistory, setChatHistory] = useState<AiChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
   const aiRanRef = useRef(false);
   const aiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1900,7 +1910,7 @@ function InsightsView({
 
     setAiLoading(true);
     setAiError(null);
-    if (force) setAiResponse(null);
+    if (force) { setAiResponse(null); setAiStructured(null); }
     try {
       // Build a comprehensive report from ALL data (every note, every domain)
       // so the AI can analyze correlations and give life-level recommendations.
@@ -1916,6 +1926,7 @@ function InsightsView({
         model: null,
       });
       setAiResponse(response);
+      setAiStructured(parseAiAnalysis(response));
       setAiLastRun(Date.now());
     } catch (e) {
       setAiError(e instanceof Error ? e.message : 'AI analysis failed');
@@ -1923,6 +1934,38 @@ function InsightsView({
       setAiLoading(false);
     }
   }, [aiLastRun]);
+
+  // Ask the coach a follow-up question (memory: includes last analysis).
+  const askCoach = useCallback(async (rawQuestion: string) => {
+    const question = rawQuestion.trim();
+    if (!question || chatLoading) return;
+    setChatHistory((h) => [...h, { role: 'user', content: question }]);
+    setChatInput('');
+    setChatLoading(true);
+    try {
+      const summary = buildAiContext(exportAllData());
+      const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+      if (!isTauriEnv) {
+        setChatHistory((h) => [...h, { role: 'coach', content: 'Chat requires the desktop app (Ollama).' }]);
+        return;
+      }
+      const { invoke } = await import('@tauri-apps/api/core');
+      const answer = await invoke<string>('ask_coach', {
+        question,
+        summaryJson: summary,
+        lastAnalysis: aiResponse ?? '',
+        model: null,
+      });
+      setChatHistory((h) => [...h, { role: 'coach', content: answer }]);
+    } catch (e) {
+      setChatHistory((h) => [...h, {
+        role: 'coach',
+        content: e instanceof Error ? `⚠️ ${e.message}` : '⚠️ Something went wrong while asking the coach.',
+      }]);
+    } finally {
+      setChatLoading(false);
+    }
+  }, [aiResponse, chatLoading]);
 
   // Auto-run on first mount (after a short delay to let UI render)
   useEffect(() => {
@@ -1952,6 +1995,9 @@ function InsightsView({
     NOTE_POSITIVE: '💚',
     NOTE_OBSTACLE: '💡',
     GOAL_PROGRESS: '🎯',
+    BURNOUT_RISK: '🫀',
+    WEEKLY_TREND: '📊',
+    SYNERGY: '🤝',
   };
 
   // eslint-disable-next-line no-unused-vars
@@ -1976,6 +2022,11 @@ function InsightsView({
     NOTE_POSITIVE: () => onView('grid'),
     NOTE_OBSTACLE: () => onView('grid'),
     GOAL_PROGRESS: () => onView('stats'),
+    BURNOUT_RISK: () => onView('history'),
+    WEEKLY_TREND: () => onView('history'),
+    SYNERGY: (rec) => {
+      if (rec.habitIds.length >= 2) onLink(rec.habitIds[0], rec.habitIds[1]);
+    },
   };
 
   // AI Section component (always rendered, even when no recommendations yet)
@@ -2006,9 +2057,64 @@ function InsightsView({
         </button>
       </div>
       {aiResponse ? (
-        <div className="ai-response-card">
-          <div className="ai-response-body">{aiResponse}</div>
-        </div>
+        aiStructured ? (
+          <div className="ai-analysis">
+            {aiStructured.summary && (
+              <div className="ai-summary">{aiStructured.summary}</div>
+            )}
+            {aiStructured.top_priorities && aiStructured.top_priorities.length > 0 && (
+              <div className="ai-block ai-block-priority">
+                <div className="ai-block-title">🔥 Top priority</div>
+                {aiStructured.top_priorities.map((item, i) => (
+                  <div className="ai-item" key={`p${i}`}>
+                    <div className="ai-item-title">{item.title ?? 'Priority'}</div>
+                    {item.why && <div className="ai-item-detail">{item.why}</div>}
+                    {item.action && (
+                      <div className="ai-item-action">→ {item.action}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {aiStructured.trends && aiStructured.trends.length > 0 && (
+              <div className="ai-block ai-block-trends">
+                <div className="ai-block-title">📈 Trends</div>
+                {aiStructured.trends.map((item, i) => (
+                  <div className="ai-item" key={`t${i}`}>
+                    {item.title && <div className="ai-item-title">{item.title}</div>}
+                    {item.detail && <div className="ai-item-detail">{item.detail}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {aiStructured.risks && aiStructured.risks.length > 0 && (
+              <div className="ai-block ai-block-risks">
+                <div className="ai-block-title">⚠️ Risks</div>
+                {aiStructured.risks.map((item, i) => (
+                  <div className="ai-item" key={`r${i}`}>
+                    {item.title && <div className="ai-item-title">{item.title}</div>}
+                    {item.detail && <div className="ai-item-detail">{item.detail}</div>}
+                    {item.action && (
+                      <div className="ai-item-action">→ {item.action}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {aiStructured.next_step && (
+              <div className="ai-block ai-block-next">
+                <div className="ai-block-title">💡 Next step</div>
+                <div className="ai-item">
+                  <div className="ai-item-detail">{aiStructured.next_step}</div>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="ai-response-card">
+            <div className="ai-response-body">{aiResponse}</div>
+          </div>
+        )
       ) : aiLoading ? (
         <div className="ai-response-card ai-placeholder">
           <div className="ai-response-body" style={{ color: 'var(--text-muted)' }}>
@@ -2033,6 +2139,48 @@ function InsightsView({
           <div className="ai-response-body" style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
             AI analysis will appear here automatically. Make sure Ollama is running (<code>ollama serve</code>).
           </div>
+        </div>
+      )}
+      {/* --- Conversational coach (v0.3.4): follow-up questions with memory --- */}
+      {aiResponse && (
+        <div className="ai-chat">
+          <div className="ai-chat-history">
+            {chatHistory.length === 0 && (
+              <div className="ai-chat-empty">
+                💬 Ask a follow-up about your analysis — e.g. "Why is my energy habit slipping?" or "What should I focus on today?"
+              </div>
+            )}
+            {chatHistory.map((m, i) => (
+              <div key={i} className={`ai-chat-msg ai-chat-${m.role}`}>
+                <span className="ai-chat-who">{m.role === 'user' ? 'You' : 'Coach'}</span>
+                <span className="ai-chat-content">{m.content}</span>
+              </div>
+            ))}
+            {chatLoading && (
+              <div className="ai-chat-msg ai-chat-coach">
+                <span className="ai-chat-who">Coach</span>
+                <span className="ai-chat-content ai-chat-thinking">thinking…</span>
+              </div>
+            )}
+          </div>
+          <form
+            className="ai-chat-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (chatInput.trim()) askCoach(chatInput);
+            }}
+          >
+            <input
+              className="ai-chat-input"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder="Ask your coach a question…"
+              disabled={chatLoading}
+            />
+            <button className="btn btn-sm btn-primary" type="submit" disabled={chatLoading || !chatInput.trim()}>
+              {chatLoading ? '…' : 'Send'}
+            </button>
+          </form>
         </div>
       )}
     </div>
