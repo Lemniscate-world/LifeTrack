@@ -1,5 +1,6 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalPersonality } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalPersonality, Challenge } from './types';
 import { computeStreakStats } from './stats';
+import { computeChallengeProgress } from './challenges';
 import {
   linkHabitToParentInPlace,
   unlinkHabitInPlace,
@@ -134,6 +135,22 @@ function isValidCapacityRating(x: unknown): x is CapacityRating {
   return true;
 }
 
+// Challenge (v0.5.0): a persistent adaptive challenge attached to a habit.
+// The dailyGoal must be a positive integer; days a positive integer; status
+// must be one of the three known states.
+function isValidChallenge(x: unknown): x is Challenge {
+  if (!x || typeof x !== 'object') return false;
+  const c = x as Record<string, unknown>;
+  if (typeof c.id !== 'string' || typeof c.habitId !== 'string' || typeof c.name !== 'string') return false;
+  if (typeof c.days !== 'number' || !Number.isFinite(c.days) || c.days < 1) return false;
+  if (typeof c.dailyGoal !== 'number' || !Number.isFinite(c.dailyGoal) || c.dailyGoal < 1) return false;
+  if (typeof c.startDate !== 'string' || !isValidDateKey(c.startDate)) return false;
+  if (c.status !== 'active' && c.status !== 'completed' && c.status !== 'failed') return false;
+  if (typeof c.createdAt !== 'string') return false;
+  if (c.completedAt !== undefined && typeof c.completedAt !== 'string') return false;
+  return true;
+}
+
 // --- Sanitize: filter out malformed entries from parsed data ---
 function sanitizeData(raw: unknown): AppData {
   const empty: AppData = {
@@ -152,6 +169,7 @@ function sanitizeData(raw: unknown): AppData {
     urges: [],
     customUrgeTypes: [],
     journalEntries: [],
+    challenges: [],
     preferences: { darkMode: false, theme: '' },
   };
   if (!raw || typeof raw !== 'object') return empty;
@@ -284,6 +302,7 @@ function sanitizeData(raw: unknown): AppData {
     urges: Array.isArray(obj.urges) ? obj.urges.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'type' in (e as object)) as UrgeEntry[] : [],
     customUrgeTypes: Array.isArray(obj.customUrgeTypes) ? obj.customUrgeTypes.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'name' in (e as object)) as CustomUrgeType[] : [],
     journalEntries: Array.isArray(obj.journalEntries) ? obj.journalEntries.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'content' in (e as object) && 'personality' in (e as object)) as JournalEntry[] : [],
+    challenges: Array.isArray(obj.challenges) ? obj.challenges.filter(isValidChallenge) as Challenge[] : [],
     preferences: sanitizePreferences(obj.preferences),
   };
 }
@@ -560,6 +579,7 @@ function freshData(): AppData {
     urges: [],
     customUrgeTypes: [],
     journalEntries: [],
+    challenges: [],
     preferences: { darkMode: false, theme: '' },
   };
 }
@@ -1605,6 +1625,86 @@ export function deleteJournalEntry(id: string): void {
   notify();
 }
 
+// --- Challenges (v0.5.0) ---
+// Persistent, adaptive challenges. Status is auto-resolved on read: an active
+// challenge whose window has fully elapsed is marked 'completed' when the
+// goal was met, otherwise 'failed' (unless the user already set a status).
+
+export function getChallenges(): Challenge[] {
+  return [...data.challenges].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export function getActiveChallenges(): Challenge[] {
+  return data.challenges.filter((c) => c.status === 'active');
+}
+
+export function addChallenge(
+  habitId: string,
+  name: string,
+  days: number,
+  dailyGoal: number,
+  adaptive = false,
+): Challenge {
+  const challenge: Challenge = {
+    id: crypto.randomUUID(),
+    habitId,
+    name,
+    days: Math.max(1, Math.floor(days)),
+    dailyGoal: Math.max(1, Math.floor(dailyGoal)),
+    startDate: toLocalDateKey(new Date()),
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    ...(adaptive ? { adaptive: true } : {}),
+  };
+  data.challenges.push(challenge);
+  notify();
+  return challenge;
+}
+
+export function updateChallenge(id: string, updates: Partial<Challenge>): void {
+  const idx = data.challenges.findIndex((c) => c.id === id);
+  if (idx !== -1) {
+    data.challenges[idx] = { ...data.challenges[idx], ...updates };
+    notify();
+  }
+}
+
+export function deleteChallenge(id: string): void {
+  data.challenges = data.challenges.filter((c) => c.id !== id);
+  notify();
+}
+
+/**
+ * Auto-resolve stale active challenges based on the current date and check-ins.
+ * A challenge is resolved once its window (startDate → startDate + days - 1)
+ * is fully in the past. It is 'completed' if the daily goal was met on at
+ * least 80% of the window days, otherwise 'failed'. Returns the number of
+ * challenges whose status changed.
+ */
+export function resolveChallengeStatuses(now: Date = new Date()): number {
+  const today = toLocalDateKey(now);
+  let changed = 0;
+  for (const c of data.challenges) {
+    if (c.status !== 'active') continue;
+    const end = endDateOf(c.startDate, c.days);
+    if (end >= today) continue; // window still open
+    const progress = computeChallengeProgress(c.habitId, c.startDate, c.days, c.dailyGoal, data.checkIns, today);
+    const completed = progress.completedDays / c.days >= 0.8;
+    c.status = completed ? 'completed' : 'failed';
+    if (completed) c.completedAt = now.toISOString();
+    changed++;
+  }
+  if (changed > 0) notify();
+  return changed;
+}
+
+export function endDateOf(startDate: string, days: number): string {
+  const [y, m, d] = startDate.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days - 1);
+  return toLocalDateKey(dt);
+}
+
 interface ImportedHabit {
   id: string;
   name: string;
@@ -2174,6 +2274,30 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
     if (p.darkMode === true && !currentPrefs.darkMode) currentPrefs.darkMode = true;
     if (typeof p.theme === 'string' && p.theme && !currentPrefs.theme) currentPrefs.theme = p.theme;
     data.preferences = currentPrefs;
+  }
+
+  // --- v0.5.0: Import challenges (remapped through idMap) ---
+  if (!data.challenges) data.challenges = [];
+  const rawChallenges = Array.isArray((raw as Record<string, unknown>).challenges)
+    ? (raw as Record<string, unknown>).challenges as unknown[]
+    : [];
+  for (const rawC of rawChallenges) {
+    if (!isValidChallenge(rawC)) continue;
+    const habitId = idMap.get(rawC.habitId) ?? rawC.habitId;
+    if (!data.habits.some((h) => h.id === habitId)) continue; // orphan challenge → drop
+    if (data.challenges.some((c) => c.id === rawC.id)) continue;
+    data.challenges.push({
+      id: rawC.id,
+      habitId,
+      name: rawC.name,
+      days: Math.max(1, Math.floor(rawC.days)),
+      dailyGoal: Math.max(1, Math.floor(rawC.dailyGoal)),
+      startDate: rawC.startDate,
+      status: rawC.status,
+      createdAt: rawC.createdAt,
+      completedAt: rawC.completedAt,
+      adaptive: rawC.adaptive === true,
+    });
   }
 
   // --- v0.3.2: Import custom urge types ---

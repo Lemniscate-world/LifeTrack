@@ -44,6 +44,7 @@ import {
   getMonthMoods,
   getPreferences,
   updatePreferences,
+  getActiveChallenges,
 } from './store';
 import { computeStreakStats, computeCompletionRate, computeWeightedScore, trackingStart } from './stats';
 import { Heatmap, Sparkline } from './Heatmap';
@@ -71,6 +72,7 @@ import { parseAiAnalysis, type AiAnalysis, type AiChatMessage } from './aiAnalys
 // (Mood view removed — emotional state is tracked via the 'emotional' chaos dimension.)
 import { generateInsights, type Recommendation, type RecKind } from './recommendations';
 import { computeCorrelations } from './correlations';
+import { detectNegativePatterns, type PatternHit } from './psychoanalysis';
 import { getDailyEntryMantra, todayStr, shouldShowMantraNotification, markMantraNotificationShown, MANTRA_DOMAINS, sendSystemNotification } from './mantras';
 
 // Detected at module load (window is always present in browser and Tauri).
@@ -970,7 +972,7 @@ const DEFAULT_CATEGORIES = [
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Year
           </button>
           <button role="tab" aria-selected={view === 'challenge'} className={`view-tab ${view === 'challenge' ? 'active' : ''}`} onClick={() => setView('challenge')}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 30 Days
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Challenges
           </button>
           <button role="tab" aria-selected={view === 'stacks'} className={`view-tab ${view === 'stacks' ? 'active' : ''}`} onClick={() => setView('stacks')}>Stacks</button>
           <button role="tab" aria-selected={view === 'skills'} className={`view-tab ${view === 'skills' ? 'active' : ''}`} onClick={() => setView('skills')}>
@@ -1376,6 +1378,18 @@ const DEFAULT_CATEGORIES = [
                             {goal}
                           </span>
                         )}
+                        {(() => {
+                          const ch = getActiveChallenges().find((c) => c.habitId === habit.id);
+                          if (!ch) return null;
+                          return (
+                            <span
+                              className="grid-challenge-chip"
+                              title={`Active challenge: ${ch.name} — day ${Math.min(ch.days, 1 + Math.round((Date.now() - new Date(ch.startDate).getTime()) / 86400000))} of ${ch.days}`}
+                            >
+                              🎯
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="col-achieved">
                         <div className="achieved-cell">
@@ -1915,6 +1929,52 @@ function InsightsView({
   const aiRanRef = useRef(false);
   const aiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // --- Psychoanalysis (v0.5.0): local negative-pattern detection + AI Q&A ---
+  // Detected patterns are computed locally from the user's own writing; the
+  // AI Q&A then helps dismantle the active ones.
+  const patternHits = useMemo<PatternHit[]>(() => {
+    try {
+      const allData = exportAllData();
+      return detectNegativePatterns(checkIns, allData.notes ?? [], allData.urges ?? []);
+    } catch { return []; }
+  }, [checkIns]);
+  const [psychoHistory, setPsychoHistory] = useState<AiChatMessage[]>([]);
+  const [psychoInput, setPsychoInput] = useState('');
+  const [psychoLoading, setPsychoLoading] = useState(false);
+
+  const askPsychoanalysis = useCallback(async (rawQuestion: string) => {
+    const question = rawQuestion.trim();
+    if (!question || psychoLoading) return;
+    setPsychoHistory((h) => [...h, { role: 'user', content: question }]);
+    setPsychoInput('');
+    setPsychoLoading(true);
+    try {
+      const summary = buildAiContext(exportAllData());
+      const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+      if (!isTauriEnv) {
+        setPsychoHistory((h) => [...h, { role: 'coach', content: 'Psychoanalysis Q&A requires the desktop app (AI provider).' }]);
+        return;
+      }
+      const { invoke } = await import('@tauri-apps/api/core');
+      const prefs = getPreferences();
+      const answer = await invoke<string>('psychoanalysis_ask', {
+        question,
+        summaryJson: summary,
+        model: prefs.aiModel || null,
+        provider: prefs.aiProvider || 'auto',
+        apiKey: prefs.aiApiKey || '',
+      });
+      setPsychoHistory((h) => [...h, { role: 'coach', content: answer }]);
+    } catch (e) {
+      setPsychoHistory((h) => [...h, {
+        role: 'coach',
+        content: e instanceof Error ? `⚠️ ${e.message}` : '⚠️ Something went wrong while asking.',
+      }]);
+    } finally {
+      setPsychoLoading(false);
+    }
+  }, [psychoLoading]);
+
   const runDeepAnalysis = useCallback(async (force = false) => {
     // Debounce: don't re-run within 5 minutes unless forced
     const now = Date.now();
@@ -2317,6 +2377,85 @@ function InsightsView({
           </div>
         </div>
       )}
+
+      {/* --- Psychoanalysis (v0.5.0): local negative-pattern detection + AI Q&A --- */}
+      <div className="psycho-section">
+        <div className="psycho-header">
+          <h3>🧠 Psychoanalysis</h3>
+          <span className="psycho-subtitle">
+            Negative patterns detected in your own notes — and an AI to help you dissolve them.
+          </span>
+        </div>
+
+        {patternHits.length > 0 ? (
+          <div className="psycho-patterns">
+            {patternHits.slice(0, 4).map((hit) => (
+              <div key={hit.pattern.id} className={`psycho-card psycho-${hit.pattern.id}`}>
+                <div className="psycho-card-head">
+                  <span className="psycho-card-icon">{hit.pattern.emoji}</span>
+                  <div className="psycho-card-title">
+                    {hit.pattern.name}
+                    <span className="psycho-card-count">×{hit.count}</span>
+                  </div>
+                </div>
+                <p className="psycho-card-desc">{hit.pattern.description}</p>
+                {hit.sample && (
+                  <p className="psycho-card-sample">“{hit.sample.slice(0, 120)}{hit.sample.length > 120 ? '…' : ''}”</p>
+                )}
+                <p className="psycho-card-counter">💥 {hit.pattern.counter}</p>
+                <span className="psycho-card-source">{hit.pattern.source}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="psycho-none">
+            No negative patterns detected yet in your notes. As you write, LifeTrack looks for
+            cognitive distortions and self-sabotage signals — completely on-device.
+          </p>
+        )}
+
+        <div className="psycho-chat">
+          <div className="psycho-chat-history">
+            {psychoHistory.length === 0 && (
+              <div className="psycho-chat-empty">
+                💬 Ask the psychoanalysis assistant about a recurring thought or situation — e.g.
+                "Pourquoi je sabote toujours mes projets quand ils marchent ?" It will name the
+                pattern and give you one technique to destroy it.
+              </div>
+            )}
+            {psychoHistory.map((m, i) => (
+              <div key={i} className={`ai-chat-msg ai-chat-${m.role}`}>
+                <span className="ai-chat-who">{m.role === 'user' ? 'You' : 'Psycho'}</span>
+                <span className="ai-chat-content">{m.content}</span>
+              </div>
+            ))}
+            {psychoLoading && (
+              <div className="ai-chat-msg ai-chat-coach">
+                <span className="ai-chat-who">Psycho</span>
+                <span className="ai-chat-content ai-chat-thinking">thinking…</span>
+              </div>
+            )}
+          </div>
+          <form
+            className="ai-chat-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (psychoInput.trim()) askPsychoanalysis(psychoInput);
+            }}
+          >
+            <input
+              className="ai-chat-input"
+              value={psychoInput}
+              onChange={(e) => setPsychoInput(e.target.value)}
+              placeholder="Posez une question sur un schéma négatif…"
+              disabled={psychoLoading}
+            />
+            <button className="btn btn-sm btn-primary" type="submit" disabled={psychoLoading || !psychoInput.trim()}>
+              {psychoLoading ? '…' : 'Send'}
+            </button>
+          </form>
+        </div>
+      </div>
     </div>
   );
 }

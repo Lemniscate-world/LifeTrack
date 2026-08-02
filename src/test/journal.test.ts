@@ -42,4 +42,16 @@ describe('Journal — store CRUD', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].id).toBe(b.id);
   });
+
+  it('accepts the new Robert Greene and Huberman personas', () => {
+    addJournalEntry('entrée stratégie', 'robert-greene', 'Loi 1 — ne dépassez jamais votre maître.');
+    addJournalEntry('entrée neurosciences', 'huberman', 'Exposition au soleil le matin.');
+    const entries = getJournalEntries();
+    const greene = entries.find((e) => e.personality === 'robert-greene');
+    const huberman = entries.find((e) => e.personality === 'huberman');
+    expect(greene).toBeDefined();
+    expect(greene?.response).toContain('Loi 1');
+    expect(huberman).toBeDefined();
+    expect(huberman?.response).toContain('soleil');
+  });
 });

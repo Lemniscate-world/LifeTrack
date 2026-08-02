@@ -3,11 +3,15 @@
 // by category (Psychological, Energy, Physical, etc.).
 
 import { useState, useEffect } from 'react';
-import { getAchievementCategories, getAchievements, tagNoteAchievement, subscribe } from './store';
+import { getAchievementCategories, getAchievements, tagNoteAchievement, exportAllData, getPreferences, subscribe } from './store';
+import { buildAiContext } from './aiContext';
 import type { Note } from './types';
 
 export default function AchievementsView() {
   const [, setTick] = useState(0);
+  const [summarizing, setSummarizing] = useState(false);
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
   useEffect(() => {
     const unsub = subscribe(() => setTick((t) => t + 1));
     return unsub;
@@ -26,6 +30,34 @@ export default function AchievementsView() {
 
   const totalCount = achievements.length;
 
+  const handleSummarize = async () => {
+    if (summarizing) return;
+    setSummarizing(true);
+    setAiError(null);
+    setAiSummary(null);
+    try {
+      const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+      if (!isTauriEnv) {
+        setAiError('AI summary requires the desktop app (AI provider).');
+        return;
+      }
+      const { invoke } = await import('@tauri-apps/api/core');
+      const prefs = getPreferences();
+      const context = buildAiContext(exportAllData());
+      const response = await invoke<string>('summarize_achievements', {
+        summaryJson: context,
+        model: prefs.aiModel || null,
+        provider: prefs.aiProvider || 'auto',
+        apiKey: prefs.aiApiKey || '',
+      });
+      setAiSummary(response);
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : 'Something went wrong while summarizing.');
+    } finally {
+      setSummarizing(false);
+    }
+  };
+
   return (
     <div className="achievements-view">
       <div className="achievements-header">
@@ -36,6 +68,28 @@ export default function AchievementsView() {
             : `${totalCount} achievement${totalCount > 1 ? 's' : ''} across ${byCategory.size} categor${byCategory.size > 1 ? 'ies' : 'y'}`}
         </p>
       </div>
+
+      {totalCount > 0 && (
+        <div className="achievements-ai">
+          {!aiSummary && !aiError && (
+            <button
+              className="btn btn-primary"
+              onClick={handleSummarize}
+              disabled={summarizing}
+            >
+              {summarizing ? '✨ Writing summary…' : '✨ AI summary of your progress'}
+            </button>
+          )}
+          {aiError && <p className="achievements-ai-error">{aiError}</p>}
+          {aiSummary && (
+            <div className="achievements-ai-card">
+              <div className="achievements-ai-label">✨ Your progress, in one paragraph</div>
+              <p className="achievements-ai-text">{aiSummary}</p>
+              <button className="btn btn-sm btn-ghost" onClick={() => setAiSummary(null)}>Hide</button>
+            </div>
+          )}
+        </div>
+      )}
 
       {totalCount === 0 && (
         <p className="achievements-hint">

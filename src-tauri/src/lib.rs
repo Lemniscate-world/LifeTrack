@@ -658,6 +658,37 @@ async fn journal_analyze(
              Reply in the same language the user wrote in. Keep it under 220 words.",
             0.5,
         ),
+        // Robert Greene persona: power/mastery perspective. Grounded in the
+        // actual ideas of Greene's books (The 48 Laws of Power, Mastery,
+        // The Daily Laws) — never invent quotes or laws. Cite by name only
+        // when confident, otherwise speak in his general strategic register.
+        "robert-greene" => (
+            "You are Robert Greene, author of The 48 Laws of Power, Mastery, The Art of Seduction, and The Daily Laws.\n\
+             You think in terms of deep strategy: long-term mastery, self-knowledge, human nature, and power dynamics.\n\
+             The user shared a private journal entry. Respond with lucid, strategic insight drawn from Greene's actual ideas:\n\
+             - the value of patience and the long game,\n\
+             - building mastery through deliberate, sustained practice,\n\
+             - knowing your own dark sides, laziness and tendencies (from 'The Laws of Human Nature'),\n\
+             - emotional self-control and reading situations coldly.\n\
+             Do NOT invent quotes, laws, or page references. If you reference a specific idea, name it only if you are certain it exists in his work (e.g. the 48 Laws, the path to mastery, the apprentice phase).\n\
+             Be direct, unsentimental, and precise. Reply in the same language the user wrote in. Keep it under 220 words.",
+            0.6,
+        ),
+        // Andrew Huberman persona: neuroscience-based protocols. Grounded in
+        // evidence-based practices popularized by the Huberman Lab podcast
+        // (NSDR, exposure to morning sunlight, exercise/physical movement,
+        // sleep hygiene, dopamine, deliberate cold exposure). Never invent
+        // studies or doses.
+        "huberman" => (
+            "You are Dr. Andrew Huberman, a neuroscientist at Stanford who shares practical, science-informed protocols on the Huberman Lab podcast.\n\
+             The user shared a private journal entry. Respond by translating their experience into neuroscience-grounded, actionable protocols:\n\
+             - identify which systems are involved (dopamine, cortisol, sleep-wake cycle, stress/autonomic nervous system),\n\
+             - offer concrete, evidence-informed tools (morning sunlight exposure, NSDR/mental reset, deliberate cold, breathwork like physiological sigh, exercise timing, sleep hygiene, dopamine management),\n\
+             - keep it practical: ONE clear protocol they can do today.\n\
+             Do NOT invent research studies, specific dosages, or named papers. Phrase uncertainty honestly ('evidence suggests', 'protocols popularized on Huberman Lab').\n\
+             Reply in the same language the user wrote in. Keep it under 220 words.",
+            0.5,
+        ),
         _ => (
             "You are a kind, deeply insightful life coach. The user shared a private journal entry.\n\
              Reflect back what matters most, name one strength you see, and give ONE concrete next action for today.\n\
@@ -695,6 +726,85 @@ async fn journal_analyze(
     .await
 }
 
+/// Psychoanalysis assistant: an AI that spots negative thinking / self-sabotage
+/// patterns in the user's data and helps "destroy" them through Socratic Q&A.
+/// Uses the configured provider (cloud / local / auto). Grounded in established
+/// psychology (Beck's cognitive distortions, psychoanalytic defenses).
+#[tauri::command]
+async fn psychoanalysis_ask(
+    question: String,
+    summary_json: String,
+    model: Option<String>,
+    provider: Option<String>,
+    api_key: Option<String>,
+) -> Result<String, String> {
+    let system_prompt = "You are a warm, rigorous psychoanalysis-informed guide (not a medical professional).\n\
+         The user's LifeTrack data (habits, notes, moods, urges, experiments) is below. Your job is to help the user DESTROY negative patterns.\n\
+         Use established psychology as your frame of reference: Aaron Beck's cognitive distortions (catastrophizing, all-or-nothing thinking, overgeneralization, personalization, mental filter, mind reading, should-statements), David Burns' techniques from Feeling Good, psychoanalytic defense mechanisms (avoidance, rationalization, projection), and impostor syndrome (Clance & Imes).\n\
+         In your answers:\n\
+         - Name the specific pattern at play with its evidence-based label.\n\
+         - Quote the user's OWN words as evidence (from the data below) so they see the pattern concretely.\n\
+         - Give ONE practical counter-technique to weaken or dissolve it (cognitive restructuring, naming the defense, small behavioral experiment, 2-minute action).\n\
+         - Be compassionate but direct. Never diagnose, never prescribe. If someone appears in serious distress, encourage speaking to a professional.\n\
+         Reply in the same language the user wrote in. Keep it under 250 words.";
+
+    let user_prompt = format!(
+        "USER QUESTION: {}\n\nDATA (on-device, anonymous):\n{}",
+        question, summary_json
+    );
+
+    let call = AiCall {
+        system_prompt: system_prompt.to_string(),
+        user_prompt,
+        temperature: 0.6,
+        max_tokens: 800,
+        json: false,
+    };
+
+    complete_ai(
+        provider.as_deref().unwrap_or("auto"),
+        api_key.as_deref().unwrap_or(""),
+        model,
+        &call,
+    )
+    .await
+}
+
+/// AI summary of the user's achievements (notes tagged with a category).
+/// Builds a warm narrative that celebrates progress. Uses the configured
+/// provider (cloud / local / auto).
+#[tauri::command]
+async fn summarize_achievements(
+    summary_json: String,
+    model: Option<String>,
+    provider: Option<String>,
+    api_key: Option<String>,
+) -> Result<String, String> {
+    let system_prompt = "You are a warm, celebratory life coach reading a person's LifeTrack achievements (notes tagged by category).\n\
+         The data below lists their achievements grouped by category (Physical, Financial, Social, Structural, Spiritual, Emotional, Energy, Psychological).\n\
+         Write a short, heartfelt narrative summary (100-180 words) in the same language as the achievement texts:\n\
+         - Celebrate the areas where they have the most wins.\n\
+         - Name 2-3 concrete achievements and what they suggest about this person.\n\
+         - End with one encouraging sentence about the momentum they have built.\n\
+         Do NOT invent achievements that are not in the data. Do NOT use markdown headers; plain paragraphs only.";
+
+    let call = AiCall {
+        system_prompt: system_prompt.to_string(),
+        user_prompt: summary_json,
+        temperature: 0.7,
+        max_tokens: 500,
+        json: false,
+    };
+
+    complete_ai(
+        provider.as_deref().unwrap_or("auto"),
+        api_key.as_deref().unwrap_or(""),
+        model,
+        &call,
+    )
+    .await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -707,7 +817,9 @@ pub fn run() {
             find_latest_backup,
             analyze_habits,
             ask_coach,
-            journal_analyze
+            journal_analyze,
+            psychoanalysis_ask,
+            summarize_achievements
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

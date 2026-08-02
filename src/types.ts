@@ -205,7 +205,7 @@ export interface CorrelationResult {
 // --- Journal (v0.4.0) ---
 // A private reflection tool where the user writes freely and one of four
 // AI personas (Coach / Sage / Psychologist / Strategist) reflects back.
-export type JournalPersonality = 'coach' | 'sage' | 'psychologist' | 'strategist';
+export type JournalPersonality = 'coach' | 'sage' | 'psychologist' | 'strategist' | 'robert-greene' | 'huberman';
 
 export interface JournalEntry {
   id: string;
@@ -213,6 +213,25 @@ export interface JournalEntry {
   personality: JournalPersonality; // which persona replied
   response: string;           // the persona's reflection (plain text / markdown)
   createdAt: string;          // ISO timestamp
+}
+
+// --- Challenges (v0.5.0) ---
+// A persistent, adaptive challenge attached to a habit. Unlike the old static
+// 30-day view, challenges are stored, can be customized (duration + daily goal)
+// and the daily target is intelligently derived from the habit's recent history.
+export interface Challenge {
+  id: string;
+  habitId: string;          // the habit being challenged
+  name: string;             // display label, e.g. "30-day streak: Meditate"
+  days: number;             // challenge duration in days (e.g. 14, 21, 30)
+  dailyGoal: number;        // completions per day required to "count" (adaptive)
+  startDate: string;        // YYYY-MM-DD
+  status: 'active' | 'completed' | 'failed';
+  createdAt: string;
+  completedAt?: string;     // ISO timestamp when completed
+  // True when the dailyGoal was auto-suggested by the adaptive logic rather
+  // than chosen manually — shown in the UI so the user knows it was tuned.
+  adaptive?: boolean;
 }
 
 export interface AppData {
@@ -231,6 +250,7 @@ export interface AppData {
   urges: UrgeEntry[];
   customUrgeTypes: CustomUrgeType[];
   journalEntries: JournalEntry[];
+  challenges: Challenge[];
   preferences: UserPreferences;
 }
 

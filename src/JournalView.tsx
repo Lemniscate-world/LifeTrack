@@ -13,6 +13,8 @@ const PERSONALITIES: { id: JournalPersonality; name: string; emoji: string; tagl
   { id: 'sage', name: 'Sage', emoji: '🧘', tagline: 'Perspective & calm', color: '#EDE9FE' },
   { id: 'psychologist', name: 'Psychologist', emoji: '🫂', tagline: 'Emotions & depth', color: '#FCE7F3' },
   { id: 'strategist', name: 'Strategist', emoji: '♟️', tagline: 'Planning & clarity', color: '#FEF3C7' },
+  { id: 'robert-greene', name: 'Robert Greene', emoji: '👑', tagline: 'Strategy & power', color: '#FEE2E2' },
+  { id: 'huberman', name: 'Huberman', emoji: '🧬', tagline: 'Neuroscience & protocols', color: '#D1FAE5' },
 ];
 
 export default function JournalView() {
