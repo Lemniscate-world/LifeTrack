@@ -1,4 +1,4 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalPersonality } from './types';
 import { computeStreakStats } from './stats';
 import {
   linkHabitToParentInPlace,
@@ -151,6 +151,7 @@ function sanitizeData(raw: unknown): AppData {
     experiments: [],
     urges: [],
     customUrgeTypes: [],
+    journalEntries: [],
     preferences: { darkMode: false, theme: '' },
   };
   if (!raw || typeof raw !== 'object') return empty;
@@ -282,6 +283,7 @@ function sanitizeData(raw: unknown): AppData {
     experiments: Array.isArray(obj.experiments) ? obj.experiments.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'title' in (e as object)) as Experiment[] : [],
     urges: Array.isArray(obj.urges) ? obj.urges.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'type' in (e as object)) as UrgeEntry[] : [],
     customUrgeTypes: Array.isArray(obj.customUrgeTypes) ? obj.customUrgeTypes.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'name' in (e as object)) as CustomUrgeType[] : [],
+    journalEntries: Array.isArray(obj.journalEntries) ? obj.journalEntries.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'content' in (e as object) && 'personality' in (e as object)) as JournalEntry[] : [],
     preferences: sanitizePreferences(obj.preferences),
   };
 }
@@ -557,6 +559,7 @@ function freshData(): AppData {
     experiments: [],
     urges: [],
     customUrgeTypes: [],
+    journalEntries: [],
     preferences: { darkMode: false, theme: '' },
   };
 }
@@ -1570,6 +1573,35 @@ export function addNote(content: string, achievementCategory?: string): Note {
 
 export function deleteNote(id: string): void {
   data.notes = data.notes.filter((n) => n.id !== id);
+  notify();
+}
+
+// --- Journal (v0.4.0) ---
+export function getJournalEntries(): JournalEntry[] {
+  return [...data.journalEntries].sort((a, b) =>
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+}
+
+export function addJournalEntry(
+  content: string,
+  personality: JournalPersonality,
+  response: string,
+): JournalEntry {
+  const entry: JournalEntry = {
+    id: crypto.randomUUID(),
+    content,
+    personality,
+    response,
+    createdAt: new Date().toISOString(),
+  };
+  data.journalEntries.push(entry);
+  notify();
+  return entry;
+}
+
+export function deleteJournalEntry(id: string): void {
+  data.journalEntries = data.journalEntries.filter((e) => e.id !== id);
   notify();
 }
 

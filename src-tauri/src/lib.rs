@@ -624,6 +624,77 @@ async fn ask_coach(
     .await
 }
 
+/// Journal: one of four AI personas reflects on the user's free-form writing.
+/// Personas: 'coach' (action), 'sage' (perspective), 'psychologist' (emotion),
+/// 'strategist' (planning). `summary_json` is optional context about the
+/// user's tracked life; the persona is asked to reply in the user's language.
+#[tauri::command]
+async fn journal_analyze(
+    content: String,
+    personality: String,
+    summary_json: String,
+    model: Option<String>,
+    provider: Option<String>,
+    api_key: Option<String>,
+) -> Result<String, String> {
+    let (system_prompt, temperature) = match personality.as_str() {
+        "sage" => (
+            "You are a wise, calm sage. The user shared a private journal entry. Respond with timeless perspective and gentle detachment.\n\
+             Reflect the deeper pattern beneath what they wrote, offer a reframe, and end with one quiet question to sit with.\n\
+             Reply in the same language the user wrote in. Keep it under 220 words. Warm, unhurried, non-judgmental.",
+            0.7,
+        ),
+        "psychologist" => (
+            "You are a warm, non-judgmental psychologist (not a replacement for a real therapist). The user shared a private journal entry.\n\
+             Name the emotions present, gently explore what might be underneath them, and normalize what they're feeling.\n\
+             Do not diagnose. If you see signs of serious distress, encourage speaking to a professional.\n\
+             Reply in the same language the user wrote in. Keep it under 220 words. Compassionate and precise.",
+            0.7,
+        ),
+        "strategist" => (
+            "You are a sharp strategic planner. The user shared a private journal entry.\n\
+             Extract the underlying goals and obstacles, evaluate options, and give a concrete, prioritized plan.\n\
+             Be direct and pragmatic: what to keep, what to cut, what to do next, in order.\n\
+             Reply in the same language the user wrote in. Keep it under 220 words.",
+            0.5,
+        ),
+        _ => (
+            "You are a kind, deeply insightful life coach. The user shared a private journal entry.\n\
+             Reflect back what matters most, name one strength you see, and give ONE concrete next action for today.\n\
+             Be warm, direct, and action-oriented without being preachy.\n\
+             Reply in the same language the user wrote in. Keep it under 220 words.",
+            0.6,
+        ),
+    };
+
+    let context = if summary_json.trim().is_empty() {
+        String::new()
+    } else {
+        format!("\n\nOptional context about their tracked life (use it only if relevant):\n{}", summary_json)
+    };
+
+    let user_prompt = format!(
+        "JOURNAL ENTRY (the user's own words):\n\"{}\"{}\n\nNow reflect on this entry.",
+        content, context
+    );
+
+    let call = AiCall {
+        system_prompt: system_prompt.to_string(),
+        user_prompt,
+        temperature,
+        max_tokens: 600,
+        json: false,
+    };
+
+    complete_ai(
+        provider.as_deref().unwrap_or("auto"),
+        api_key.as_deref().unwrap_or(""),
+        model,
+        &call,
+    )
+    .await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -635,7 +706,8 @@ pub fn run() {
             import_file,
             find_latest_backup,
             analyze_habits,
-            ask_coach
+            ask_coach,
+            journal_analyze
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

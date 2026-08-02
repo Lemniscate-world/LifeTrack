@@ -628,6 +628,150 @@ body {
   margin: 0 auto;
 }
 
+/* --- Journal (v0.4.0) --- */
+.journal-view {
+  padding: 16px;
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+.journal-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.journal-subtitle {
+  margin: 4px 0 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.journal-personas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.journal-persona {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-alt);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, transform 0.1s;
+}
+
+.journal-persona:hover {
+  transform: translateY(-1px);
+}
+
+.journal-persona.active {
+  border-width: 2px;
+}
+
+.journal-persona-emoji {
+  font-size: 22px;
+}
+
+.journal-persona-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.journal-persona-tagline {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.journal-composer {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.journal-textarea {
+  resize: vertical;
+  min-height: 110px;
+}
+
+.journal-composer-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.journal-error {
+  margin-top: 10px;
+  color: var(--negative, #c62828);
+  font-size: 13px;
+}
+
+.journal-history h3 {
+  font-size: 14px;
+  margin: 0 0 12px;
+  color: var(--text-muted);
+}
+
+.journal-entry {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.journal-entry-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.journal-entry-persona {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.journal-entry-date {
+  color: var(--text-muted);
+  font-size: 12px;
+  flex: 1;
+}
+
+.journal-delete {
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.journal-entry-content {
+  font-size: 14px;
+  margin: 0 0 10px;
+  padding-left: 10px;
+  border-left: 3px solid var(--border);
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.journal-entry-response {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.journal-entry-response p {
+  margin: 0 0 6px;
+}
+
 .experiments-header {
   display: flex;
   align-items: center;

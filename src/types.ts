@@ -202,6 +202,19 @@ export interface CorrelationResult {
   sampleSize: number;       // number of data points
 }
 
+// --- Journal (v0.4.0) ---
+// A private reflection tool where the user writes freely and one of four
+// AI personas (Coach / Sage / Psychologist / Strategist) reflects back.
+export type JournalPersonality = 'coach' | 'sage' | 'psychologist' | 'strategist';
+
+export interface JournalEntry {
+  id: string;
+  content: string;            // the user's free-form text
+  personality: JournalPersonality; // which persona replied
+  response: string;           // the persona's reflection (plain text / markdown)
+  createdAt: string;          // ISO timestamp
+}
+
 export interface AppData {
   habits: Habit[];
   checkIns: CheckIn[];
@@ -217,6 +230,7 @@ export interface AppData {
   experiments: Experiment[];
   urges: UrgeEntry[];
   customUrgeTypes: CustomUrgeType[];
+  journalEntries: JournalEntry[];
   preferences: UserPreferences;
 }
 

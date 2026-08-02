@@ -63,6 +63,7 @@ import ShortcutsHelp from './ShortcutsHelp';
 import YearView from './YearView';
 import ChallengeView from './ChallengeView';
 import ExperimentsView from './ExperimentsView';
+import JournalView from './JournalView';
 import UrgeSurfingView from './UrgeSurfingView';
 import OnboardingHelp from './OnboardingHelp';
 import { buildAiContext } from './aiContext';
@@ -160,7 +161,7 @@ const DEFAULT_CATEGORIES = [
   const [editWhyText, setEditWhyText] = useState('');
   // v0.3.2: Toggle to display archived habits in the grid
   const [showArchived, setShowArchived] = useState(false);
-  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'experiments' | 'urges' | 'mantras' | 'achievements' | 'settings'>('grid');
+  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'experiments' | 'urges' | 'journal' | 'mantras' | 'achievements' | 'settings'>('grid');
   const [savedMsg, setSavedMsg] = useState('');
   // Shortcuts help + toast
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -442,7 +443,7 @@ const DEFAULT_CATEGORIES = [
       // Tab switching: Ctrl+1..9 + Ctrl+0
       if (ctrl && e.key >= '0' && e.key <= '9') {
         e.preventDefault();
-        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'mantras', 'experiments', 'achievements'];
+        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'mantras', 'experiments', 'journal', 'achievements'];
         const idx = e.key === '0' ? 0 : parseInt(e.key, 10);
         const viewKey = tabs[idx] as typeof view;
         if (viewKey) setView(viewKey);
@@ -983,6 +984,9 @@ const DEFAULT_CATEGORIES = [
           </button>
           <button role="tab" aria-selected={view === 'urges'} className={`view-tab ${view === 'urges' ? 'active' : ''}`} onClick={() => setView('urges')}>
             🌊 Urges
+          </button>
+          <button role="tab" aria-selected={view === 'journal'} className={`view-tab ${view === 'journal' ? 'active' : ''}`} onClick={() => setView('journal')}>
+            📓 Journal
           </button>
           <button role="tab" aria-selected={view === 'chaos'} className={`view-tab ${view === 'chaos' ? 'active' : ''}`} onClick={() => setView('chaos')}>Chaos</button>
           <button role="tab" aria-selected={view === 'mantras'} className={`view-tab ${view === 'mantras' ? 'active' : ''}`} onClick={() => setView('mantras')}>
@@ -1578,6 +1582,8 @@ const DEFAULT_CATEGORIES = [
         <ExperimentsView />
       ) : view === 'urges' ? (
         <UrgeSurfingView />
+      ) : view === 'journal' ? (
+        <JournalView />
       ) : (
         <ChaosView />
       )}
@@ -1862,7 +1868,7 @@ function InsightsView({
   // eslint-disable-next-line no-unused-vars
   onLink: (childId: string, parentId: string | null) => void;
   // eslint-disable-next-line no-unused-vars
-  onView: (_v: 'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights' | 'mantras' | 'settings' | 'today' | 'year' | 'challenge' | 'experiments' | 'skills' | 'urges') => void;
+  onView: (_v: 'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights' | 'mantras' | 'settings' | 'today' | 'year' | 'challenge' | 'experiments' | 'skills' | 'urges' | 'journal') => void;
 }) {
   const { recommendations, generatedAt } = useMemo(
     () => {
