@@ -224,4 +224,9 @@ export interface AppData {
 export interface UserPreferences {
   darkMode: boolean;
   theme: string; // CSS class or '' (default)
+  // v0.4.0: AI provider selection. `auto` = cloud when an API key is set and
+  // reachable, local Ollama otherwise.
+  aiProvider?: 'auto' | 'openrouter' | 'ollama';
+  aiModel?: string; // e.g. 'openai/gpt-4o-mini' on OpenRouter, '' = default
+  aiApiKey?: string; // cloud API key (stored locally, never sent to any server except the chosen provider)
 }

@@ -1921,9 +1921,12 @@ function InsightsView({
         return;
       }
       const { invoke } = await import('@tauri-apps/api/core');
+      const prefs = getPreferences();
       const response = await invoke<string>('analyze_habits', {
         summaryJson: summary,
-        model: null,
+        model: prefs.aiModel || null,
+        provider: prefs.aiProvider || 'auto',
+        apiKey: prefs.aiApiKey || '',
       });
       setAiResponse(response);
       setAiStructured(parseAiAnalysis(response));
@@ -1950,11 +1953,14 @@ function InsightsView({
         return;
       }
       const { invoke } = await import('@tauri-apps/api/core');
+      const prefs = getPreferences();
       const answer = await invoke<string>('ask_coach', {
         question,
         summaryJson: summary,
         lastAnalysis: aiResponse ?? '',
-        model: null,
+        model: prefs.aiModel || null,
+        provider: prefs.aiProvider || 'auto',
+        apiKey: prefs.aiApiKey || '',
       });
       setChatHistory((h) => [...h, { role: 'coach', content: answer }]);
     } catch (e) {

@@ -3993,6 +3993,34 @@ body {
   width: 100px;
 }
 
+.settings-select,
+.settings-text-input {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.settings-select {
+  max-width: 260px;
+}
+
+.settings-text-input {
+  flex: 1;
+  min-width: 0;
+  max-width: 420px;
+}
+
+.ai-test-ok {
+  color: var(--positive, #2e7d32);
+}
+
+.ai-test-err {
+  color: var(--negative, #c62828);
+}
+
 /* Toggle switch */
 .mantra-toggle {
   position: relative;

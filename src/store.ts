@@ -291,9 +291,13 @@ function sanitizePreferences(raw: unknown): UserPreferences {
   const defaults: UserPreferences = { darkMode: false, theme: '' };
   if (!raw || typeof raw !== 'object') return defaults;
   const p = raw as Record<string, unknown>;
+  const provider = p.aiProvider === 'openrouter' || p.aiProvider === 'ollama' ? p.aiProvider : 'auto';
   return {
     darkMode: p.darkMode === true,
     theme: typeof p.theme === 'string' ? p.theme : '',
+    aiProvider: provider,
+    aiModel: typeof p.aiModel === 'string' ? p.aiModel : '',
+    aiApiKey: typeof p.aiApiKey === 'string' ? p.aiApiKey : '',
   };
 }
 

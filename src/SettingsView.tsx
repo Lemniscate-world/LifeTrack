@@ -3,12 +3,14 @@ import {
   getStorageStatus,
   getMantraSettings,
   updateMantraSettings,
+  getPreferences,
+  updatePreferences,
   getLastSaved,
   flushSave,
   exportAllData,
   listUpgradeBackups,
 } from './store';
-import type { MantraSettings } from './types';
+import type { MantraSettings, UserPreferences } from './types';
 import { INSIGHT_RULES_COUNT } from './recommendations';
 import { version as APP_VERSION } from '../package.json';
 
@@ -42,8 +44,11 @@ export default function SettingsView({
   const [mantraSettings, setMantraSettings] = useState<MantraSettings>(getMantraSettings());
   const [storageStatus, setStorageStatus] = useState(getStorageStatus());
   const [lastSaved, setLastSaved] = useState('');
-  const [activeTab, setActiveTab] = useState<'appearance' | 'mantras' | 'data' | 'backups' | 'about'>('appearance');
+  const [activeTab, setActiveTab] = useState<'appearance' | 'ai' | 'mantras' | 'data' | 'backups' | 'about'>('appearance');
   const [confirmReset, setConfirmReset] = useState(false);
+  const [aiPrefs, setAiPrefs] = useState<UserPreferences>(getPreferences());
+  const [aiTesting, setAiTesting] = useState(false);
+  const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   useEffect(() => {
     const update = () => {
@@ -79,6 +84,7 @@ export default function SettingsView({
 
   const tabs = [
     { id: 'appearance' as const, label: '🎨 Appearance' },
+    { id: 'ai' as const, label: '🤖 AI' },
     { id: 'mantras' as const, label: '🧘 Mantras' },
     { id: 'data' as const, label: '💾 Data' },
     { id: 'backups' as const, label: '🛡️ Backups' },
@@ -132,6 +138,111 @@ export default function SettingsView({
                 <span className="mantra-toggle-slider" />
               </label>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI */}
+      {activeTab === 'ai' && (
+        <div className="settings-panel">
+          <div className="settings-group">
+            <h3>AI Provider</h3>
+            <p className="settings-hint">
+              Deep Analysis and the Coach use this provider. Auto = OpenRouter when an API key is set,
+              falling back to local Ollama if the cloud is unreachable.
+            </p>
+            <div className="settings-row">
+              <span>Provider</span>
+              <select
+                className="settings-select"
+                value={aiPrefs.aiProvider ?? 'auto'}
+                onChange={(e) => {
+                  const next = { ...aiPrefs, aiProvider: e.target.value as UserPreferences['aiProvider'] };
+                  setAiPrefs(next);
+                  updatePreferences(next);
+                }}
+              >
+                <option value="auto">Auto (cloud → Ollama fallback)</option>
+                <option value="openrouter">Cloud (OpenRouter)</option>
+                <option value="ollama">Local (Ollama)</option>
+              </select>
+            </div>
+            <div className="settings-row">
+              <span>Model</span>
+              <input
+                type="text"
+                className="settings-text-input"
+                placeholder="openai/gpt-4o-mini (OpenRouter) — or a local Ollama model"
+                value={aiPrefs.aiModel ?? ''}
+                onChange={(e) => {
+                  const next = { ...aiPrefs, aiModel: e.target.value };
+                  setAiPrefs(next);
+                  updatePreferences(next);
+                }}
+              />
+            </div>
+            <div className="settings-row">
+              <span>API key</span>
+              <input
+                type="password"
+                className="settings-text-input"
+                placeholder="sk-or-… (OpenRouter)"
+                value={aiPrefs.aiApiKey ?? ''}
+                onChange={(e) => {
+                  const next = { ...aiPrefs, aiApiKey: e.target.value };
+                  setAiPrefs(next);
+                  updatePreferences(next);
+                }}
+              />
+            </div>
+            <p className="settings-hint">
+              🔒 The key is stored only on your machine and is only sent to the provider you chose.
+            </p>
+          </div>
+
+          <div className="settings-group">
+            <h3>Test Connection</h3>
+            <div className="settings-actions">
+              <button
+                className="btn btn-primary"
+                disabled={aiTesting}
+                onClick={async () => {
+                  setAiTesting(true);
+                  setAiTestResult(null);
+                  try {
+                    const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+                    if (!isTauriEnv) {
+                      setAiTestResult({ ok: false, message: 'Testing requires the desktop app.' });
+                      return;
+                    }
+                    const { invoke } = await import('@tauri-apps/api/core');
+                    const answer = await invoke<string>('ask_coach', {
+                      question: 'Reply with exactly: OK',
+                      summaryJson: '{}',
+                      lastAnalysis: '',
+                      model: aiPrefs.aiModel || null,
+                      provider: aiPrefs.aiProvider || 'auto',
+                      apiKey: aiPrefs.aiApiKey || '',
+                    });
+                    setAiTestResult({ ok: true, message: `Connected — model replied: ${answer.slice(0, 60)}` });
+                  } catch (e) {
+                    setAiTestResult({
+                      ok: false,
+                      message: e instanceof Error ? e.message : 'Connection test failed.',
+                    });
+                  } finally {
+                    setAiTesting(false);
+                  }
+                }}
+              >
+                {aiTesting ? 'Testing…' : '🔌 Test Connection'}
+              </button>
+            </div>
+            {aiTestResult && (
+              <p className={`settings-hint ${aiTestResult.ok ? 'ai-test-ok' : 'ai-test-err'}`}>
+                {aiTestResult.message}
+              </p>
+            )}
           </div>
         </div>
       )}

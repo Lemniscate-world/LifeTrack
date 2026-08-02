@@ -241,7 +241,9 @@ fn find_latest_backup(app: tauri::AppHandle) -> Result<Option<String>, String> {
     Ok(None)
 }
 
-// --- Ollama / Local AI integration ---
+// --- AI integration: local Ollama + cloud (OpenRouter) ---
+
+const OPENROUTER_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
 #[derive(Serialize)]
 struct OllamaRequest {
@@ -281,9 +283,153 @@ struct OllamaTagsResponse {
     models: Vec<OllamaModelEntry>,
 }
 
+// --- OpenRouter (cloud) request/response shapes ---
+
+#[derive(Serialize)]
+struct ChatMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Serialize)]
+struct OpenRouterRequest {
+    model: String,
+    messages: Vec<ChatMessage>,
+    temperature: f32,
+    max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<OpenRouterResponseFormat>,
+}
+
+#[derive(Serialize)]
+struct OpenRouterResponseFormat {
+    #[serde(rename = "type")]
+    format_type: String,
+}
+
+#[derive(Deserialize)]
+struct OpenRouterResponse {
+    choices: Vec<OpenRouterChoice>,
+}
+
+#[derive(Deserialize)]
+struct OpenRouterChoice {
+    message: OpenRouterMessage,
+}
+
+#[derive(Deserialize)]
+struct OpenRouterMessage {
+    content: String,
+}
+
+/// How the caller wants the AI to behave (temperature, token cap, JSON).
+struct AiCall {
+    system_prompt: String,
+    user_prompt: String,
+    temperature: f32,
+    max_tokens: u32,
+    json: bool,
+}
+
+/// Call a local Ollama endpoint. `model` must already be resolved.
+async fn call_ollama(model: String, call: &AiCall, json_format: bool) -> Result<String, String> {
+    let body = OllamaRequest {
+        model,
+        prompt: format!("{}\n\n{}", call.system_prompt, call.user_prompt),
+        stream: false,
+        format: if json_format {
+            Some("json".to_string())
+        } else {
+            None
+        },
+        options: Some(OllamaOptions {
+            temperature: call.temperature,
+            num_predict: call.max_tokens,
+        }),
+    };
+
+    let resp = HTTP_CLIENT
+        .post("http://localhost:11434/api/generate")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Ollama connection failed: {}. Is Ollama running?", e))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let err_body = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "Ollama returned HTTP {}: {}. Try a local model with `ollama pull gemma3:4b`.",
+            status, err_body
+        ));
+    }
+
+    let ollama_resp: OllamaResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
+
+    Ok(ollama_resp.response.trim().to_string())
+}
+
+/// Call OpenRouter's cloud chat-completions API.
+async fn call_openrouter(model: String, api_key: String, call: &AiCall, json_format: bool) -> Result<String, String> {
+    let messages = vec![
+        ChatMessage {
+            role: "system".to_string(),
+            content: call.system_prompt.clone(),
+        },
+        ChatMessage {
+            role: "user".to_string(),
+            content: call.user_prompt.clone(),
+        },
+    ];
+
+    let body = OpenRouterRequest {
+        model,
+        messages,
+        temperature: call.temperature,
+        max_tokens: call.max_tokens,
+        response_format: if json_format {
+            Some(OpenRouterResponseFormat {
+                format_type: "json_object".to_string(),
+            })
+        } else {
+            None
+        },
+    };
+
+    let resp = HTTP_CLIENT
+        .post(OPENROUTER_URL)
+        .bearer_auth(api_key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("OpenRouter connection failed: {}. Check your network or API key.", e))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let err_body = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "OpenRouter returned HTTP {}: {}. Check your API key in Settings → AI.",
+            status, err_body
+        ));
+    }
+
+    let openrouter_resp: OpenRouterResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse OpenRouter response: {}", e))?;
+
+    openrouter_resp
+        .choices
+        .into_iter()
+        .next()
+        .map(|c| c.message.content.trim().to_string())
+        .ok_or_else(|| "OpenRouter returned no choices.".to_string())
+}
+
 /// Auto-select a local (non-cloud) chat-capable model from Ollama.
-/// Cloud models (e.g. `minimax-m3:cloud`) require a paid plan and hit
-/// usage limits, so we prefer locally-served models that are always free.
 async fn pick_local_model() -> Result<String, String> {
     let resp = HTTP_CLIENT
         .get("http://localhost:11434/api/tags")
@@ -326,23 +472,65 @@ async fn pick_local_model() -> Result<String, String> {
     Err("No local Ollama model found. Pull one with `ollama pull gemma3:4b`.".to_string())
 }
 
-/// Call Ollama's local API for AI-powered habit analysis.
-/// Sends a structured prompt about the user's habits and returns insights.
-/// Respects privacy: only statistical summaries are sent, never raw data.
-/// v0.3.4: the model is asked to reply as strict JSON so the UI can render
-/// it as structured cards (priorities / trends / risks / next step).
-#[tauri::command]
-async fn analyze_habits(summary_json: String, model: Option<String>) -> Result<String, String> {
-    let model = match model {
-        Some(m) if !m.trim().is_empty() => m,
-        _ => pick_local_model().await?,
+/// Resolve the provider + model to use, then dispatch to cloud or local.
+/// `provider` is one of 'auto' | 'openrouter' | 'ollama'. In 'auto' mode we
+/// use the cloud when an API key is configured and reachable, otherwise local.
+async fn complete_ai(
+    provider: &str,
+    api_key: &str,
+    model: Option<String>,
+    call: &AiCall,
+) -> Result<String, String> {
+    let want_cloud = match provider {
+        "openrouter" => true,
+        "ollama" => false,
+        _ => !api_key.trim().is_empty(),
     };
 
+    if want_cloud {
+        let key = api_key.trim();
+        if key.is_empty() {
+            return Err("OpenRouter is selected but no API key is set. Add it in Settings → AI.".to_string());
+        }
+        let cloud_model = match model.as_deref() {
+            Some(m) if !m.trim().is_empty() => m.trim().to_string(),
+            _ => "openai/gpt-4o-mini".to_string(),
+        };
+        match call_openrouter(cloud_model, key.to_string(), call, call.json).await {
+            Ok(text) => return Ok(text),
+            Err(e) if provider == "auto" => {
+                // Cloud unreachable → fall back to local Ollama.
+                let local_model = pick_local_model().await?;
+                return call_ollama(local_model, call, call.json).await;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+
+    let local_model = match model.as_deref() {
+        Some(m) if !m.trim().is_empty() && !m.starts_with("openai/") && !m.contains('/') => m.trim().to_string(),
+        _ => pick_local_model().await?,
+    };
+    call_ollama(local_model, call, call.json).await
+}
+
+/// Run AI-powered habit analysis through the configured provider
+/// (OpenRouter cloud, or local Ollama, or 'auto' = cloud with Ollama fallback).
+/// Sends a structured prompt about the user's habits and returns insights.
+/// Respects privacy: only statistical summaries are sent, never raw data.
+/// The model is asked to reply as strict JSON so the UI can render it as
+/// structured cards (priorities / trends / risks / next step).
+#[tauri::command]
+async fn analyze_habits(
+    summary_json: String,
+    model: Option<String>,
+    provider: Option<String>,
+    api_key: Option<String>,
+) -> Result<String, String> {
     // Build a structured but privacy-respecting prompt.
     // The report (summary_json) covers ALL tracked domains: habits, check-ins,
     // every note, moods, skills, capacities, experiments, urges, chaos, mantras.
-    let prompt = format!(
-        "You are a kind, deeply insightful life coach and habit coach. The data below is the user's entire LifeTrack database (habits, all notes, moods, skills, capacities, experiments, urges, chaos pressure, mantras).\n\
+    let system_prompt = "You are a kind, deeply insightful life coach and habit coach. The data below is the user's entire LifeTrack database (habits, all notes, moods, skills, capacities, experiments, urges, chaos pressure, mantras).\n\
          Your job is to help the user go further in life.\n\n\
          Analyze deeply and give 4-6 concrete, prioritized recommendations. Consider:\n\
          - Habit patterns: completion rates, streaks, gaps, and which habits are thriving or at risk.\n\
@@ -360,46 +548,25 @@ async fn analyze_habits(summary_json: String, model: Option<String>) -> Result<S
            \"risks\": [{{\"title\": \"short label\", \"detail\": \"what is sliding toward chaos\", \"action\": \"how to course-correct\"}}],\n  \
            \"next_step\": \"one small, specific action to take today\"\n\
          }}\n\
-         Rules: 1-2 top_priorities, 1-3 trends, 1-3 risks. Be warm, direct, non-judgmental, specific.\n\n\
-         FULL LIFETRACK DATA (on-device, anonymous to you):\n{}",
-        summary_json
-    );
+         Rules: 1-2 top_priorities, 1-3 trends, 1-3 risks. Be warm, direct, non-judgmental, specific.";
 
-    let body = OllamaRequest {
-        model,
-        prompt,
-        stream: false,
-        format: Some("json".to_string()),
-        options: Some(OllamaOptions {
-            temperature: 0.7,
-            num_predict: 1200,
-        }),
+    let call = AiCall {
+        system_prompt: system_prompt.to_string(),
+        user_prompt: summary_json,
+        temperature: 0.7,
+        max_tokens: 1200,
+        json: true,
     };
 
-    let client = &*HTTP_CLIENT;
-    let resp = client
-        .post("http://localhost:11434/api/generate")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Ollama connection failed: {}. Is Ollama running?", e))?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        let err_body = resp.text().await.unwrap_or_default();
-        return Err(format!(
-            "Ollama returned HTTP {}: {}. Try a local model with `ollama pull gemma3:4b`.",
-            status, err_body
-        ));
-    }
-
-    let ollama_resp: OllamaResponse = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
+    let raw = complete_ai(
+        provider.as_deref().unwrap_or("auto"),
+        api_key.as_deref().unwrap_or(""),
+        model,
+        &call,
+    )
+    .await?;
 
     // Strip markdown code fences some models add even when asked not to.
-    let raw = ollama_resp.response.trim().to_string();
     let stripped = raw
         .trim_start_matches("```json")
         .trim_start_matches("```")
@@ -416,63 +583,45 @@ async fn analyze_habits(summary_json: String, model: Option<String>) -> Result<S
 /// Conversational follow-up with the AI coach.
 /// `summary_json` is the full data report; `last_analysis` is the most recent
 /// structured analysis so the coach "remembers" what it already told the user.
+/// Uses the configured provider (cloud / local / auto).
 #[tauri::command]
 async fn ask_coach(
     question: String,
     summary_json: String,
     last_analysis: String,
     model: Option<String>,
+    provider: Option<String>,
+    api_key: Option<String>,
 ) -> Result<String, String> {
-    let model = match model {
-        Some(m) if !m.trim().is_empty() => m,
-        _ => pick_local_model().await?,
-    };
-
-    let prompt = format!(
+    let system_prompt = format!(
         "You are the same kind, deeply insightful life coach from LifeTrack. You already analyzed the user's data and said:\n\
          <LAST_ANALYSIS>\n{}\n</LAST_ANALYSIS>\n\n\
          The user now asks a follow-up question. Answer it directly, using ONLY the context above and the data below.\n\
          Be warm, concrete and action-oriented. If the question asks for something not in the data, say so kindly.\n\
-         Keep it under 200 words.\n\n\
-         USER QUESTION: {}\n\n\
-         DATA (on-device, anonymous):\n{}",
-        last_analysis, question, summary_json
+         Keep it under 200 words.",
+        last_analysis
     );
 
-    let body = OllamaRequest {
-        model,
-        prompt,
-        stream: false,
-        format: None,
-        options: Some(OllamaOptions {
-            temperature: 0.6,
-            num_predict: 600,
-        }),
+    let user_prompt = format!(
+        "USER QUESTION: {}\n\nDATA (on-device, anonymous):\n{}",
+        question, summary_json
+    );
+
+    let call = AiCall {
+        system_prompt,
+        user_prompt,
+        temperature: 0.6,
+        max_tokens: 600,
+        json: false,
     };
 
-    let client = &*HTTP_CLIENT;
-    let resp = client
-        .post("http://localhost:11434/api/generate")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Ollama connection failed: {}. Is Ollama running?", e))?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        let err_body = resp.text().await.unwrap_or_default();
-        return Err(format!(
-            "Ollama returned HTTP {}: {}. Try a local model with `ollama pull gemma3:4b`.",
-            status, err_body
-        ));
-    }
-
-    let ollama_resp: OllamaResponse = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
-
-    Ok(ollama_resp.response.trim().to_string())
+    complete_ai(
+        provider.as_deref().unwrap_or("auto"),
+        api_key.as_deref().unwrap_or(""),
+        model,
+        &call,
+    )
+    .await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
