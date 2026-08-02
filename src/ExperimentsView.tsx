@@ -3,13 +3,14 @@
 
 import { useState, useEffect } from 'react';
 import { getExperiments, addExperiment, completeExperiment, deleteExperiment, getHabits, subscribe } from './store';
+import { toDateKey } from './stats';
 
 export default function ExperimentsView() {
   const [, setTick] = useState(0);
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState('');
   const [hypothesis, setHypothesis] = useState('');
-  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState(() => toDateKey(new Date()));
   const [endDate, setEndDate] = useState('');
   const [linkedHabits, setLinkedHabits] = useState<string[]>([]);
   const [linkedMetrics, setLinkedMetrics] = useState<string[]>(['mood']);

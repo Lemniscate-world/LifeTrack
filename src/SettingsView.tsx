@@ -9,6 +9,8 @@ import {
   listUpgradeBackups,
 } from './store';
 import type { MantraSettings } from './types';
+import { INSIGHT_RULES_COUNT } from './recommendations';
+import { version as APP_VERSION } from '../package.json';
 
 const THEMES = ['', 'theme-ocean', 'theme-forest', 'theme-sunset', 'theme-rose', 'theme-mono', 'theme-midnight', 'theme-emerald'];
 const THEME_LABELS = ['Default', 'Ocean', 'Forest', 'Sunset', 'Rose', 'Mono', 'Midnight', 'Emerald'];
@@ -343,15 +345,15 @@ export default function SettingsView({
             <div className="about-logo">
               <span className="about-life">Life</span><span className="about-track">Track</span>
             </div>
-            <p className="about-version">Version 0.2.1</p>
+            <p className="about-version">Version {APP_VERSION}</p>
             <p className="about-desc">
               A local-first, privacy-respecting habit tracker for Windows.
               No cloud, no telemetry, no accounts. Your data stays on your machine.
             </p>
             <div className="about-stats">
-              <div><strong>12</strong> insight rules</div>
+              <div><strong>{INSIGHT_RULES_COUNT}</strong> insight rules</div>
               <div><strong>6</strong> mantra domains</div>
-              <div><strong>4</strong> backup locations</div>
+              <div><strong>6</strong> backup locations</div>
               <div><strong>8</strong> themes</div>
             </div>
             <p className="about-tech">

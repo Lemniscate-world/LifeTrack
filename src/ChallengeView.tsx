@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Habit, CheckIn } from './types';
+import { toDateKey } from './stats';
 
 interface ChallengeViewProps {
   habits: Habit[];
@@ -15,14 +16,14 @@ export default function ChallengeView({ habits, checkIns }: ChallengeViewProps) 
   const challenge = (() => {
     if (!habit) return null;
     const now = new Date();
-    const today = now.toISOString().slice(0, 10);
+    const today = toDateKey(now);
     
     // Last 30 days
     const days: { date: string; completed: boolean; day: number }[] = [];
     for (let i = 29; i >= 0; i--) {
       const d = new Date(now);
-      d.setUTCDate(d.getUTCDate() - i);
-      const ds = d.toISOString().slice(0, 10);
+      d.setDate(d.getDate() - i);
+      const ds = toDateKey(d);
       const ci = checkIns.find(c => c.habitId === habit.id && c.date === ds);
       days.push({
         date: ds,
@@ -100,7 +101,7 @@ export default function ChallengeView({ habits, checkIns }: ChallengeViewProps) 
             {challenge.days.map((d, i) => (
               <div
                 key={i}
-                className={`challenge-day ${d.completed ? 'done' : 'missed'} ${d.date === new Date().toISOString().slice(0, 10) ? 'today' : ''}`}
+                className={`challenge-day ${d.completed ? 'done' : 'missed'} ${d.date === toDateKey(new Date()) ? 'today' : ''}`}
                 title={`Day ${d.day}: ${d.date}`}
               >
                 <span className="challenge-day-num">{d.day}</span>

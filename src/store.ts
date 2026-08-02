@@ -1623,6 +1623,15 @@ function normalizeHabitName(name: string): string {
   return name.trim().toLowerCase();
 }
 
+/** Local-civil-date key (YYYY-MM-DD). Use this instead of toISOString() so
+ *  "today" doesn't shift at 18:00 UTC for the French user (UTC+1/+2). */
+function toLocalDateKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function isValidDateKey(date: string): boolean {
   if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)) return false;
   const [year, month, day] = date.split('-').map(Number);
@@ -1873,7 +1882,7 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
     result.notesCreated++;
   }
 
-  let skillsMerged = false;
+  let skillsMerged = 0;
   for (const rawSkill of readArray(raw, 'skills')) {
     const s = rawSkill as Record<string, unknown>;
     if (!s || typeof s.id !== 'string' || typeof s.name !== 'string') continue;
@@ -1893,7 +1902,7 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
       for (const link of links) {
         if (!existing.links.some(l => l.habitId === link.habitId)) {
           existing.links.push(link);
-          skillsMerged = true;
+          skillsMerged++;
         }
       }
     } else {
@@ -1907,7 +1916,7 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
         links,
         isDefault: s.isDefault === true,
       });
-      skillsMerged = true;
+      skillsMerged++;
     }
   }
 
@@ -2154,7 +2163,7 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
   }
 
   const totalRestored = result.habitsCreated + result.checkInsRestored + result.notesCreated
-    + (skillsMerged ? 1 : 0) + capacitiesImported + ratingsImported
+    + skillsMerged + capacitiesImported + ratingsImported
     + moodsRestored + experimentsRestored + urgesRestored + mantrasRestored + chaosDimensionsRestored;
   if (metadataChanged || totalRestored > 0) {
     notify();
@@ -2258,9 +2267,9 @@ export function updateMantraSettings(updates: Partial<MantraSettings>): void {
 }
 
 // --- Mood / Emotional Tracking ---
-// Mood tracker was removed: emotional state is captured via the 'emotional'
-// chaos dimension instead. The exports below are kept as no-ops so any
-// leftover imports from older code compile and run safely.
+// Moods are fully active: stored as a per-day map (date → mood id), surfaced in
+// the grid mood row, and consumed by insights (mood↔habit correlations, burnout
+// watch) and the correlations engine.
 
 export function getMoods() {
   return MOODS;
@@ -2743,7 +2752,7 @@ export function computeSkillProgress(skillId: string): SkillProgress | undefined
   for (let i = 29; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(today.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0]; // YYYY-MM-DD
+    const dateStr = toLocalDateKey(d); // YYYY-MM-DD (local, not UTC)
 
     let xpGainedOnDay = 0;
     for (const link of skill.links) {
@@ -2797,7 +2806,7 @@ export function addCapacity(
   baseline: number,
   target: number,
 ): Capacity | null {
-  // Parent must exist � refuse orphans (they would be unreachable from the UI).
+  // Parent must exist — refuse orphans (they would be unreachable from the UI).
   if (!data.skills.some((s) => s.id === skillId)) {
     console.warn('addCapacity: skill not found', skillId);
     return null;
@@ -2871,12 +2880,12 @@ export function logCapacityObservation(
     return null;
   }
   if (input.rating === undefined && (!input.note || input.note.trim().length === 0)) {
-    // Reject empty observations (R7 � no silent failures / no silent data loss).
+    // Reject empty observations (R7 — no silent failures / no silent data loss).
     console.warn('logCapacityObservation: refusing empty observation (no rating, no note)');
     return null;
   }
   if (!data.capacityRatings) data.capacityRatings = [];
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = toLocalDateKey(new Date());
   const date = input.date ?? todayStr;
   if (!isValidDateKey(date)) {
     console.warn('logCapacityObservation: invalid date', date);
@@ -2889,7 +2898,7 @@ export function logCapacityObservation(
     if (input.rating !== undefined) existing.rating = input.rating;
     if (input.note && input.note.trim().length > 0) {
       existing.note = existing.note
-        ? `${existing.note}\n� ${input.note.trim()}`
+        ? `${existing.note}\n• ${input.note.trim()}`
         : input.note.trim();
     }
     if (input.habitId !== undefined) existing.habitId = input.habitId;

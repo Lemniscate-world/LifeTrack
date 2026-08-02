@@ -32,7 +32,20 @@ export type RecKind =
   | 'GOAL_PROGRESS'
   | 'BURNOUT_RISK'
   | 'WEEKLY_TREND'
-  | 'SYNERGY';
+  | 'SYNERGY'
+  | 'MOOD_STREAK'
+  | 'URGE_WIN'
+  | 'URGE_TRIGGER'
+  | 'CAPACITY_SURGE'
+  | 'EXPERIMENT_RESULT'
+  | 'NOTE_THEME'
+  | 'PERFECT_DAY'
+  | 'ENERGY_BUDGET'
+  | 'WEEKLY_LETTER'
+  | 'STREAK_SAVER';
+
+/** Number of distinct insight rule kinds — kept in sync with RecKind. */
+export const INSIGHT_RULES_COUNT = 29;
 
 export interface Recommendation {
   kind: RecKind;
@@ -1327,6 +1340,17 @@ export function generateInsights(
     BURNOUT_RISK: 0,
     WEEKLY_TREND: 1,
     SYNERGY: 1,
+    // v0.4.0: smarter insights from moods, urges, capacities, experiments, notes
+    MOOD_STREAK: 1,
+    URGE_WIN: 0,
+    URGE_TRIGGER: 1,
+    CAPACITY_SURGE: 1,
+    EXPERIMENT_RESULT: 1,
+    NOTE_THEME: 1,
+    PERFECT_DAY: 1,
+    ENERGY_BUDGET: 1,
+    WEEKLY_LETTER: 2,
+    STREAK_SAVER: 0,
   };
   pairDeduped.sort((a, b) => {
     const pa = kindPriority[a.kind] ?? 2;

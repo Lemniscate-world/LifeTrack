@@ -1862,7 +1862,7 @@ function InsightsView({
   // eslint-disable-next-line no-unused-vars
   onLink: (childId: string, parentId: string | null) => void;
   // eslint-disable-next-line no-unused-vars
-  onView: (_v: 'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights' | 'mantras' | 'settings' | 'today' | 'year' | 'challenge' | 'experiments') => void;
+  onView: (_v: 'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights' | 'mantras' | 'settings' | 'today' | 'year' | 'challenge' | 'experiments' | 'skills' | 'urges') => void;
 }) {
   const { recommendations, generatedAt } = useMemo(
     () => {
@@ -1998,6 +1998,16 @@ function InsightsView({
     BURNOUT_RISK: '🫀',
     WEEKLY_TREND: '📊',
     SYNERGY: '🤝',
+    MOOD_STREAK: '📈',
+    URGE_WIN: '🛡️',
+    URGE_TRIGGER: '🎯',
+    CAPACITY_SURGE: '⚡',
+    EXPERIMENT_RESULT: '🔬',
+    NOTE_THEME: '📝',
+    PERFECT_DAY: '🌟',
+    ENERGY_BUDGET: '🔋',
+    WEEKLY_LETTER: '✉️',
+    STREAK_SAVER: '🛟',
   };
 
   // eslint-disable-next-line no-unused-vars
@@ -2027,6 +2037,16 @@ function InsightsView({
     SYNERGY: (rec) => {
       if (rec.habitIds.length >= 2) onLink(rec.habitIds[0], rec.habitIds[1]);
     },
+    MOOD_STREAK: () => onView('history'),
+    URGE_WIN: () => onView('urges'),
+    URGE_TRIGGER: () => onView('urges'),
+    CAPACITY_SURGE: () => onView('skills'),
+    EXPERIMENT_RESULT: () => onView('experiments'),
+    NOTE_THEME: () => onView('history'),
+    PERFECT_DAY: () => onView('stats'),
+    ENERGY_BUDGET: () => onView('chaos'),
+    WEEKLY_LETTER: () => onView('history'),
+    STREAK_SAVER: () => onView('grid'),
   };
 
   // AI Section component (always rendered, even when no recommendations yet)

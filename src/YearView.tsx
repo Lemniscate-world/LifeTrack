@@ -1,12 +1,14 @@
 import { useMemo } from 'react';
 import type { Habit, CheckIn } from './types';
+import { toDateKey } from './stats';
 
 interface YearViewProps {
   habits: Habit[];
   checkIns: CheckIn[];
 }
 
-const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTHS_SHORT = ['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
+const DAY_LETTERS = ['D', 'L', 'M', 'M', 'J', 'V', 'S']; // Sun..Sat
 
 function getIntensity(date: string, checkIns: CheckIn[], habits: Habit[]): number {
   // Count how many habits were completed on this day
@@ -22,14 +24,14 @@ export default function YearView({ habits, checkIns }: YearViewProps) {
 
   const { weeks, monthLabels } = useMemo(() => {
     const endDate = new Date(now);
-    endDate.setUTCHours(0, 0, 0, 0);
-    
+    endDate.setHours(0, 0, 0, 0);
+
     // Start from 52 weeks ago, aligned to Sunday
     const startDate = new Date(endDate);
-    startDate.setUTCDate(startDate.getUTCDate() - 364); // 365 days = 52 weeks + 1 day
+    startDate.setDate(startDate.getDate() - 364); // 365 days = 52 weeks + 1 day
     // Align to Sunday
-    while (startDate.getUTCDay() !== 0) {
-      startDate.setUTCDate(startDate.getUTCDate() - 1);
+    while (startDate.getDay() !== 0) {
+      startDate.setDate(startDate.getDate() - 1);
     }
 
     const weeks: { date: string; intensity: number; month: number }[][] = [];
@@ -40,16 +42,16 @@ export default function YearView({ habits, checkIns }: YearViewProps) {
     const d = new Date(startDate);
     let weekIdx = 0;
     while (d <= endDate) {
-      const dateStr = d.toISOString().slice(0, 10);
-      const month = d.getUTCMonth();
-      
+      const dateStr = toDateKey(d);
+      const month = d.getMonth();
+
       currentWeek.push({
         date: dateStr,
         intensity: getIntensity(dateStr, checkIns, habits),
         month,
       });
 
-      if (d.getUTCDay() === 6 || d.getTime() === endDate.getTime()) {
+      if (d.getDay() === 6 || d.getTime() === endDate.getTime()) {
         weeks.push(currentWeek);
         // Check for month change
         const firstOfWeek = currentWeek[0].month;
@@ -61,7 +63,7 @@ export default function YearView({ habits, checkIns }: YearViewProps) {
         weekIdx++;
       }
 
-      d.setUTCDate(d.getUTCDate() + 1);
+      d.setDate(d.getDate() + 1);
     }
 
     return { weeks, monthLabels: mlabels };
@@ -70,8 +72,8 @@ export default function YearView({ habits, checkIns }: YearViewProps) {
   // Per-habit stats for the year
   const habitYearStats = useMemo(() => {
     const yearAgo = new Date(now);
-    yearAgo.setUTCDate(yearAgo.getUTCDate() - 365);
-    const yearAgoStr = yearAgo.toISOString().slice(0, 10);
+    yearAgo.setDate(yearAgo.getDate() - 365);
+    const yearAgoStr = toDateKey(yearAgo);
 
     return activeHabits.map(h => {
       const yearCheckIns = checkIns.filter(ci => ci.habitId === h.id && ci.date >= yearAgoStr);
@@ -95,7 +97,12 @@ export default function YearView({ habits, checkIns }: YearViewProps) {
   return (
     <div className="year-view">
       <h2>📅 Year in Review</h2>
-      
+      {activeHabits.length === 0 && (
+        <p style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: 24 }}>
+          Add habits to see your year at a glance.
+        </p>
+      )}
+      {activeHabits.length > 0 && (<>
       {/* Contribution Grid */}
       <div className="year-grid-container">
         <div className="year-grid-wrapper">
@@ -112,7 +119,7 @@ export default function YearView({ habits, checkIns }: YearViewProps) {
           <div className="year-grid">
             {/* Day of week labels */}
             <div className="year-dow-col">
-              <span>Mon</span><span>Wed</span><span>Fri</span>
+              {[1, 3, 5].map(di => <span key={di}>{DAY_LETTERS[di]}</span>)}
             </div>
             
             <div className="year-cells">
@@ -157,6 +164,7 @@ export default function YearView({ habits, checkIns }: YearViewProps) {
           </div>
         ))}
       </div>
+      </>)}
     </div>
   );
 }
