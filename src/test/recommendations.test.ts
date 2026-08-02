@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { generateInsights } from '../recommendations';
-import type { Habit, CheckIn } from '../types';
+import type { Habit, CheckIn, UrgeEntry } from '../types';
 import {
   addHabit,
   linkHabitToParent,
@@ -930,27 +930,305 @@ describe('WEEKLY_TREND detection', () => {
 // ============================================================================
 describe('SYNERGY detection', () => {
   it('suggests pairing habits done together often', () => {
-    const a = makeHabit('h1', 'Méditation');
-    const b = makeHabit('h2', 'Lecture');
+    const a = makeHabit('h1', 'Méditation', { goal: 100 });
+    const b = makeHabit('h2', 'Lecture', { goal: 100 });
     const checks: CheckIn[] = [];
-    // 12 shared days + a few solo days each
-    for (let d = 0; d < 12; d++) {
-      const date = new Date(NOW);
-      date.setUTCDate(date.getUTCDate() - d);
-      const ds = date.toISOString().slice(0, 10);
+    // 10 days (spread ~4 days apart) where BOTH habits are done together.
+    // The sparse pattern keeps streak/perfect-week/summary rules from firing
+    // so SYNERGY is a salient insight for the (a, b) pair.
+    const shared = ['2026-05-11', '2026-05-15', '2026-05-19', '2026-05-23', '2026-05-27', '2026-05-31', '2026-06-04', '2026-06-08', '2026-06-12', '2026-06-16'];
+    for (const ds of shared) {
       checks.push(makeCheckIn('h1', ds, true));
       checks.push(makeCheckIn('h2', ds, true));
     }
-    for (let d = 0; d < 4; d++) {
-      const date = new Date(NOW);
-      date.setUTCDate(date.getUTCDate() - d - 20);
-      const ds = date.toISOString().slice(0, 10);
-      checks.push(makeCheckIn('h1', ds, true));
-      checks.push(makeCheckIn('h2', ds, false));
-    }
+    // A couple of solo days each (keeps the shared ratio high).
+    checks.push(makeCheckIn('h1', '2026-06-27', true));
+    checks.push(makeCheckIn('h2', '2026-06-24', true));
+    // Check in today so NEGLECTED does not fire.
+    checks.push(makeCheckIn('h1', '2026-06-30', true));
+    checks.push(makeCheckIn('h2', '2026-06-30', true));
     const result = generateInsights([a, b], checks, NOW);
     const synergies = result.recommendations.filter((r) => r.kind === 'SYNERGY');
     expect(synergies.length).toBeGreaterThanOrEqual(1);
     expect(synergies[0].habitIds.sort()).toEqual(['h1', 'h2']);
+  });
+});
+
+// ============================================================================
+// v0.4.0 — MOOD_STREAK, URGE_*, CAPACITY_SURGE, EXPERIMENT_RESULT,
+//          NOTE_THEME, PERFECT_DAY, ENERGY_BUDGET, WEEKLY_LETTER, STREAK_SAVER
+// ============================================================================
+
+function makeUrge(overrides: Partial<UrgeEntry> = {}): UrgeEntry {
+  return {
+    id: crypto.randomUUID(),
+    type: 'craving',
+    intensity: 5,
+    startTime: '2026-06-28T10:00:00Z',
+    endTime: '2026-06-28T10:30:00Z',
+    outcome: 'surfed',
+    ...overrides,
+  };
+}
+
+describe('MOOD_STREAK detection', () => {
+  it('celebrates 3+ consecutive positive mood days', () => {
+    const moods = {
+      '2026-06-28': 'great',
+      '2026-06-29': 'amazing',
+      '2026-06-30': 'great',
+    };
+    const result = generateInsights([], [], NOW, moods);
+    const rec = result.recommendations.find((r) => r.kind === 'MOOD_STREAK');
+    expect(rec).toBeDefined();
+    expect(rec!.title).toContain('3 days of positive mood');
+  });
+
+  it('flags 3+ consecutive low-mood days', () => {
+    const moods = {
+      '2026-06-28': 'tired',
+      '2026-06-29': 'bad',
+      '2026-06-30': 'angry',
+    };
+    const result = generateInsights([], [], NOW, moods);
+    const rec = result.recommendations.find((r) => r.kind === 'MOOD_STREAK');
+    expect(rec).toBeDefined();
+    expect(rec!.title).toContain('low-mood');
+  });
+
+  it('does not fire on a single low-mood day', () => {
+    const moods = { '2026-06-30': 'tired' };
+    const result = generateInsights([], [], NOW, moods);
+    expect(result.recommendations.some((r) => r.kind === 'MOOD_STREAK')).toBe(false);
+  });
+});
+
+describe('URGE_WIN detection', () => {
+  it('celebrates surfing 3+ urges in the last week', () => {
+    const urges = [
+      makeUrge({ endTime: '2026-06-29T10:00:00Z' }),
+      makeUrge({ endTime: '2026-06-29T15:00:00Z' }),
+      makeUrge({ endTime: '2026-06-30T09:00:00Z' }),
+    ];
+    const result = generateInsights([], [], NOW, {}, { urges });
+    const rec = result.recommendations.find((r) => r.kind === 'URGE_WIN');
+    expect(rec).toBeDefined();
+    expect(rec!.title).toContain('surfed 3 urges');
+  });
+
+  it('does not fire when the user gives in more often than they surf', () => {
+    const urges = [
+      makeUrge({ outcome: 'surfed', endTime: '2026-06-29T10:00:00Z' }),
+      makeUrge({ outcome: 'gave_in', endTime: '2026-06-29T15:00:00Z' }),
+      makeUrge({ outcome: 'gave_in', endTime: '2026-06-30T09:00:00Z' }),
+    ];
+    const result = generateInsights([], [], NOW, {}, { urges });
+    expect(result.recommendations.some((r) => r.kind === 'URGE_WIN')).toBe(false);
+  });
+});
+
+describe('URGE_TRIGGER detection', () => {
+  it('flags a trigger that appears 2+ times', () => {
+    const urges = [
+      makeUrge({ trigger: 'Deadline stress', outcome: 'gave_in' }),
+      makeUrge({ trigger: 'Deadline stress', outcome: 'gave_in' }),
+      makeUrge({ trigger: 'Evening boredom' }),
+    ];
+    const result = generateInsights([], [], NOW, {}, { urges });
+    const rec = result.recommendations.find((r) => r.kind === 'URGE_TRIGGER');
+    expect(rec).toBeDefined();
+    expect(rec!.title).toContain('deadline stress');
+  });
+
+  it('ignores urges without a trigger', () => {
+    const urges = [makeUrge({ trigger: undefined }), makeUrge({ trigger: '' })];
+    const result = generateInsights([], [], NOW, {}, { urges });
+    expect(result.recommendations.some((r) => r.kind === 'URGE_TRIGGER')).toBe(false);
+  });
+});
+
+describe('CAPACITY_SURGE detection', () => {
+  it('flags a capacity rating that jumped in the last week', () => {
+    const capacities = [{ id: 'c1', name: 'Focus', skillId: 's1', description: '', unit: '1-10', baseline: 3, target: 9, createdAt: '2026-01-01' }];
+    const capacityRatings = [
+      // Prior window (8-21 days ago): ratings ~3
+      { id: 'r1', capacityId: 'c1', date: '2026-06-10', rating: 3 },
+      { id: 'r2', capacityId: 'c1', date: '2026-06-15', rating: 3 },
+      // Recent window (last 7 days): ratings ~6
+      { id: 'r3', capacityId: 'c1', date: '2026-06-26', rating: 6 },
+      { id: 'r4', capacityId: 'c1', date: '2026-06-28', rating: 6 },
+    ];
+    const result = generateInsights([], [], NOW, {}, { capacities, capacityRatings });
+    const rec = result.recommendations.find((r) => r.kind === 'CAPACITY_SURGE');
+    expect(rec).toBeDefined();
+    expect(rec!.title).toContain('Focus');
+  });
+
+  it('does not fire on a declining capacity', () => {
+    const capacities = [{ id: 'c1', name: 'Focus', skillId: 's1', description: '', unit: '1-10', baseline: 3, target: 9, createdAt: '2026-01-01' }];
+    const capacityRatings = [
+      { id: 'r1', capacityId: 'c1', date: '2026-06-10', rating: 6 },
+      { id: 'r2', capacityId: 'c1', date: '2026-06-15', rating: 6 },
+      { id: 'r3', capacityId: 'c1', date: '2026-06-26', rating: 3 },
+      { id: 'r4', capacityId: 'c1', date: '2026-06-28', rating: 3 },
+    ];
+    const result = generateInsights([], [], NOW, {}, { capacities, capacityRatings });
+    expect(result.recommendations.some((r) => r.kind === 'CAPACITY_SURGE')).toBe(false);
+  });
+});
+
+describe('EXPERIMENT_RESULT detection', () => {
+  it('surfaces the most recent completed experiment with its conclusion', () => {
+    const experiments = [{
+      id: 'e1',
+      title: 'No sugar for 14 days',
+      hypothesis: 'Energy will improve',
+      startDate: '2026-05-01',
+      endDate: '2026-05-15',
+      linkedHabits: ['h1'],
+      linkedMetrics: ['mood'],
+      status: 'completed' as const,
+      conclusion: 'Energy improved noticeably',
+      createdAt: '2026-05-01',
+      completedAt: '2026-05-16',
+    }];
+    const result = generateInsights([], [], NOW, {}, { experiments });
+    const rec = result.recommendations.find((r) => r.kind === 'EXPERIMENT_RESULT');
+    expect(rec).toBeDefined();
+    expect(rec!.title).toContain('No sugar for 14 days');
+    expect(rec!.detail).toContain('Energy improved noticeably');
+  });
+
+  it('ignores active experiments', () => {
+    const experiments = [{
+      id: 'e1',
+      title: 'Cold showers',
+      hypothesis: 'Resilience',
+      startDate: '2026-06-01',
+      endDate: '',
+      linkedHabits: [],
+      linkedMetrics: [],
+      status: 'active' as const,
+      conclusion: '',
+      createdAt: '2026-06-01',
+    }];
+    const result = generateInsights([], [], NOW, {}, { experiments });
+    expect(result.recommendations.some((r) => r.kind === 'EXPERIMENT_RESULT')).toBe(false);
+  });
+});
+
+describe('NOTE_THEME detection', () => {
+  it('detects a recurring theme across notes', () => {
+    const notes = [
+      { id: 'n1', habitId: 'h1', content: 'grosse journée de travail', createdAt: '2026-06-20T09:00:00Z' },
+      { id: 'n2', habitId: 'h1', content: 'réunion stressante au travail', createdAt: '2026-06-22T09:00:00Z' },
+      { id: 'n3', habitId: 'h1', content: 'deadline au travail', createdAt: '2026-06-25T09:00:00Z' },
+    ];
+    const result = generateInsights([], [], NOW, {}, { notes });
+    const rec = result.recommendations.find((r) => r.kind === 'NOTE_THEME');
+    expect(rec).toBeDefined();
+    expect(rec!.title).toContain('Travail');
+  });
+
+  it('does not fire with sparse mentions', () => {
+    const notes = [
+      { id: 'n1', habitId: 'h1', content: 'une journée tranquille', createdAt: '2026-06-20T09:00:00Z' },
+      { id: 'n2', habitId: 'h1', content: 'une autre journée', createdAt: '2026-06-22T09:00:00Z' },
+    ];
+    const result = generateInsights([], [], NOW, {}, { notes });
+    expect(result.recommendations.some((r) => r.kind === 'NOTE_THEME')).toBe(false);
+  });
+});
+
+describe('PERFECT_DAY detection', () => {
+  it('flags a day where all habits were completed', () => {
+    const habits = [makeHabit('h1', 'Meditate'), makeHabit('h2', 'Exercise')];
+    const checks = [
+      makeCheckIn('h1', '2026-06-29', true),
+      makeCheckIn('h2', '2026-06-29', true),
+    ];
+    const moods = { '2026-06-29': 'great' };
+    const result = generateInsights(habits, checks, NOW, moods);
+    const rec = result.recommendations.find((r) => r.kind === 'PERFECT_DAY');
+    expect(rec).toBeDefined();
+    expect(rec!.title).toContain('2026-06-29');
+  });
+
+  it('does not fire when a day is incomplete', () => {
+    const habits = [makeHabit('h1', 'Meditate'), makeHabit('h2', 'Exercise')];
+    const checks = [
+      makeCheckIn('h1', '2026-06-29', true),
+      makeCheckIn('h2', '2026-06-29', false),
+    ];
+    const result = generateInsights(habits, checks, NOW);
+    expect(result.recommendations.some((r) => r.kind === 'PERFECT_DAY')).toBe(false);
+  });
+});
+
+describe('ENERGY_BUDGET detection', () => {
+  it('warns when energy habits are done but mood is low', () => {
+    const habit = makeHabit('h1', 'Gym', { chaosDimension: 'physical' });
+    const checks = dailyChecks('h1', '2026-06-29', 3);
+    const moods = {
+      '2026-06-25': 'tired',
+      '2026-06-27': 'tired',
+      '2026-06-29': 'sick',
+    };
+    const result = generateInsights([habit], checks, NOW, moods);
+    const rec = result.recommendations.find((r) => r.kind === 'ENERGY_BUDGET');
+    expect(rec).toBeDefined();
+  });
+
+  it('does not fire when energy is fine', () => {
+    const habit = makeHabit('h1', 'Gym', { chaosDimension: 'physical' });
+    const checks = dailyChecks('h1', '2026-06-29', 3);
+    const moods = { '2026-06-29': 'great' };
+    const result = generateInsights([habit], checks, NOW, moods);
+    expect(result.recommendations.some((r) => r.kind === 'ENERGY_BUDGET')).toBe(false);
+  });
+});
+
+describe('WEEKLY_LETTER detection', () => {
+  it('summarizes the week when moods were logged', () => {
+    const moods = {
+      '2026-06-24': 'great',
+      '2026-06-25': 'okay',
+      '2026-06-26': 'great',
+    };
+    const notes = [
+      { id: 'n1', habitId: 'h1', content: 'Semaine intense mais j\'avance', createdAt: '2026-06-28T09:00:00Z' },
+    ];
+    const result = generateInsights([], [], NOW, moods, { notes });
+    const rec = result.recommendations.find((r) => r.kind === 'WEEKLY_LETTER');
+    expect(rec).toBeDefined();
+    expect(rec!.detail).toContain('great');
+  });
+
+  it('does not fire without recent moods', () => {
+    const moods = { '2026-06-01': 'great' };
+    const result = generateInsights([], [], NOW, moods);
+    expect(result.recommendations.some((r) => r.kind === 'WEEKLY_LETTER')).toBe(false);
+  });
+});
+
+describe('STREAK_SAVER detection', () => {
+  it('warns to check in when a 7+ day streak ends yesterday', () => {
+    const habit = makeHabit('h1', 'Meditate');
+    // 8 consecutive completed days ending yesterday (2026-06-29)
+    const checks = dailyChecks('h1', '2026-06-29', 8);
+    const result = generateInsights([habit], checks, NOW);
+    const rec = result.recommendations.find((r) => r.kind === 'STREAK_SAVER');
+    expect(rec).toBeDefined();
+    expect(rec!.title).toContain('8 days');
+  });
+
+  it('does not fire when already checked in today', () => {
+    const habit = makeHabit('h1', 'Meditate');
+    const checks = [
+      ...dailyChecks('h1', '2026-06-29', 8),
+      makeCheckIn('h1', '2026-06-30', true),
+    ];
+    const result = generateInsights([habit], checks, NOW);
+    expect(result.recommendations.some((r) => r.kind === 'STREAK_SAVER')).toBe(false);
   });
 });

@@ -1868,7 +1868,13 @@ function InsightsView({
     () => {
       try {
         const allData = exportAllData();
-        return generateInsights(habits, checkIns, new Date(), allData.moods ?? {});
+        return generateInsights(habits, checkIns, new Date(), allData.moods ?? {}, {
+          urges: allData.urges ?? [],
+          capacities: allData.capacities ?? [],
+          capacityRatings: allData.capacityRatings ?? [],
+          experiments: allData.experiments ?? [],
+          notes: allData.notes ?? [],
+        });
       } catch { return generateInsights(habits, checkIns); }
     },
     [habits, checkIns],

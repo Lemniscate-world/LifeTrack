@@ -8,7 +8,7 @@
  * No external API, no user data leaves the device.
  */
 
-import type { Habit, CheckIn } from './types';
+import type { Habit, CheckIn, Note, UrgeEntry, Capacity, CapacityRating, Experiment } from './types';
 import { computeStreakStats } from './stats';
 
 // --- Recommendation types ---
@@ -1246,6 +1246,359 @@ function detectSynergy(
   return recs.slice(0, 2);
 }
 
+// --- Rule 20: Mood streak ---
+// v0.4.0: Celebrate a run of positive moods or gently flag a run of low ones.
+const POSITIVE_MOODS = ['amazing', 'great'];
+const LOW_MOODS = ['sick', 'tired', 'bad', 'angry'];
+
+function detectMoodStreak(moods: Record<string, string>): Recommendation[] {
+  const dates = Object.keys(moods).sort();
+  if (dates.length < 3) return [];
+
+  const countRun = (ids: string[]): number => {
+    let run = 0;
+    for (let i = dates.length - 1; i >= 0; i--) {
+      if (ids.includes(moods[dates[i]])) run++;
+      else break;
+    }
+    return run;
+  };
+
+  const recs: Recommendation[] = [];
+  const posRun = countRun(POSITIVE_MOODS);
+  if (posRun >= 3) {
+    recs.push({
+      kind: 'MOOD_STREAK',
+      title: `😄 ${posRun} days of positive mood`,
+      detail: `You've logged a positive mood for ${posRun} consecutive days. Something is aligning — notice what you've been doing and protect it.`,
+      habitIds: [],
+      strength: Math.min(80, 50 + posRun * 5),
+      actionLabel: 'View moods',
+    });
+  }
+  const lowRun = countRun(LOW_MOODS);
+  if (lowRun >= 3) {
+    recs.push({
+      kind: 'MOOD_STREAK',
+      title: `🌧️ ${lowRun} low-mood days in a row`,
+      detail: `You've logged a low mood for ${lowRun} consecutive days. Be kind to yourself — rest is productive, and a tiny win (one small habit) can turn the tide.`,
+      habitIds: [],
+      strength: Math.min(90, 60 + lowRun * 5),
+      actionLabel: 'View moods',
+    });
+  }
+  return recs;
+}
+
+// --- Rule 21: Urge surfing wins ---
+// v0.4.0: Celebrating resisted urges reinforces the mindfulness muscle.
+function detectUrgeWins(urges: UrgeEntry[], now: Date): Recommendation[] {
+  const weekAgo = now.getTime() - 7 * 86400000;
+  const recent = urges.filter((u) => u.endTime && new Date(u.endTime).getTime() >= weekAgo);
+  const surfed = recent.filter((u) => u.outcome === 'surfed').length;
+  const gaveIn = recent.filter((u) => u.outcome === 'gave_in').length;
+  if (surfed >= 3 && surfed > gaveIn) {
+    return [{
+      kind: 'URGE_WIN',
+      title: `🏄 You surfed ${surfed} urges this week`,
+      detail: `You rode out ${surfed} urge${surfed > 1 ? 's' : ''} without acting${gaveIn > 0 ? ` (and slipped ${gaveIn} time${gaveIn > 1 ? 's' : ''})` : ''}. Each surfed urge makes the next one easier — that's the muscle growing.`,
+      habitIds: [],
+      strength: Math.min(90, 60 + surfed * 5),
+      actionLabel: 'View urges',
+    }];
+  }
+  return [];
+}
+
+// --- Rule 22: Urge triggers ---
+// v0.4.0: The most common urge trigger, with a counter-measure suggestion.
+function detectUrgeTriggers(urges: UrgeEntry[]): Recommendation[] {
+  const counts = new Map<string, { total: number; gaveIn: number }>();
+  for (const u of urges) {
+    if (!u.trigger || !u.trigger.trim()) continue;
+    const key = u.trigger.trim().toLowerCase();
+    const e = counts.get(key) ?? { total: 0, gaveIn: 0 };
+    e.total++;
+    if (u.outcome === 'gave_in') e.gaveIn++;
+    counts.set(key, e);
+  }
+  const recs: Recommendation[] = [];
+  for (const [trigger, info] of counts) {
+    if (info.total >= 2) {
+      recs.push({
+        kind: 'URGE_TRIGGER',
+        title: `🔍 "${trigger}" is your top urge trigger`,
+        detail: `"${trigger}" appeared in ${info.total} urge log${info.total > 1 ? 's' : ''}, ${info.gaveIn} of which you gave in to. Plan a counter-habit in advance for this exact moment.`,
+        habitIds: [],
+        strength: Math.min(85, 50 + info.total * 10),
+        actionLabel: 'View urges',
+      });
+    }
+  }
+  return recs.slice(0, 2);
+}
+
+// --- Rule 23: Capacity surge ---
+// v0.4.0: A capacity whose self-ratings jumped in the last week vs the three before.
+function detectCapacitySurge(
+  capacities: Capacity[],
+  capacityRatings: CapacityRating[],
+  now: Date,
+): Recommendation[] {
+  const nowMs = now.getTime();
+  const DAY = 86400000;
+  const recent = capacityRatings.filter((r) => r.rating != null && new Date(r.date).getTime() >= nowMs - 7 * DAY);
+  const prior = capacityRatings.filter(
+    (r) => r.rating != null && new Date(r.date).getTime() >= nowMs - 21 * DAY && new Date(r.date).getTime() < nowMs - 7 * DAY,
+  );
+  if (recent.length < 2 || prior.length < 2) return [];
+
+  const group = (ratings: CapacityRating[]) => {
+    const m = new Map<string, number[]>();
+    for (const r of ratings) {
+      const arr = m.get(r.capacityId) ?? [];
+      arr.push(r.rating!);
+      m.set(r.capacityId, arr);
+    }
+    return m;
+  };
+  const recentByCap = group(recent);
+  const priorByCap = group(prior);
+
+  const recs: Recommendation[] = [];
+  for (const cap of capacities) {
+    const r = recentByCap.get(cap.id);
+    const p = priorByCap.get(cap.id);
+    if (!r || !p || r.length < 2 || p.length < 2) continue;
+    const rAvg = r.reduce((a, b) => a + b, 0) / r.length;
+    const pAvg = p.reduce((a, b) => a + b, 0) / p.length;
+    const delta = rAvg - pAvg;
+    if (delta >= 1.5) {
+      recs.push({
+        kind: 'CAPACITY_SURGE',
+        title: `📈 "${cap.name}" is surging (+${delta.toFixed(1)})`,
+        detail: `Your "${cap.name}" self-rating climbed from ${pAvg.toFixed(1)} to ${rAvg.toFixed(1)} over the last week. The linked habits are paying off — keep feeding them.`,
+        habitIds: [],
+        strength: Math.min(85, 55 + Math.round(delta * 8)),
+        actionLabel: 'View capacities',
+      });
+    }
+  }
+  return recs.slice(0, 2);
+}
+
+// --- Rule 24: Experiment result ---
+// v0.4.0: Surface the outcome of a recently completed N=1 experiment.
+function detectExperimentResults(experiments: Experiment[]): Recommendation[] {
+  const completed = experiments
+    .filter((e) => e.status === 'completed' && e.completedAt)
+    .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''));
+  if (completed.length === 0) return [];
+
+  const exp = completed[0];
+  const verdict = exp.conclusion.trim();
+  return [{
+    kind: 'EXPERIMENT_RESULT',
+    title: `🧪 "${exp.title}" — experiment complete`,
+    detail: verdict
+      ? `Your "${exp.title}" experiment wrapped up. Conclusion: ${verdict}`
+      : `Your "${exp.title}" experiment wrapped up — add a conclusion to lock in what you learned.`,
+    habitIds: exp.linkedHabits,
+    strength: 75,
+    actionLabel: 'View experiments',
+  }];
+}
+
+// --- Rule 25: Note themes ---
+// v0.4.0: Recurring life themes across the user's free-form notes.
+const THEME_KEYWORDS: Record<string, string> = {
+  travail: 'Travail', work: 'Travail', boss: 'Travail', meeting: 'Travail', réunion: 'Travail',
+  famille: 'Famille', family: 'Famille', kids: 'Famille', enfant: 'Famille', parents: 'Famille',
+  sommeil: 'Sommeil', sleep: 'Sommeil', tired: 'Sommeil', fatigue: 'Sommeil',
+  argent: 'Argent', money: 'Argent', budget: 'Argent', debt: 'Argent', dette: 'Argent',
+  sport: 'Sport', gym: 'Sport', exercise: 'Sport', running: 'Sport', course: 'Sport',
+  stress: 'Stress', anxious: 'Stress', deadline: 'Stress', pressure: 'Stress',
+  food: 'Alimentation', nourriture: 'Alimentation', repas: 'Alimentation', meal: 'Alimentation',
+};
+
+function detectNoteThemes(notes: Note[]): Recommendation[] {
+  const themes = new Map<string, number>();
+  for (const n of notes) {
+    const text = n.content.toLowerCase();
+    for (const [keyword, theme] of Object.entries(THEME_KEYWORDS)) {
+      if (text.includes(keyword)) themes.set(theme, (themes.get(theme) ?? 0) + 1);
+    }
+  }
+  const sorted = [...themes.entries()].sort((a, b) => b[1] - a[1]);
+  if (sorted.length === 0 || sorted[0][1] < 3) return [];
+  const top = sorted.slice(0, 3);
+  return [{
+    kind: 'NOTE_THEME',
+    title: `🗂️ Your notes revolve around: ${top.map(([t]) => t).join(', ')}`,
+    detail: `Across your notes, ${top.map(([t, c]) => `${t} (${c} mention${c > 1 ? 's' : ''})`).join(', ')} come up most. This is where your focus — or worry — lives. Aim your energy there deliberately.`,
+    habitIds: [],
+    strength: Math.min(80, 50 + sorted[0][1] * 5),
+    actionLabel: 'View notes',
+  }];
+}
+
+// --- Rule 26: Perfect day ---
+// v0.4.0: A day where ALL active habits were completed (bonus: positive mood).
+function detectPerfectDays(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  moods: Record<string, string>,
+  now: Date,
+): Recommendation[] {
+  const active = habits.filter((h) => !h.archived);
+  if (active.length < 2) return [];
+
+  const byDate = new Map<string, Set<string>>();
+  for (const ci of checkIns) {
+    if (!ci.completed) continue;
+    let set = byDate.get(ci.date);
+    if (!set) { set = new Set(); byDate.set(ci.date, set); }
+    set.add(ci.habitId);
+  }
+
+  for (let d = 0; d < 14; d++) {
+    const ds = dateStrDaysAgo(d, now);
+    const completed = byDate.get(ds);
+    if (!completed || completed.size < active.length) continue;
+    const mood = moods[ds];
+    const goodMood = mood === 'amazing' || mood === 'great';
+    return [{
+      kind: 'PERFECT_DAY',
+      title: `🌟 Perfect day on ${ds}${goodMood ? ' with a great mood' : ''}`,
+      detail: `You completed all ${active.length} habits on ${ds}${mood ? ` and logged your mood as "${mood}"` : ''}. Study what made that day work — then repeat it.`,
+      habitIds: active.map((h) => h.id),
+      strength: 85,
+      actionLabel: 'View history',
+    }];
+  }
+  return [];
+}
+
+// --- Rule 27: Energy budget ---
+// v0.4.0: High load on energy-draining habits while low-energy days are frequent.
+const ENERGY_DIMS = ['energy', 'physical'];
+
+function detectEnergyBudget(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  moods: Record<string, string>,
+  now: Date,
+): Recommendation[] {
+  const energyHabits = habits.filter((h) => !h.archived && h.chaosDimension && ENERGY_DIMS.includes(h.chaosDimension));
+  if (energyHabits.length === 0) return [];
+
+  const week = dateStrDaysAgo(6, now);
+  const energyIds = new Set(energyHabits.map((h) => h.id));
+  const doneDays = new Set<string>();
+  for (const ci of checkIns) {
+    if (ci.completed && ci.date >= week && energyIds.has(ci.habitId)) doneDays.add(ci.date);
+  }
+  if (doneDays.size < 2) return [];
+
+  let lowDays = 0;
+  let moodDays = 0;
+  for (let d = 0; d < 7; d++) {
+    const ds = dateStrDaysAgo(d, now);
+    const m = moods[ds];
+    if (!m) continue;
+    moodDays++;
+    if (m === 'tired' || m === 'sick') lowDays++;
+  }
+  const ratio = moodDays > 0 ? lowDays / moodDays : 0;
+  if (ratio < 0.4) return [];
+
+  return [{
+    kind: 'ENERGY_BUDGET',
+    title: '🔋 High load on low-energy days',
+    detail: `You completed ${doneDays.size} energy-draining check-in day${doneDays.size > 1 ? 's' : ''} this week, while logging tired/low energy on ${lowDays} of ${moodDays} mood day${moodDays > 1 ? 's' : ''}. Protect a real rest window — recovery IS training.`,
+    habitIds: energyHabits.map((h) => h.id),
+    strength: Math.min(90, 50 + Math.round(ratio * 60)),
+    actionLabel: 'View history',
+  }];
+}
+
+// --- Rule 28: Weekly letter ---
+// v0.4.0: A warm one-line summary of the week's mood + notes.
+function generateWeeklyLetter(
+  moods: Record<string, string>,
+  notes: Note[],
+  now: Date,
+): Recommendation[] {
+  const weekAgo = dateStrDaysAgo(7, now);
+  const weekMoods = Object.entries(moods).filter(([d]) => d >= weekAgo);
+  if (weekMoods.length === 0) return [];
+
+  const dist: Record<string, number> = {};
+  for (const [, m] of weekMoods) dist[m] = (dist[m] ?? 0) + 1;
+  const topMood = Object.entries(dist).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'okay';
+  const weekNotes = notes
+    .filter((n) => n.createdAt.slice(0, 10) >= weekAgo)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const lastNote = weekNotes[weekNotes.length - 1];
+
+  const parts: string[] = [`Your most common mood this week was "${topMood}" (${weekMoods.length} days logged).`];
+  if (weekNotes.length > 0) {
+    const excerpt = lastNote.content.length > 80 ? `${lastNote.content.slice(0, 80)}…` : lastNote.content;
+    parts.push(`You wrote ${weekNotes.length} note${weekNotes.length > 1 ? 's' : ''} — your last one: "${excerpt}".`);
+  }
+  parts.push('Take 30 seconds tonight to write one line about what you want next week to look like.');
+
+  return [{
+    kind: 'WEEKLY_LETTER',
+    title: '✉️ Your week, in one line',
+    detail: parts.join(' '),
+    habitIds: [],
+    strength: 55,
+    actionLabel: 'View notes',
+  }];
+}
+
+// --- Rule 29: Streak saver ---
+// v0.4.0: A meaningful streak alive as of yesterday that would break if today's
+// check-in is skipped. Walk back from yesterday (computeStreakStats returns 0
+// for today, which would miss this case entirely).
+function detectStreakSavers(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  now: Date,
+): Recommendation[] {
+  const todayStr = dateStrDaysAgo(0, now);
+  const yesterdayStr = dateStrDaysAgo(1, now);
+  const recs: Recommendation[] = [];
+  for (const habit of habits) {
+    if (habit.archived) continue;
+    if (checkIns.some((ci) => ci.habitId === habit.id && ci.date === todayStr && ci.completed)) continue;
+
+    const completedSet = new Set(
+      checkIns.filter((ci) => ci.habitId === habit.id && ci.completed).map((ci) => ci.date),
+    );
+    let run = 0;
+    let cursor = yesterdayStr;
+    while (completedSet.has(cursor)) {
+      run++;
+      const d = new Date(cursor + 'T00:00:00Z');
+      d.setUTCDate(d.getUTCDate() - 1);
+      cursor = d.toISOString().slice(0, 10);
+    }
+    if (run < 7) continue;
+
+    recs.push({
+      kind: 'STREAK_SAVER',
+      title: `⏰ Check in today to keep "${habit.name}" at ${run} days`,
+      detail: `You last completed "${habit.name}" yesterday. A single check-in today protects your ${run}-day streak and pushes it to ${run + 1}. 30 seconds, huge ripple.`,
+      habitIds: [habit.id],
+      strength: Math.min(90, 60 + Math.round(run * 0.5)),
+      actionLabel: 'Check in now',
+    });
+  }
+  return recs.slice(0, 2);
+}
+
 // --- Main entry point ---
 
 export interface InsightsResult {
@@ -1253,14 +1606,40 @@ export interface InsightsResult {
   generatedAt: string; // ISO date string
 }
 
+/** Extra non-habit data used by the v0.4.0 insight rules. */
+export interface InsightContext {
+  moods?: Record<string, string>;
+  urges?: UrgeEntry[];
+  capacities?: Capacity[];
+  capacityRatings?: CapacityRating[];
+  experiments?: Experiment[];
+  notes?: Note[];
+}
+
 export function generateInsights(
   habits: Habit[],
   checkIns: CheckIn[],
   now: Date = new Date(),
   moods: Record<string, string> = {},
+  extra: InsightContext = {},
 ): InsightsResult {
+  const {
+    urges = [],
+    capacities = [],
+    capacityRatings = [],
+    experiments = [],
+    notes = [],
+  } = extra;
   const activeHabits = habits.filter((h) => !h.archived);
-  if (activeHabits.length === 0) {
+  const hasAnyData =
+    activeHabits.length > 0 ||
+    Object.keys(moods).length > 0 ||
+    urges.length > 0 ||
+    capacities.length > 0 ||
+    capacityRatings.length > 0 ||
+    experiments.length > 0 ||
+    notes.length > 0;
+  if (!hasAnyData) {
     return {
       recommendations: [],
       generatedAt: now.toISOString(),
@@ -1290,6 +1669,17 @@ export function generateInsights(
     ...detectBurnoutRisk(activeHabits, checkIns, now, moods),
     ...detectWeeklyTrend(habits, checkIns, now),
     ...detectSynergy(activeHabits, checkIns),
+    // v0.4.0: Insights from moods, urges, capacities, experiments, notes
+    ...detectMoodStreak(moods),
+    ...detectUrgeWins(urges, now),
+    ...detectUrgeTriggers(urges),
+    ...detectCapacitySurge(capacities, capacityRatings, now),
+    ...detectExperimentResults(experiments),
+    ...detectNoteThemes(notes),
+    ...detectPerfectDays(activeHabits, checkIns, moods, now),
+    ...detectEnergyBudget(activeHabits, checkIns, moods, now),
+    ...generateWeeklyLetter(moods, notes, now),
+    ...detectStreakSavers(habits, checkIns, now),
   ];
 
   // Deduplicate by title
