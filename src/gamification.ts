@@ -383,3 +383,95 @@ export function personaProgress(
 
   return { persona, pct, windowDays, completedDays, habits: perHabit };
 }
+
+// --- Automatic persona suggestions ("detected personas") ---
+// The app looks at the user's real behaviour and proposes "versions of you"
+// that are emerging, without the user having to design them. These are
+// suggestions only — the user validates them (one click) to make them real.
+
+export interface PersonaSuggestion {
+  name: string;
+  emoji: string;
+  description: string;
+  habitIds: string[];
+  avgPct: number;   // average completion rate across the suggested habits (14d)
+  reason: string;   // why the app thinks this is emerging
+}
+
+const CATEGORY_META: Record<string, { label: string; emoji: string }> = {
+  health: { label: 'Santé', emoji: '💪' },
+  work: { label: 'Travail', emoji: '💼' },
+  personal: { label: 'Personnel', emoji: '🌿' },
+  learning: { label: 'Apprentissage', emoji: '📚' },
+  finance: { label: 'Finances', emoji: '💰' },
+};
+
+/** Strong habits: ≥ 70% completion over the last 14 days, grouped by category. */
+export function suggestPersonas(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  now: Date = new Date(),
+): PersonaSuggestion[] {
+  const active = habits.filter((h) => !h.archived);
+  if (active.length === 0) return [];
+
+  const windowDays = 14;
+  const window = new Set<string>();
+  for (let i = windowDays - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    window.add(localKey(d));
+  }
+
+  const perHabit = active.map((h) => {
+    const days = new Set<string>();
+    for (const ci of checkIns) {
+      if (ci.habitId === h.id && ci.completed && window.has(ci.date)) days.add(ci.date);
+    }
+    return { habit: h, days, pct: Math.round((days.size / windowDays) * 100) };
+  });
+
+  const suggestions: PersonaSuggestion[] = [];
+
+  // 1. Emerging categories: ≥2 habits at ≥70% in the same category.
+  const byCategory = new Map<string, { label: string; emoji: string; items: { habit: Habit; pct: number }[] }>();
+  for (const ph of perHabit) {
+    const h = ph.habit;
+    const cat = h.category || 'personal';
+    const meta = CATEGORY_META[cat] ?? { label: cat, emoji: '🌟' };
+    if (!byCategory.has(cat)) byCategory.set(cat, { ...meta, items: [] });
+    byCategory.get(cat)!.items.push({ habit: h, pct: ph.pct });
+  }
+  for (const [, group] of byCategory) {
+    const strong = group.items.filter((x) => x.pct >= 70);
+    if (strong.length >= 2) {
+      const avg = Math.round(strong.reduce((s, x) => s + x.pct, 0) / strong.length);
+      suggestions.push({
+        name: `Maître·sse ${group.label.toLowerCase()}`,
+        emoji: group.emoji,
+        description: `Une identité qui émerge : ${strong.map((x) => x.habit.name).join(', ')}.`,
+        habitIds: strong.map((x) => x.habit.id),
+        avgPct: avg,
+        reason: `${strong.length} habitudes ${group.label.toLowerCase()} à ≥70% sur 14 jours.`,
+      });
+    }
+  }
+
+  // 2. Best single habit: the single strongest habit not already suggested.
+  const suggestedIds = new Set(suggestions.flatMap((s) => s.habitIds));
+  const best = [...perHabit]
+    .filter((x) => x.pct >= 70 && !suggestedIds.has(x.habit.id))
+    .sort((a, b) => b.pct - a.pct)[0];
+  if (best) {
+    suggestions.push({
+      name: `Habitué·e de « ${best.habit.name} »`,
+      emoji: '🔥',
+      description: `Vous incarnez déjà ${best.habit.name} au quotidien.`,
+      habitIds: [best.habit.id],
+      avgPct: best.pct,
+      reason: `${best.habit.name} tenu à ${best.pct}% sur 14 jours.`,
+    });
+  }
+
+  return suggestions.slice(0, 4);
+}

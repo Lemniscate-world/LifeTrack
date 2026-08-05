@@ -35,6 +35,7 @@ import {
   getMantraSettings,
   updateMantraSettings,
   restoreFromBackupIfNewer,
+  attemptFileRecovery,
   diagnoseStorage,
   createUpgradeBackup,
   pruneOldBackups,
@@ -199,6 +200,14 @@ const DEFAULT_CATEGORIES = [
     if (restored) {
       console.log('✅ Auto-restored data from backup');
     }
+    // Rebuild/reinstall safety net: if localStorage is empty but a JSON copy
+    // exists on disk (Documents/Desktop/AppData), recover it.
+    attemptFileRecovery().then((recovered) => {
+      if (recovered) {
+        console.log('🛟 Recovered data from filesystem backup');
+        setHabits(getHabits());
+      }
+    }).catch(() => { /* best-effort */ });
     // Create a pre-upgrade safety snapshot once per day (survives code updates).
     // Check for ANY backup with today's date prefix (keys include HH-MM suffix).
     const todayPrefix = `lifetrack-upgrade-backup-${new Date().toISOString().slice(0, 10)}`;

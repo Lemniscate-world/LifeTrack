@@ -3839,6 +3839,132 @@ body {
 }
 .gamification-none { font-size: 12px; color: var(--text-muted); margin: 4px 0 0; }
 
+/* Auto-detected personas */
+.gamification-persona-suggestions {
+  grid-column: 1 / -1;
+  padding: 12px 14px;
+  border: 1px dashed var(--accent, #8b5cf6);
+  border-radius: var(--radius);
+  background: var(--bg-alt);
+}
+.gamification-persona-suggestions h4 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.gamification-persona-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.gamification-persona-suggestion:first-of-type { border-top: none; }
+.gamification-persona-suggestion-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.gamification-persona-suggestion-name { font-size: 13px; font-weight: 700; color: var(--text); }
+.gamification-persona-suggestion-desc { font-size: 11px; color: var(--text-secondary); }
+.gamification-persona-suggestion-reason { font-size: 11px; color: var(--text-muted); font-style: italic; }
+.gamification-persona-suggestion-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.gamification-persona-suggestion-pct {
+  font-size: 13px;
+  font-weight: 800;
+  color: #22c55e;
+}
+
+/* Life evolution (v0.5.0) */
+.evolution-section {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-alt);
+  margin-top: 14px;
+}
+.evolution-header { margin-bottom: 12px; }
+.evolution-header h3 { margin: 0 0 4px; }
+.evolution-subtitle { font-size: 12px; color: var(--text-muted); }
+.evolution-deltas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.evolution-delta {
+  flex: 1;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.evolution-delta-label { font-size: 11px; color: var(--text-muted); }
+.evolution-delta-value { font-size: 22px; font-weight: 800; }
+.evolution-delta-value.up { color: #22c55e; }
+.evolution-delta-value.down { color: #ef4444; }
+.evolution-delta-value.neutral { color: var(--text-muted); }
+.evolution-delta-pct { font-size: 12px; font-weight: 600; }
+.evolution-delta-pct.up { color: #22c55e; }
+.evolution-delta-pct.down { color: #ef4444; }
+.evolution-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.evolution-stat {
+  flex: 1;
+  min-width: 100px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.evolution-stat-value { font-size: 20px; font-weight: 800; color: var(--text); }
+.evolution-stat-label { font-size: 11px; color: var(--text-muted); text-align: center; }
+.evolution-chart {
+  height: 90px;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.evolution-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+}
+.evolution-bar {
+  flex: 1;
+  min-width: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--border);
+  transition: background 0.2s ease;
+}
+.evolution-bar.has { background: linear-gradient(180deg, #8b5cf6, #6366f1); }
+.evolution-bar.today { background: linear-gradient(180deg, #22c55e, #16a34a); }
+
 /* ============ CONFETTI ============ */
 .confetti {
   position: fixed;

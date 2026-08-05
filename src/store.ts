@@ -590,6 +590,63 @@ export function clearFileRecoveryFlag(): void {
   fileRecoveryNeeded = false;
 }
 
+/**
+ * Filesystem recovery: after a rebuild or reinstall the app may start with
+ * empty localStorage even though a JSON copy of the user's data exists on
+ * disk (Documents/LifeTrack-Backups, Desktop/LifeTrack-Backups, AppData).
+ * This reads the freshest of those copies, sanitizes it, and restores it as
+ * primary. Returns true if data was recovered. No-op in the browser or when
+ * no file exists.
+ */
+export async function attemptFileRecovery(): Promise<boolean> {
+  if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return false;
+  try {
+    const [{ appDataDir, documentDir, desktopDir }, { readTextFile, exists }] = await Promise.all([
+      import('@tauri-apps/api/path'),
+      import('@tauri-apps/plugin-fs'),
+    ]);
+
+    const candidates: string[] = [];
+    try { candidates.push(`${await documentDir()}LifeTrack-Backups/${FILE_BACKUP_NAME}`); } catch { /* best-effort */ }
+    try { candidates.push(`${await desktopDir()}LifeTrack-Backups/${FILE_BACKUP_NAME}`); } catch { /* best-effort */ }
+    try { candidates.push(`${await appDataDir()}LifeTrack/${FILE_BACKUP_NAME}`); } catch { /* best-effort */ }
+
+    let best: AppData | null = null;
+    let bestSize = -1;
+    for (const candidate of candidates) {
+      try {
+        if (!(await exists(candidate).catch(() => false))) continue;
+        const raw = await readTextFile(candidate);
+        const parsed = JSON.parse(raw);
+        const sanitized = sanitizeData(parsed);
+        const size = sanitized.habits.length + sanitized.checkIns.length;
+        if (size > bestSize) { best = sanitized; bestSize = size; }
+      } catch { /* try next location */ }
+    }
+
+    if (!best || bestSize <= 0) {
+      console.warn('[LifeTrack] No usable filesystem backup found for recovery.');
+      return false;
+    }
+
+    const current = readEnvelope(STORAGE_KEY);
+    const currentSize = current ? current.habits.length + current.checkIns.length : 0;
+    if (currentSize >= bestSize) return false; // current data is at least as complete
+
+    console.info(`[LifeTrack] Filesystem recovery: restoring ${best.habits.length} habits, ${best.checkIns.length} check-ins.`);
+    deduplicateDataInPlace(best);
+    writeEnvelope(STORAGE_KEY, best);
+    writeEnvelope(BACKUP_KEY, best);
+    try { localStorage.setItem(RAW_JSON_KEY, JSON.stringify(best)); } catch { /* best-effort */ }
+    data = best;
+    backfillHabitRecords();
+    notify();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const MOODS = [
   { id: 'great', emoji: '😊', label: 'Great', color: '#10B981' },
   { id: 'okay', emoji: '😐', label: 'Okay', color: '#6B7280' },

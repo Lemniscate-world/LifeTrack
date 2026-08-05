@@ -26,7 +26,14 @@ import {
   bestStreakAllTime,
   compareLastWeeks,
   personaProgress,
+  suggestPersonas,
+  type PersonaSuggestion,
 } from './gamification';
+import {
+  evolutionSummary,
+  scoredDays,
+  type EvolutionSummary,
+} from './evolution';
 import type { Note } from './types';
 
 export default function AchievementsView() {
@@ -78,6 +85,14 @@ export default function AchievementsView() {
   );
   const comparison = useMemo(() => compareLastWeeks(data.habits, data.checkIns), [data]);
   const bestStreak = useMemo(() => bestStreakAllTime(data.habits, data.checkIns), [data]);
+  const evolution: EvolutionSummary = useMemo(
+    () => evolutionSummary(data.habits, data.checkIns, data.notes, data.urges, data.challenges),
+    [data],
+  );
+  const evolutionSeries = useMemo(
+    () => scoredDays(data.habits, data.checkIns, data.notes, data.urges, data.challenges),
+    [data],
+  );
   const personas = useMemo(() => {
     void tick; // re-run whenever the store notifies
     return getPersonas();
@@ -90,6 +105,24 @@ export default function AchievementsView() {
     [personas, data],
   );
   const activeHabits = data.habits.filter((h) => !h.archived);
+
+  // Auto-detected personas — suggestions the user can accept or dismiss.
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<string[]>([]);
+  const personaSuggestions: PersonaSuggestion[] = useMemo(() => {
+    const fresh = suggestPersonas(data.habits, data.checkIns);
+    return fresh
+      .filter((s) => !dismissedSuggestions.includes(s.name))
+      .filter((s) => !personas.some((p) => p.name === s.name)); // don't suggest already-created personas
+  }, [data, dismissedSuggestions, personas]);
+
+  const handleAcceptSuggestion = (s: PersonaSuggestion) => {
+    addPersona(s.name, s.emoji, s.habitIds, s.description);
+    setDismissedSuggestions((prev) => [...prev, s.name]);
+  };
+
+  const handleDismissSuggestion = (name: string) => {
+    setDismissedSuggestions((prev) => [...prev, name]);
+  };
 
   const handleSummarize = async () => {
     if (summarizing) return;
@@ -276,6 +309,39 @@ export default function AchievementsView() {
           )}
 
           <div className="gamification-personas-grid">
+            {personaSuggestions.length > 0 && (
+              <div className="gamification-persona-suggestions">
+                <h4>✨ Detected personas <span>— emerging from your habits, tap to accept</span></h4>
+                {personaSuggestions.map((s) => (
+                  <div className="gamification-persona-suggestion" key={s.name}>
+                    <span className="gamification-persona-emoji">{s.emoji}</span>
+                    <div className="gamification-persona-suggestion-body">
+                      <span className="gamification-persona-suggestion-name">{s.name}</span>
+                      <span className="gamification-persona-suggestion-desc">{s.description}</span>
+                      <span className="gamification-persona-suggestion-reason">{s.reason}</span>
+                    </div>
+                    <div className="gamification-persona-suggestion-actions">
+                      <span className="gamification-persona-suggestion-pct">{s.avgPct}%</span>
+                      <button
+                        className="btn btn-sm btn-primary"
+                        onClick={() => handleAcceptSuggestion(s)}
+                        title="Create this persona"
+                      >
+                        ✓ Accept
+                      </button>
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => handleDismissSuggestion(s.name)}
+                        title="Dismiss"
+                        aria-label="Dismiss suggestion"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             {personaStats.length === 0 && !showPersonaForm && (
               <p className="gamification-none">
                 No personas yet — define who you want to become and link the habits that build
@@ -343,6 +409,111 @@ export default function AchievementsView() {
           </div>
         </div>
       </section>
+
+      {/* ============ Life evolution (v0.5.0) ============ */}
+      {evolution.today && (
+        <section className="evolution-section">
+          <div className="evolution-header">
+            <h3>🌱 How much you've evolved</h3>
+            <span className="evolution-subtitle">
+              A daily growth score derived from your check-ins, wins, challenges and urge-wins — vs yesterday, last week, last month.
+            </span>
+          </div>
+
+          <div className="evolution-deltas">
+            <div className="evolution-delta">
+              <span className="evolution-delta-label">Yesterday → today</span>
+              {evolution.dayDelta ? (
+                <>
+                  <span className={`evolution-delta-value ${evolution.dayDelta.improved ? 'up' : 'down'}`}>
+                    {evolution.dayDelta.delta > 0 ? '+' : ''}{evolution.dayDelta.delta}
+                  </span>
+                  <span className={`evolution-delta-pct ${evolution.dayDelta.improved ? 'up' : 'down'}`}>
+                    {evolution.dayDelta.deltaPct > 0 ? '+' : ''}{evolution.dayDelta.deltaPct}%
+                  </span>
+                </>
+              ) : (
+                <span className="evolution-delta-value neutral">—</span>
+              )}
+            </div>
+            <div className="evolution-delta">
+              <span className="evolution-delta-label">This week vs last</span>
+              {evolution.weekDelta ? (
+                <>
+                  <span className={`evolution-delta-value ${evolution.weekDelta.improved ? 'up' : 'down'}`}>
+                    {evolution.weekDelta.delta > 0 ? '+' : ''}{evolution.weekDelta.delta}
+                  </span>
+                  <span className={`evolution-delta-pct ${evolution.weekDelta.improved ? 'up' : 'down'}`}>
+                    {evolution.weekDelta.deltaPct > 0 ? '+' : ''}{evolution.weekDelta.deltaPct}%
+                  </span>
+                </>
+              ) : (
+                <span className="evolution-delta-value neutral">—</span>
+              )}
+            </div>
+            <div className="evolution-delta">
+              <span className="evolution-delta-label">This month vs last</span>
+              {evolution.monthDelta ? (
+                <>
+                  <span className={`evolution-delta-value ${evolution.monthDelta.improved ? 'up' : 'down'}`}>
+                    {evolution.monthDelta.delta > 0 ? '+' : ''}{evolution.monthDelta.delta}
+                  </span>
+                  <span className={`evolution-delta-pct ${evolution.monthDelta.improved ? 'up' : 'down'}`}>
+                    {evolution.monthDelta.deltaPct > 0 ? '+' : ''}{evolution.monthDelta.deltaPct}%
+                  </span>
+                </>
+              ) : (
+                <span className="evolution-delta-value neutral">—</span>
+              )}
+            </div>
+          </div>
+
+          <div className="evolution-stats">
+            <div className="evolution-stat">
+              <span className="evolution-stat-value">{evolution.totalScore}</span>
+              <span className="evolution-stat-label">lifetime growth</span>
+            </div>
+            <div className="evolution-stat">
+              <span className="evolution-stat-value">{evolution.activeDays}</span>
+              <span className="evolution-stat-label">active days</span>
+            </div>
+            {evolution.bestDay && (
+              <div className="evolution-stat">
+                <span className="evolution-stat-value">{evolution.bestDay.score}</span>
+                <span className="evolution-stat-label">best day ({evolution.bestDay.date})</span>
+              </div>
+            )}
+            {evolution.today && (
+              <div className="evolution-stat">
+                <span className="evolution-stat-value">{evolution.today.score}</span>
+                <span className="evolution-stat-label">today</span>
+              </div>
+            )}
+          </div>
+
+          {evolutionSeries.length > 1 && (
+            <div className="evolution-chart">
+              {(() => {
+                const maxScore = Math.max(...evolutionSeries.map((s) => s.score), 1);
+                const maxBars = 60;
+                const shown = evolutionSeries.slice(-maxBars);
+                return (
+                  <div className="evolution-bars">
+                    {shown.map((s) => (
+                      <div
+                        key={s.date}
+                        className={`evolution-bar ${s.score > 0 ? 'has' : ''} ${s.date === evolution.today?.date ? 'today' : ''}`}
+                        style={{ height: `${Math.max(s.score > 0 ? 8 : 2, (s.score / maxScore) * 100)}%` }}
+                        title={`${s.date} · ${s.score} pts${s.date === evolution.today?.date ? ' (today)' : ''}`}
+                      />
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ============ AI summary ============ */}
       {totalCount > 0 && (

@@ -15,6 +15,7 @@ import {
   xpInRange,
   compareLastWeeks,
   personaProgress,
+  suggestPersonas,
 } from '../gamification';
 
 const LARGE_YEAR = 2026;
@@ -213,5 +214,43 @@ describe('personaProgress', () => {
   it('returns null when the persona has no linked / active habit', () => {
     const p: Persona = { id: 'p1', name: 'Empty', emoji: '⭐', habitIds: [] as string[], createdAt: new Date().toISOString() };
     expect(personaProgress(p, [], [], 14, new Date())).toBeNull();
+  });
+});
+
+describe('suggestPersonas', () => {
+  it('suggests an emerging category persona when 2+ habits in a category are strong', () => {
+    const habits = [habit('gym'), habit('run'), habit('read')];
+    const checks: CheckIn[] = [];
+    for (const h of ['gym', 'run']) {
+      for (let i = 0; i < 14; i++) {
+        const dt = new Date(LARGE_YEAR, 5, 14 - i);
+        checks.push(ci(h, `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`));
+      }
+    }
+    const suggestions = suggestPersonas(habits, checks, new Date(LARGE_YEAR, 5, 15));
+    expect(suggestions.length).toBeGreaterThan(0);
+    // A health-flavoured suggestion built from the two strong habits.
+    const catSuggestion = suggestions.find((s) => s.habitIds.length >= 2);
+    expect(catSuggestion).toBeDefined();
+    expect(catSuggestion!.avgPct).toBeGreaterThanOrEqual(70);
+  });
+
+  it('suggests the single strongest habit not already covered', () => {
+    const habits = [habit('meditate'), habit('read')];
+    const checks: CheckIn[] = [];
+    for (let i = 0; i < 14; i++) {
+      const dt = new Date(LARGE_YEAR, 5, 14 - i);
+      const k = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+      checks.push(ci('meditate', k));
+    }
+    const suggestions = suggestPersonas(habits, checks, new Date(LARGE_YEAR, 5, 15));
+    expect(suggestions.length).toBeGreaterThan(0);
+    const best = suggestions.filter((s) => s.habitIds.length === 1).sort((a, b) => b.avgPct - a.avgPct)[0];
+    expect(best).toBeDefined();
+    expect(best!.habitIds).toContain('meditate');
+  });
+
+  it('returns no suggestions without data', () => {
+    expect(suggestPersonas([], [])).toEqual([]);
   });
 });
