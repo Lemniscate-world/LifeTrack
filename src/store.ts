@@ -592,48 +592,86 @@ export function clearFileRecoveryFlag(): void {
 
 /**
  * Filesystem recovery: after a rebuild or reinstall the app may start with
- * empty localStorage even though a JSON copy of the user's data exists on
- * disk (Documents/LifeTrack-Backups, Desktop/LifeTrack-Backups, AppData).
- * This reads the freshest of those copies, sanitizes it, and restores it as
- * primary. Returns true if data was recovered. No-op in the browser or when
- * no file exists.
+ * empty localStorage even though full JSON copies of the user's data exist on
+ * disk. Two writers produce files:
+ *   - Rust backend:  Documents/LifeTrack-Backups/lifetrack-backup-*.json
+ *   - TS frontend:   %APPDATA%/LifeTrack-Backups | Desktop/LifeTrack-Backups | Documents/LifeTrack-Backups/lifetrack-persistent.json
+ * This scans all of those locations and restores the MOST COMPLETE copy
+ * (highest habit+check-in count), sanitizing it and re-saving as primary.
+ * Returns true if data was recovered. No-op in the browser or when none exists.
  */
 export async function attemptFileRecovery(): Promise<boolean> {
   if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return false;
   try {
-    const [{ appDataDir, documentDir, desktopDir }, { readTextFile, exists }] = await Promise.all([
+    const [{ appDataDir, documentDir, desktopDir }, { readTextFile, exists, readDir }] = await Promise.all([
       import('@tauri-apps/api/path'),
       import('@tauri-apps/plugin-fs'),
     ]);
 
-    const candidates: string[] = [];
-    try { candidates.push(`${await documentDir()}LifeTrack-Backups/${FILE_BACKUP_NAME}`); } catch { /* best-effort */ }
-    try { candidates.push(`${await desktopDir()}LifeTrack-Backups/${FILE_BACKUP_NAME}`); } catch { /* best-effort */ }
-    try { candidates.push(`${await appDataDir()}LifeTrack/${FILE_BACKUP_NAME}`); } catch { /* best-effort */ }
+    // Directories where a backup could live.
+    const dirs: { dir: string; prefix: string }[] = [];
+    const one = async (p: string | undefined, prefix: string) => {
+      if (p) dirs.push({ dir: p, prefix });
+    };
+    await one(await documentDir().then((d) => `${d}LifeTrack-Backups`, () => undefined), 'lifetrack-backup-');
+    await one(await desktopDir().then((d) => `${d}LifeTrack-Backups`, () => undefined), 'lifetrack-backup-');
+    await one(await appDataDir().then((d) => `${d}LifeTrack-Backups`, () => undefined), 'lifetrack-backup-');
+    await one(await appDataDir().then((d) => `${d}backups`, () => undefined), 'lifetrack-backup-');
+    await one(await appDataDir().then((d) => `${d}LifeTrack`, () => undefined), 'lifetrack-persistent.');
+    await one(await documentDir().then((d) => `${d}LifeTrack-Backups`, () => undefined), 'lifetrack-persistent.');
+    await one(await desktopDir().then((d) => `${d}LifeTrack-Backups`, () => undefined), 'lifetrack-persistent.');
 
-    let best: AppData | null = null;
-    let bestSize = -1;
-    for (const candidate of candidates) {
+    let best: AppData = null as unknown as AppData;
+    let bestWeight = -1;
+
+    const consider = (data: unknown): void => {
       try {
-        if (!(await exists(candidate).catch(() => false))) continue;
-        const raw = await readTextFile(candidate);
-        const parsed = JSON.parse(raw);
-        const sanitized = sanitizeData(parsed);
-        const size = sanitized.habits.length + sanitized.checkIns.length;
-        if (size > bestSize) { best = sanitized; bestSize = size; }
-      } catch { /* try next location */ }
+        const sanitized = sanitizeData(data);
+        // Weight = amount of real user data; biases toward richer backups.
+        const weight = sanitized.habits.length * 10 + sanitized.checkIns.length
+          + sanitized.notes.length + sanitized.urges.length + sanitized.personas.length
+          + sanitized.levers.length + sanitized.journalEntries.length + sanitized.challenges.length;
+        if (weight > bestWeight) { best = sanitized; bestWeight = weight; }
+      } catch { /* skip unparseable */ }
+    };
+
+    for (const { dir, prefix } of dirs) {
+      // Direct file (persistent JSON).
+      try {
+        const directPath = `${dir}/${prefix === 'lifetrack-backup-' ? FILE_BACKUP_NAME : prefix}json`;
+        if (await exists(directPath).catch(() => false)) {
+          const raw = await readTextFile(directPath);
+          consider(JSON.parse(raw));
+        }
+      } catch { /* best-effort */ }
+
+      // Scan directory for matching files (Rust timestamps lifetrack-backup-*).
+      if (prefix.startsWith('lifetrack-backup-')) {
+        try {
+          if (!(await exists(dir).catch(() => false))) continue;
+          const entries = await readDir(dir);
+          for (const entry of entries) {
+            if (!entry.name || !entry.name.startsWith('lifetrack-backup-') || !entry.name.endsWith('.json')) continue;
+            try {
+              const raw = await readTextFile(`${dir}/${entry.name}`);
+              consider(JSON.parse(raw));
+            } catch { /* skip corrupt file */ }
+          }
+        } catch { /* best-effort */ }
+      }
     }
 
-    if (!best || bestSize <= 0) {
+    if (!best || bestWeight <= 0) {
       console.warn('[LifeTrack] No usable filesystem backup found for recovery.');
       return false;
     }
 
     const current = readEnvelope(STORAGE_KEY);
     const currentSize = current ? current.habits.length + current.checkIns.length : 0;
+    const bestSize = best.habits.length + best.checkIns.length;
     if (currentSize >= bestSize) return false; // current data is at least as complete
 
-    console.info(`[LifeTrack] Filesystem recovery: restoring ${best.habits.length} habits, ${best.checkIns.length} check-ins.`);
+    console.info(`[LifeTrack] Filesystem recovery: restoring ${best.habits.length} habits, ${best.checkIns.length} check-ins, ${best.notes.length} notes.`);
     deduplicateDataInPlace(best);
     writeEnvelope(STORAGE_KEY, best);
     writeEnvelope(BACKUP_KEY, best);
