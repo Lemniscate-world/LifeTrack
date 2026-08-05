@@ -773,13 +773,44 @@ async fn psychoanalysis_ask(
 /// AI summary of the user's achievements (notes tagged with a category).
 /// Builds a warm narrative that celebrates progress. Uses the configured
 /// provider (cloud / local / auto).
+///
+/// When `before_after_json` is provided, it contains a structured comparison of
+/// two equal-length periods (see DeepCompare in src/summary.ts) and the model
+/// produces a before/after psychological narrative instead.
 #[tauri::command]
 async fn summarize_achievements(
     summary_json: String,
     model: Option<String>,
     provider: Option<String>,
     api_key: Option<String>,
+    before_after_json: Option<String>,
 ) -> Result<String, String> {
+    if let Some(ba) = before_after_json.filter(|s| !s.trim().is_empty()) {
+        let system_prompt = "You are a warm, observant life coach reading two consecutive periods of a person's life-tracking data.\n\
+             The input lists metrics (XP, life-score, check-ins, goals met, wins/achievements, challenges, % of urges surfed, active days) for a \"before\" period and an \"after\" period of equal length, plus the direction of change for each.\n\
+             Write a short, heartfelt before/after narrative (90-160 words) that:\n\
+             - Names which areas measurably improved (concrete numbers) and what they suggest about this person.\n\
+             - Acknowledges any area that slipped without making the person feel bad, as part of the ebb and flow of self-work.\n\
+             - Ends with one encouraging sentence about the momentum they are building.\n\
+             Do NOT invent numbers that are not in the data. Do NOT use markdown headers; plain paragraphs only.";
+
+        let call = AiCall {
+            system_prompt: system_prompt.to_string(),
+            user_prompt: ba,
+            temperature: 0.7,
+            max_tokens: 500,
+            json: false,
+        };
+
+        return complete_ai(
+            provider.as_deref().unwrap_or("auto"),
+            api_key.as_deref().unwrap_or(""),
+            model,
+            &call,
+        )
+        .await;
+    }
+
     let system_prompt = "You are a warm, celebratory life coach reading a person's LifeTrack achievements (notes tagged by category).\n\
          The data below lists their achievements grouped by category (Physical, Financial, Social, Structural, Spiritual, Emotional, Energy, Psychological).\n\
          Write a short, heartfelt narrative summary (100-180 words) in the same language as the achievement texts:\n\

@@ -7764,6 +7764,20 @@ body {
   font-size: 13px;
 }
 
+.achievements-local {
+  margin-bottom: 12px;
+}
+.achievements-local-list {
+  margin: 0 0 4px;
+  padding-left: 18px;
+}
+.achievements-local-list li {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+
 /* ============ v0.5.0 - LEVERS + PSYCHOLOGICAL EVOLUTION ============ */
 
 .lever-section {

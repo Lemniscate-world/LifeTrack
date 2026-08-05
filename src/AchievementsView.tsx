@@ -34,6 +34,10 @@ import {
   scoredDays,
   type EvolutionSummary,
 } from './evolution';
+import {
+  compareWindows,
+  buildLocalSummary,
+} from './summary';
 import type { Note } from './types';
 
 export default function AchievementsView() {
@@ -111,6 +115,24 @@ export default function AchievementsView() {
     () => scoredDays(data.habits, data.checkIns, data.notes, data.urges, data.challenges),
     [data],
   );
+  const deepCompare = useMemo(
+    () => compareWindows(data.habits, data.checkIns, data.notes, data.urges, data.challenges, 30),
+    [data],
+  );
+  const localSummary = useMemo(
+    () => buildLocalSummary({
+      evolutionScore: evolution.totalScore,
+      activeDays: evolution.activeDays,
+      xp: xpBreakdown.total,
+      level: progress.level,
+      medals,
+      weekImproved: comparison.improved,
+      bestDayScore: evolution.bestDay?.score ?? 0,
+      urgesSurfed: data.urges.filter((u) => u.outcome === 'surfed').length,
+      moodsLogged: Object.keys(data.moods ?? {}).length,
+    }),
+    [evolution, xpBreakdown.total, progress.level, medals, comparison, data],
+  );
   const personas = useMemo(() => {
     void tick; // re-run whenever the store notifies
     return getPersonas();
@@ -156,11 +178,13 @@ export default function AchievementsView() {
       const { invoke } = await import('@tauri-apps/api/core');
       const prefs = getPreferences();
       const context = buildAiContext(exportAllData());
+      const beforeAfterJson = deepCompare ? JSON.stringify(deepCompare) : null;
       const response = await invoke<string>('summarize_achievements', {
         summaryJson: context,
         model: prefs.aiModel || null,
         provider: prefs.aiProvider || 'auto',
         apiKey: prefs.aiApiKey || '',
+        beforeAfterJson,
       });
       setAiSummary(response);
     } catch (e) {
@@ -568,15 +592,27 @@ export default function AchievementsView() {
       )}
 
       {/* ============ AI summary ============ */}
-      {totalCount > 0 && (
-        <div className="achievements-ai">
+      {(totalCount > 0 || localSummary.length > 0) && (
+        <div className="achievements-ai section-card">
+          {localSummary.length > 0 && (
+            <div className="achievements-local">
+              <div className="achievements-ai-label">🎯 Your snapshot, right now</div>
+              <ul className="achievements-local-list">
+                {localSummary.map((line) => <li key={line}>{line}</li>)}
+              </ul>
+            </div>
+          )}
           {!aiSummary && !aiError && (
             <button
               className="btn btn-primary"
               onClick={handleSummarize}
               disabled={summarizing}
             >
-              {summarizing ? '✨ Writing summary…' : '✨ AI summary of your progress'}
+              {summarizing
+                ? '✨ Writing your story…'
+                : deepCompare
+                  ? '✨ Deep before/after story of your last 30 days'
+                  : '✨ AI summary of your progress'}
             </button>
           )}
           {aiError && <p className="achievements-ai-error">{aiError}</p>}
