@@ -73,6 +73,8 @@ import { parseAiAnalysis, type AiAnalysis, type AiChatMessage } from './aiAnalys
 import { generateInsights, type Recommendation, type RecKind } from './recommendations';
 import { computeCorrelations } from './correlations';
 import { detectNegativePatterns, type PatternHit } from './psychoanalysis';
+import { computeXp, levelForXp, rankForLevel } from './gamification';
+import Confetti from './Confetti';
 import { getDailyEntryMantra, todayStr, shouldShowMantraNotification, markMantraNotificationShown, MANTRA_DOMAINS, sendSystemNotification } from './mantras';
 
 // Detected at module load (window is always present in browser and Tauri).
@@ -170,6 +172,11 @@ const DEFAULT_CATEGORIES = [
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Gamification: level-up celebration (confetti + toast)
+  const [showLevelUp, setShowLevelUp] = useState(false);
+  const [levelUpLabel, setLevelUpLabel] = useState('');
+  const lastLevelRef = useRef<number | null>(null);
+  const levelUpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -508,6 +515,32 @@ const DEFAULT_CATEGORIES = [
     update();
     return subscribe(update);
   }, [year, month]);
+
+  // Gamification: detect level-ups on every store change and celebrate.
+  useEffect(() => {
+    const checkLevelUp = () => {
+      const all = exportAllData();
+      const xp = computeXp(all.habits, all.checkIns, all.notes, all.challenges).total;
+      const level = levelForXp(xp);
+      if (lastLevelRef.current === null) {
+        lastLevelRef.current = level; // initialise without celebrating
+        return;
+      }
+      if (level > lastLevelRef.current) {
+        lastLevelRef.current = level;
+        const rank = rankForLevel(level);
+        setLevelUpLabel(`${rank.rankEmoji} Level ${level} — ${rank.rankName}`);
+        setShowLevelUp(true);
+        showToast(`🎉 Level up! You reached level ${level}`);
+        if (levelUpTimerRef.current) clearTimeout(levelUpTimerRef.current);
+        levelUpTimerRef.current = setTimeout(() => setShowLevelUp(false), 3600);
+      } else {
+        lastLevelRef.current = level;
+      }
+    };
+    checkLevelUp();
+    return subscribe(checkLevelUp);
+  }, []);
 
   function prevMonth() {
     if (month === 0) {
@@ -867,6 +900,7 @@ const DEFAULT_CATEGORIES = [
 
   return (
     <div className="app">
+      {showLevelUp && <Confetti message={levelUpLabel} />}
       {/* Skip link for keyboard users */}
       <a href="#main-content" className="skip-link">Skip to main content</a>
       {/* Navbar — minimal */}

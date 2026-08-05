@@ -1,21 +1,57 @@
 // src/AchievementsView.tsx
 // Achievements: notes tagged with a category, displayed as a timeline grouped
 // by category (Psychological, Energy, Physical, etc.).
+//
+// v0.5.0: now also hosts the gamification panel — level / XP, medals,
+// week-over-week comparison and "personas you're becoming".
 
-import { useState, useEffect } from 'react';
-import { getAchievementCategories, getAchievements, tagNoteAchievement, exportAllData, getPreferences, subscribe } from './store';
+import { useState, useEffect, useMemo } from 'react';
+import {
+  getAchievementCategories,
+  getAchievements,
+  tagNoteAchievement,
+  exportAllData,
+  getPreferences,
+  subscribe,
+  getPersonas,
+  addPersona,
+  updatePersona,
+  deletePersona,
+} from './store';
 import { buildAiContext } from './aiContext';
+import {
+  computeXp,
+  levelProgress,
+  computeMedals,
+  bestStreakAllTime,
+  compareLastWeeks,
+  personaProgress,
+} from './gamification';
 import type { Note } from './types';
 
 export default function AchievementsView() {
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
   const [summarizing, setSummarizing] = useState(false);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+
+  // Persona creation form state
+  const [showPersonaForm, setShowPersonaForm] = useState(false);
+  const [personaName, setPersonaName] = useState('');
+  const [personaEmoji, setPersonaEmoji] = useState('⭐');
+  const [personaDesc, setPersonaDesc] = useState('');
+  const [personaHabits, setPersonaHabits] = useState<string[]>([]);
+
   useEffect(() => {
     const unsub = subscribe(() => setTick((t) => t + 1));
     return unsub;
   }, []);
+
+  // Fresh snapshot of all data (including archived habits) on every store change.
+  const data = useMemo(() => {
+    void tick; // re-run whenever the store notifies
+    return exportAllData();
+  }, [tick]);
 
   const categories = getAchievementCategories();
   const achievements = getAchievements();
@@ -29,6 +65,31 @@ export default function AchievementsView() {
   }
 
   const totalCount = achievements.length;
+
+  // --- Gamification (all derived, never stored) ---
+  const xpBreakdown = useMemo(
+    () => computeXp(data.habits, data.checkIns, data.notes, data.challenges),
+    [data],
+  );
+  const progress = useMemo(() => levelProgress(xpBreakdown.total), [xpBreakdown.total]);
+  const medals = useMemo(
+    () => computeMedals(data.habits, data.checkIns, data.notes, data.challenges, xpBreakdown.total, progress.level),
+    [data, xpBreakdown.total, progress.level],
+  );
+  const comparison = useMemo(() => compareLastWeeks(data.habits, data.checkIns), [data]);
+  const bestStreak = useMemo(() => bestStreakAllTime(data.habits, data.checkIns), [data]);
+  const personas = useMemo(() => {
+    void tick; // re-run whenever the store notifies
+    return getPersonas();
+  }, [tick]);
+  const personaStats = useMemo(
+    () =>
+      personas
+        .map((p) => personaProgress(p, data.habits, data.checkIns))
+        .filter((p): p is NonNullable<typeof p> => !!p),
+    [personas, data],
+  );
+  const activeHabits = data.habits.filter((h) => !h.archived);
 
   const handleSummarize = async () => {
     if (summarizing) return;
@@ -58,6 +119,31 @@ export default function AchievementsView() {
     }
   };
 
+  const toggleFormHabit = (id: string) => {
+    setPersonaHabits((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const handleCreatePersona = () => {
+    if (!personaName.trim() || personaHabits.length === 0) return;
+    addPersona(personaName, personaEmoji, personaHabits, personaDesc);
+    setPersonaName('');
+    setPersonaEmoji('⭐');
+    setPersonaDesc('');
+    setPersonaHabits([]);
+    setShowPersonaForm(false);
+  };
+
+  const togglePersonaHabit = (personaId: string, habitId: string) => {
+    const p = personas.find((x) => x.id === personaId);
+    if (!p) return;
+    const next = p.habitIds.includes(habitId)
+      ? p.habitIds.filter((id) => id !== habitId)
+      : [...p.habitIds, habitId];
+    updatePersona(personaId, { habitIds: next });
+  };
+
+  const earnedMedals = medals.filter((m) => m.earned).length;
+
   return (
     <div className="achievements-view">
       <div className="achievements-header">
@@ -69,6 +155,196 @@ export default function AchievementsView() {
         </p>
       </div>
 
+      {/* ============ Gamification panel ============ */}
+      <section className="gamification">
+        {/* Level / XP */}
+        <div className="gamification-level">
+          <div className="gamification-level-badge">
+            <span className="gamification-rank-emoji">{progress.rankEmoji}</span>
+            <span className="gamification-level-number">{progress.level}</span>
+            <span className="gamification-rank-name">{progress.rankName}</span>
+          </div>
+          <div className="gamification-level-info">
+            <div className="gamification-xp-bar">
+              <div className="gamification-xp-fill" style={{ width: `${progress.progressPct}%` }} />
+            </div>
+            <div className="gamification-xp-label">
+              {xpBreakdown.total} XP total · {progress.xpIntoLevel} / {progress.xpForNext} XP to level {progress.level + 1}
+            </div>
+            <div className="gamification-xp-breakdown">
+              {xpBreakdown.checkIns} check-in · {xpBreakdown.goalDays} goal-day · {xpBreakdown.streakMilestones} streak ·{' '}
+              {xpBreakdown.challenges} challenge · {xpBreakdown.achievements} win XP
+            </div>
+          </div>
+        </div>
+
+        {/* Comparison vs last week */}
+        <div className="gamification-compare">
+          <h3>📈 vs who you were last week</h3>
+          <div className="gamification-compare-stats">
+            <div className="gamification-compare-stat">
+              <span className="gamification-compare-value">{comparison.currentXp}</span>
+              <span className="gamification-compare-label">XP this week</span>
+            </div>
+            <div className="gamification-compare-arrow">{comparison.improved ? '📈' : '📉'}</div>
+            <div className="gamification-compare-stat">
+              <span className={`gamification-compare-value ${comparison.improved ? 'up' : 'down'}`}>
+                {comparison.deltaPct > 0 ? '+' : ''}{comparison.deltaPct}%
+              </span>
+              <span className="gamification-compare-label">vs last week</span>
+            </div>
+            <div className="gamification-compare-stat">
+              <span className="gamification-compare-value">{bestStreak}</span>
+              <span className="gamification-compare-label">best streak ever</span>
+            </div>
+          </div>
+          <p className="gamification-compare-note">
+            {comparison.currentCompleted} completions this week vs {comparison.previousCompleted} last week
+          </p>
+        </div>
+
+        {/* Medals */}
+        <div className="gamification-medals">
+          <h3>🎖️ Medals <span className="gamification-medals-count">{earnedMedals}/{medals.length}</span></h3>
+          <div className="gamification-medals-grid">
+            {medals.map((m) => (
+              <div
+                key={m.id}
+                className={`gamification-medal ${m.earned ? 'earned' : ''}`}
+                title={m.description}
+              >
+                <span className="gamification-medal-emoji">{m.emoji}</span>
+                <span className="gamification-medal-name">{m.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Personas */}
+        <div className="gamification-personas">
+          <h3>🧭 Who you're becoming</h3>
+          <button
+            className={`btn btn-sm ${showPersonaForm ? 'btn-ghost' : 'btn-primary'}`}
+            onClick={() => setShowPersonaForm((v) => !v)}
+          >
+            {showPersonaForm ? 'Cancel' : '+ Add a persona'}
+          </button>
+
+          {showPersonaForm && (
+            <div className="gamification-persona-form">
+              <input
+                placeholder="Name — e.g. Early riser"
+                value={personaName}
+                onChange={(e) => setPersonaName(e.target.value)}
+              />
+              <input
+                className="gamification-persona-emoji-input"
+                placeholder="⭐"
+                value={personaEmoji}
+                onChange={(e) => setPersonaEmoji(e.target.value)}
+                maxLength={4}
+                aria-label="Persona emoji"
+              />
+              <input
+                placeholder="Who you want to become (optional)"
+                value={personaDesc}
+                onChange={(e) => setPersonaDesc(e.target.value)}
+              />
+              <div className="gamification-persona-habits">
+                {activeHabits.length === 0 && (
+                  <p className="gamification-none">Add habits first to link them to a persona.</p>
+                )}
+                {activeHabits.map((h) => (
+                  <label key={h.id} className="gamification-persona-habit-option">
+                    <input
+                      type="checkbox"
+                      checked={personaHabits.includes(h.id)}
+                      onChange={() => toggleFormHabit(h.id)}
+                    />
+                    <span>{h.name}</span>
+                  </label>
+                ))}
+              </div>
+              <button
+                className="btn btn-sm btn-primary"
+                disabled={!personaName.trim() || personaHabits.length === 0}
+                onClick={handleCreatePersona}
+              >
+                Create persona
+              </button>
+            </div>
+          )}
+
+          <div className="gamification-personas-grid">
+            {personaStats.length === 0 && !showPersonaForm && (
+              <p className="gamification-none">
+                No personas yet — define who you want to become and link the habits that build
+                that version of you. Progress updates automatically.
+              </p>
+            )}
+            {personaStats.map((pp) => (
+              <div key={pp.persona.id} className="gamification-persona">
+                <div className="gamification-persona-top">
+                  <span className="gamification-persona-emoji">{pp.persona.emoji}</span>
+                  <div className="gamification-persona-title">
+                    <span className="gamification-persona-name">{pp.persona.name}</span>
+                    {pp.persona.description && (
+                      <span className="gamification-persona-desc">{pp.persona.description}</span>
+                    )}
+                  </div>
+                  <button
+                    className="btn btn-sm btn-ghost gamification-persona-delete"
+                    onClick={() => deletePersona(pp.persona.id)}
+                    title="Delete persona"
+                    aria-label="Delete persona"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="gamification-persona-progress">
+                  <div className="gamification-persona-bar">
+                    <div style={{ width: `${pp.pct}%` }} />
+                  </div>
+                  <span className="gamification-persona-pct">{pp.pct}%</span>
+                </div>
+                <div className="gamification-persona-habit-chips">
+                  {pp.habits.map((h) => (
+                    <span key={h.habitId} className="gamification-persona-chip">
+                      {h.habitName}
+                      <button
+                        className="gamification-persona-chip-remove"
+                        onClick={() => togglePersonaHabit(pp.persona.id, h.habitId)}
+                        title="Unlink habit"
+                        aria-label={`Unlink ${h.habitName}`}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                  <select
+                    className="gamification-persona-add"
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) togglePersonaHabit(pp.persona.id, e.target.value);
+                    }}
+                    title="Link another habit"
+                    aria-label="Link another habit"
+                  >
+                    <option value="">+ add habit</option>
+                    {activeHabits
+                      .filter((h) => !pp.habits.some((x) => x.habitId === h.id))
+                      .map((h) => (
+                        <option key={h.id} value={h.id}>{h.name}</option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ============ AI summary ============ */}
       {totalCount > 0 && (
         <div className="achievements-ai">
           {!aiSummary && !aiError && (
@@ -99,6 +375,7 @@ export default function AchievementsView() {
         </p>
       )}
 
+      {/* ============ Timeline ============ */}
       <div className="achievements-grid">
         {categories.map((cat) => {
           const list = byCategory.get(cat.id) ?? [];

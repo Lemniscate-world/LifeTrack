@@ -234,6 +234,20 @@ export interface Challenge {
   adaptive?: boolean;
 }
 
+// --- Gamification (v0.5.0) ---
+// A "persona" is the person you want to become (e.g. "Early riser", "Calm under
+// pressure"). Progress is the average completion rate of the habits linked to
+// this persona over the last 14 days — a visual, goal-oriented way to track
+// becoming a specific version of yourself.
+export interface Persona {
+  id: string;
+  name: string;
+  emoji: string;
+  description?: string;   // the version of you this persona represents
+  habitIds: string[];     // habits that build this persona
+  createdAt: string;
+}
+
 export interface AppData {
   habits: Habit[];
   checkIns: CheckIn[];
@@ -251,6 +265,7 @@ export interface AppData {
   customUrgeTypes: CustomUrgeType[];
   journalEntries: JournalEntry[];
   challenges: Challenge[];
+  personas: Persona[];
   preferences: UserPreferences;
 }
 

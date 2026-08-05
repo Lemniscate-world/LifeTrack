@@ -1,4 +1,4 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalPersonality, Challenge } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalPersonality, Challenge, Persona } from './types';
 import { computeStreakStats } from './stats';
 import { computeChallengeProgress } from './challenges';
 import {
@@ -151,6 +151,18 @@ function isValidChallenge(x: unknown): x is Challenge {
   return true;
 }
 
+// Persona (v0.5.0): the "person you want to become", linked to a set of habits.
+function isValidPersona(x: unknown): x is Persona {
+  if (!x || typeof x !== 'object') return false;
+  const p = x as Record<string, unknown>;
+  if (typeof p.id !== 'string' || typeof p.name !== 'string' || typeof p.createdAt !== 'string') return false;
+  if (typeof p.emoji !== 'string') return false;
+  if (p.description !== undefined && typeof p.description !== 'string') return false;
+  if (!Array.isArray(p.habitIds)) return false;
+  if (p.habitIds.some((id: unknown) => typeof id !== 'string')) return false;
+  return true;
+}
+
 // --- Sanitize: filter out malformed entries from parsed data ---
 function sanitizeData(raw: unknown): AppData {
   const empty: AppData = {
@@ -170,6 +182,7 @@ function sanitizeData(raw: unknown): AppData {
     customUrgeTypes: [],
     journalEntries: [],
     challenges: [],
+    personas: [],
     preferences: { darkMode: false, theme: '' },
   };
   if (!raw || typeof raw !== 'object') return empty;
@@ -279,8 +292,21 @@ function sanitizeData(raw: unknown): AppData {
     : [];
   const validRatings = storedRatings.filter((r) => validCapacityIds.has(r.capacityId));
 
+  // Habits first so personas can drop references to habits that no longer exist.
+  const habits = Array.isArray(obj.habits) ? obj.habits.filter(isValidHabit) : [];
+  const validHabitIds = new Set(habits.map((h) => h.id));
+  const storedPersonas: Persona[] = Array.isArray(obj.personas)
+    ? obj.personas.filter(isValidPersona)
+    : [];
+  const validPersonas: Persona[] = [];
+  for (const p of storedPersonas) {
+    const habitIds = p.habitIds.filter((id) => validHabitIds.has(id));
+    if (habitIds.length === 0) continue; // persona without any real habit → drop
+    validPersonas.push({ ...p, habitIds });
+  }
+
   return {
-    habits: Array.isArray(obj.habits) ? obj.habits.filter(isValidHabit) : [],
+    habits,
     checkIns: Array.isArray(obj.checkIns) ? obj.checkIns.filter(isValidCheckIn) : [],
     notes: Array.isArray(obj.notes) ? obj.notes.filter(isValidNote) : [],
     // Merge stored chaos dimensions with the current defaults so that new
@@ -303,6 +329,7 @@ function sanitizeData(raw: unknown): AppData {
     customUrgeTypes: Array.isArray(obj.customUrgeTypes) ? obj.customUrgeTypes.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'name' in (e as object)) as CustomUrgeType[] : [],
     journalEntries: Array.isArray(obj.journalEntries) ? obj.journalEntries.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'content' in (e as object) && 'personality' in (e as object)) as JournalEntry[] : [],
     challenges: Array.isArray(obj.challenges) ? obj.challenges.filter(isValidChallenge) as Challenge[] : [],
+    personas: validPersonas,
     preferences: sanitizePreferences(obj.preferences),
   };
 }
@@ -580,6 +607,7 @@ function freshData(): AppData {
     customUrgeTypes: [],
     journalEntries: [],
     challenges: [],
+    personas: [],
     preferences: { darkMode: false, theme: '' },
   };
 }
@@ -1705,6 +1733,51 @@ export function endDateOf(startDate: string, days: number): string {
   return toLocalDateKey(dt);
 }
 
+// --- Personas (v0.5.0) ---
+// "Who you want to become" — a named goal tied to a set of habits. Progress
+// (average completion of the linked habits over 14 days) is computed by the
+// gamification engine, not stored.
+
+export function getPersonas(): Persona[] {
+  return [...data.personas].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export function addPersona(
+  name: string,
+  emoji: string,
+  habitIds: string[],
+  description?: string,
+): Persona {
+  const persona: Persona = {
+    id: crypto.randomUUID(),
+    name: name.trim(),
+    emoji: emoji || '⭐',
+    habitIds: [...new Set(habitIds.filter((id) => data.habits.some((h) => h.id === id)))],
+    ...(description?.trim() ? { description: description.trim() } : {}),
+    createdAt: new Date().toISOString(),
+  };
+  data.personas.push(persona);
+  notify();
+  return persona;
+}
+
+export function updatePersona(id: string, updates: Partial<Persona>): void {
+  const idx = data.personas.findIndex((p) => p.id === id);
+  if (idx !== -1) {
+    const next = { ...data.personas[idx], ...updates };
+    if (updates.habitIds) {
+      next.habitIds = [...new Set(updates.habitIds.filter((hid) => data.habits.some((h) => h.id === hid)))];
+    }
+    data.personas[idx] = next;
+    notify();
+  }
+}
+
+export function deletePersona(id: string): void {
+  data.personas = data.personas.filter((p) => p.id !== id);
+  notify();
+}
+
 interface ImportedHabit {
   id: string;
   name: string;
@@ -2297,6 +2370,28 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
       createdAt: rawC.createdAt,
       completedAt: rawC.completedAt,
       adaptive: rawC.adaptive === true,
+    });
+  }
+
+  // --- v0.5.0: Import personas (remapped through idMap) ---
+  if (!data.personas) data.personas = [];
+  const rawPersonas = Array.isArray((raw as Record<string, unknown>).personas)
+    ? (raw as Record<string, unknown>).personas as unknown[]
+    : [];
+  for (const rawP of rawPersonas) {
+    if (!isValidPersona(rawP)) continue;
+    const habitIds = rawP.habitIds
+      .map((id) => idMap.get(id) ?? id)
+      .filter((id) => data.habits.some((h) => h.id === id));
+    if (habitIds.length === 0) continue; // persona without any matching habit → drop
+    if (data.personas.some((p) => p.id === rawP.id)) continue;
+    data.personas.push({
+      id: rawP.id,
+      name: rawP.name,
+      emoji: rawP.emoji,
+      description: rawP.description,
+      habitIds,
+      createdAt: rawP.createdAt,
     });
   }
 
