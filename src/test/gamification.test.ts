@@ -152,19 +152,33 @@ describe('computeMedals', () => {
     const medals = computeMedals([habit('a')], checks, notes, [], 200, 1);
     const firstSteps = medals.find((m) => m.id === 'first-steps');
     const firstWin = medals.find((m) => m.id === 'first-win');
-    const perfectDay = medals.find((m) => m.id === 'perfect-day');
+    const perfectDay = medals.find((m) => m.id === 'perfect-first');
     expect(firstSteps?.earned).toBe(true);
     expect(firstSteps?.earnedAt).toBe(key(1, 1));
     expect(firstWin?.earned).toBe(true);
     // one completion on the only active habit also earns the perfect-day medal
     expect(perfectDay?.earned).toBe(true);
-    expect(medals.filter((m) => m.earned).length).toBe(3);
+    // ...plus the 1-day streak and 100 XP medals
+    expect(medals.find((m) => m.id === 'streak-1')?.earned).toBe(true);
+    expect(medals.find((m) => m.id === 'xp-100')?.earned).toBe(true);
+    expect(medals.find((m) => m.id === 'challenge-5')?.earned).toBe(false);
   });
   it('earns a low-level rank medal only at the right level', () => {
     const medalsLow = computeMedals([], [], [], [], 0, 1);
     expect(medalsLow.find((m) => m.id === 'level-5')?.earned).toBe(false);
     const medalsHigh = computeMedals([], [], [], [], 0, 5);
     expect(medalsHigh.find((m) => m.id === 'level-5')?.earned).toBe(true);
+  });
+  it('uses mood, urge and lever context to award reflection/self medals', () => {
+    const moods: Record<string, string> = {};
+    for (let i = 1; i <= 10; i++) moods[`2026-01-${String(i).padStart(2, '0')}`] = 'calm';
+    const urges = Array.from({ length: 12 }, () => ({ id: 'u', type: 'craving', intensity: 5, startTime: '2026-01-01T08:00:00Z', outcome: 'surfed' as const }));
+    const levers = [{ id: 'l', content: 'Mornings', effect: 'X', createdAt: '2026-01-01' }];
+    const medals = computeMedals([], [], [], [], 0, 1, { moods, urges, levers });
+    expect(medals.find((m) => m.id === 'mood-7')?.earned).toBe(true);
+    expect(medals.find((m) => m.id === 'mood-30')?.earned).toBe(false);
+    expect(medals.find((m) => m.id === 'urge-10')?.earned).toBe(true);
+    expect(medals.find((m) => m.id === 'lever-1')?.earned).toBe(true);
   });
 });
 

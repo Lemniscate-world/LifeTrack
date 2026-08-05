@@ -3709,6 +3709,32 @@ body {
   text-align: center;
   line-height: 1.2;
 }
+.gamification-medals-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.gamification-medals-filter {
+  display: inline-flex;
+  gap: 6px;
+}
+.gamification-medal-group {
+  margin-top: 12px;
+}
+.gamification-medal-group:first-child { margin-top: 6px; }
+.gamification-medal-category {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-muted);
+  margin: 0 0 4px;
+}
+.gamification-medal-progress {
+  font-size: 9.5px;
+  color: var(--text-muted);
+}
 
 /* Personas */
 .gamification-persona-form {

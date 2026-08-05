@@ -7,7 +7,7 @@
 // notes, challenges) so a reload, import or rollback can never lose progress
 // and no double-bookkeeping is possible.
 
-import type { Challenge, CheckIn, Habit, Note, Persona } from './types';
+import type { Capacity, CapacityRating, Challenge, CheckIn, Habit, Lever, Note, Persona, Skill, UrgeEntry } from './types';
 
 // --- XP rules ---
 export const XP_RULES = {
@@ -171,9 +171,59 @@ export interface Medal {
   description: string;
   earned: boolean;
   earnedAt?: string;
+  category?: string;      // UI grouping: Streak / Game / Mastery / Urge / Win / Challenge / etc.
+  tier?: number;          // 0..n progression step within its category (for ordering)
+  progress?: number;      // 0-100 completion toward the requirement (for near-earned display)
 }
 
-/** True if every active habit was completed on a single day. */
+/** Extra data the medal engine can draw on. All optional — missing inputs are treated as empty. */
+export interface MedalContext {
+  urges?: UrgeEntry[];
+  moods?: Record<string, string>;   // date -> mood id
+  capacityRatings?: CapacityRating[];
+  skills?: Skill[];
+  capacities?: Capacity[];
+  levers?: Lever[];
+  personas?: Persona[];
+  journalCount?: number;
+  now?: Date;
+}
+
+/** Number of days (0..365) that had at least one completed check-in. */
+export function activeDaysWithData(checkIns: CheckIn[]): number {
+  const days = new Set<string>();
+  for (const ci of checkIns) if (ci.completed) days.add(ci.date);
+  return days.size;
+}
+
+/** How many days have a recorded mood. */
+export function moodDays(moods: Record<string, string>): number {
+  return Object.keys(moods ?? {}).length;
+}
+
+/** Count of "surfed" urges (urge surfing wins). */
+export function urgesSurfedCount(urges: UrgeEntry[]): number {
+  return (urges ?? []).filter((u) => u.outcome === 'surfed').length;
+}
+
+/** Number of urges logged at all. */
+export function urgesLoggedCount(urges: UrgeEntry[]): number {
+  return (urges ?? []).length;
+}
+
+/** Count of days with a recorded mood of category `set` (or any if undefined). */
+export function moodDaysInSet(moods: Record<string, string>, set: Set<string>): number {
+  let n = 0;
+  for (const mood of Object.values(moods ?? {})) if (set.has(mood)) n++;
+  return n;
+}
+
+/** Number of skills that have at least one linked habit (actively levelled). */
+export function skillsActiveCount(skills: Skill[]): number {
+  return (skills ?? []).filter((s) => (s.links ?? []).length > 0).length;
+}
+
+/** Number of capacities rated at least once. */
 export function hasPerfectDay(habits: Habit[], checkIns: CheckIn[]): boolean {
   const active = habits.filter((h) => !h.archived);
   if (active.length === 0) return false;
@@ -222,6 +272,11 @@ export function habitMastersCount(
   return masters;
 }
 
+export function capacitiesProgressCount(capacities: Capacity[], ratings: CapacityRating[]): number {
+  const rated = new Set((ratings ?? []).map((r) => r.capacityId));
+  return (capacities ?? []).filter((c) => rated.has(c.id)).length;
+}
+
 export function computeMedals(
   habits: Habit[],
   checkIns: CheckIn[],
@@ -229,10 +284,22 @@ export function computeMedals(
   challenges: Challenge[],
   xp: number,
   level: number,
+  ctx: MedalContext = {},
 ): Medal[] {
+  const now = ctx.now ?? new Date();
+  void now;
   const totalCheckIns = checkIns.filter((c) => c.completed).length;
   const achievementNotes = notes.filter((n) => n.achievementCategory).length;
   const completedChallenges = challenges.filter((c) => c.status === 'completed').length;
+  const activeDays = activeDaysWithData(checkIns);
+  const moodsLogged = moodDays(ctx.moods ?? {});
+  const surfed = urgesSurfedCount(ctx.urges ?? []);
+  const urgesLogged = urgesLoggedCount(ctx.urges ?? []);
+  const activeSkills = skillsActiveCount(ctx.skills ?? []);
+  const trainingCapacities = capacitiesProgressCount(ctx.capacities ?? [], ctx.capacityRatings ?? []);
+  const leverCount = (ctx.levers ?? []).length;
+  const personaCount = (ctx.personas ?? []).length;
+  const journalCount = ctx.journalCount ?? 0;
 
   let earliestCheckIn: string | undefined;
   for (const ci of checkIns) {
@@ -245,34 +312,115 @@ export function computeMedals(
     const d = n.createdAt.slice(0, 10);
     if (!earliestAchievement || d < earliestAchievement) earliestAchievement = d;
   }
+  // Earliest completed challenge + earliest surfed urge dates.
+  let earliestChallenge: string | undefined;
+  for (const c of challenges) {
+    if (c.status !== 'completed') continue;
+    const d = (c.completedAt ?? c.startDate).slice(0, 10);
+    if (!earliestChallenge || d < earliestChallenge) earliestChallenge = d;
+  }
+  let earliestSurf: string | undefined;
+  for (const u of ctx.urges ?? []) {
+    if (u.outcome !== 'surfed') continue;
+    const d = u.startTime.slice(0, 10);
+    if (!earliestSurf || d < earliestSurf) earliestSurf = d;
+  }
 
-  const stats = {
-    totalCheckIns,
-    achievementNotes,
-    completedChallenges,
-    bestStreak: bestStreakAllTime(habits, checkIns),
-    perfectDay: hasPerfectDay(habits, checkIns),
-    habitMasters: habitMastersCount(habits, checkIns),
-    xp,
-    level,
+  const bestStreak = bestStreakAllTime(habits, checkIns);
+  const masters = habitMastersCount(habits, checkIns);
+  const perfectDay = hasPerfectDay(habits, checkIns);
+
+  // Helper to build a tiered "ladder" of medals from a set of thresholds.
+  const pct = (got: number, need: number, inverted = false): number => {
+    if (need <= 0) return 0;
+    const raw = (got / need) * 100;
+    return inverted ? Math.min(100, Math.max(0, ((need - got) / need) * 100)) : Math.max(0, Math.min(100, raw));
   };
 
-  const defs: { id: string; name: string; emoji: string; description: string; earned: boolean; earnedAt?: string }[] = [
-    { id: 'first-steps', name: 'First Steps', emoji: '🚀', description: 'Complete your first check-in', earned: stats.totalCheckIns >= 1, earnedAt: earliestCheckIn },
-    { id: 'first-win', name: 'First Win', emoji: '🏅', description: 'Tag your first achievement', earned: stats.achievementNotes >= 1, earnedAt: earliestAchievement },
-    { id: 'seven-day', name: 'Week on Fire', emoji: '🔥', description: 'A 7-day streak on any habit', earned: stats.bestStreak >= 7 },
-    { id: 'thirty-day', name: 'Month of Steel', emoji: '🧨', description: 'A 30-day streak on any habit', earned: stats.bestStreak >= 30 },
-    { id: 'xp-500', name: '500 XP', emoji: '⚡', description: 'Earn 500 lifetime XP', earned: stats.xp >= 500 },
-    { id: 'xp-2000', name: '2000 XP', emoji: '🌋', description: 'Earn 2000 lifetime XP', earned: stats.xp >= 2000 },
-    { id: 'challenge-master', name: 'Challenge Met', emoji: '🎯', description: 'Complete a challenge', earned: stats.completedChallenges >= 1 },
-    { id: 'perfect-day', name: 'Perfect Day', emoji: '💯', description: 'Every active habit done in a single day', earned: stats.perfectDay },
-    { id: 'habit-master', name: 'Golden Rhythm', emoji: '🏆', description: '5+ habits at 70%+ over 30 days', earned: stats.habitMasters >= 5 },
-    { id: 'level-5', name: 'Explorer', emoji: '🧭', description: 'Reach level 5', earned: stats.level >= 5 },
-    { id: 'level-15', name: 'Architect', emoji: '🏛️', description: 'Reach level 15', earned: stats.level >= 15 },
-    { id: 'level-40', name: 'Master of Self', emoji: '👑', description: 'Reach level 40', earned: stats.level >= 40 },
+  const defs: Medal[] = [
+    // ---- Grundlagen: Streaks & consistency ----
+    { id: 'streak-1', name: 'Moving', emoji: '🎬', description: '1-day streak on any habit', tier: 0, earned: bestStreak >= 1, progress: pct(bestStreak, 1), category: 'Streak' },
+    { id: 'streak-3', name: 'Spark', emoji: '✨', description: '3-day streak on any habit', tier: 1, earned: bestStreak >= 3, progress: pct(bestStreak, 3), category: 'Streak' },
+    { id: 'streak-7', name: 'Week on Fire', emoji: '🔥', description: '7-day streak on any habit', tier: 2, earned: bestStreak >= 7, progress: pct(bestStreak, 7), category: 'Streak' },
+    { id: 'streak-14', name: 'Two Weeks Down', emoji: '🔖', description: '14-day streak on any habit', tier: 3, earned: bestStreak >= 14, progress: pct(bestStreak, 14), category: 'Streak' },
+    { id: 'streak-30', name: 'Month of Steel', emoji: '🧨', description: '30-day streak on any habit', tier: 4, earned: bestStreak >= 30, progress: pct(bestStreak, 30), category: 'Streak' },
+    { id: 'streak-60', name: 'Seasoned', emoji: '🥁', description: '60-day streak on any habit', tier: 5, earned: bestStreak >= 60, progress: pct(bestStreak, 60), category: 'Streak' },
+    { id: 'streak-100', name: 'Centurion', emoji: '💯', description: '100-day streak on any habit', tier: 6, earned: bestStreak >= 100, progress: pct(bestStreak, 100), category: 'Streak' },
+    { id: 'streak-365', name: 'Master of Years', emoji: '👑', description: 'A full 365-day streak on any habit', tier: 7, earned: bestStreak >= 365, progress: pct(bestStreak, 365), category: 'Streak' },
+
+    // ---- Game: XP and level ----
+    { id: 'xp-100', name: '100 XP', emoji: '🔹', description: 'Earn 100 lifetime XP', tier: 0, earned: xp >= 100, progress: pct(xp, 100), category: 'Game' },
+    { id: 'xp-500', name: '500 XP', emoji: '⚡', description: 'Earn 500 lifetime XP', tier: 1, earned: xp >= 500, progress: pct(xp, 500), category: 'Game' },
+    { id: 'xp-1000', name: '1000 XP', emoji: '🌠', description: 'Earn 1000 lifetime XP', tier: 2, earned: xp >= 1000, progress: pct(xp, 1000), category: 'Game' },
+    { id: 'xp-2000', name: '2000 XP', emoji: '🌋', description: 'Earn 2000 lifetime XP', tier: 3, earned: xp >= 2000, progress: pct(xp, 2000), category: 'Game' },
+    { id: 'xp-5000', name: '5000 XP', emoji: '🚀', description: 'Earn 5000 lifetime XP', tier: 4, earned: xp >= 5000, progress: pct(xp, 5000), category: 'Game' },
+    { id: 'xp-10000', name: '10000 XP', emoji: '🌕', description: 'Earn 10000 lifetime XP', tier: 5, earned: xp >= 10000, progress: pct(xp, 10000), category: 'Game' },
+    { id: 'xp-25000', name: '25000 XP', emoji: '☄️', description: 'Earn 25000 lifetime XP', tier: 6, earned: xp >= 25000, progress: pct(xp, 25000), category: 'Game' },
+    { id: 'level-5', name: 'Explorer', emoji: '🧭', description: 'Reach level 5', tier: 0, earned: level >= 5, progress: pct(level, 5), category: 'Game' },
+    { id: 'level-10', name: 'Learner', emoji: '🛠️', description: 'Reach level 10', tier: 1, earned: level >= 10, progress: pct(level, 10), category: 'Game' },
+    { id: 'level-15', name: 'Architect', emoji: '🏛️', description: 'Reach level 15', tier: 2, earned: level >= 15, progress: pct(level, 15), category: 'Game' },
+    { id: 'level-25', name: 'Strategist', emoji: '🧠', description: 'Reach level 25', tier: 3, earned: level >= 25, progress: pct(level, 25), category: 'Game' },
+    { id: 'level-40', name: 'Master of Self', emoji: '👑', description: 'Reach level 40', tier: 4, earned: level >= 40, progress: pct(level, 40), category: 'Game' },
+    { id: 'level-60', name: 'Legend', emoji: '🌟', description: 'Reach level 60', tier: 5, earned: level >= 60, progress: pct(level, 60), category: 'Game' },
+
+    // ---- Consistency: total check-ins & active days ----
+    { id: 'ci-10', name: '10 Check-ins', emoji: '🟦', description: 'Log 10 completed check-ins', tier: 0, earned: totalCheckIns >= 10, progress: pct(totalCheckIns, 10), category: 'Consistency' },
+    { id: 'ci-50', name: '50 Check-ins', emoji: '📈', description: 'Log 50 completed check-ins', tier: 1, earned: totalCheckIns >= 50, progress: pct(totalCheckIns, 50), category: 'Consistency' },
+    { id: 'ci-100', name: '100 Check-ins', emoji: '🔟', description: 'Log 100 completed check-ins', tier: 2, earned: totalCheckIns >= 100, progress: pct(totalCheckIns, 100), category: 'Consistency' },
+    { id: 'ci-250', name: '250 Check-ins', emoji: '🏅', description: 'Log 250 completed check-ins', tier: 3, earned: totalCheckIns >= 250, progress: pct(totalCheckIns, 250), category: 'Consistency' },
+    { id: 'ci-500', name: '500 Check-ins', emoji: '🎖️', description: 'Log 500 completed check-ins', tier: 4, earned: totalCheckIns >= 500, progress: pct(totalCheckIns, 500), category: 'Consistency' },
+    { id: 'ci-1000', name: '1000 Check-ins', emoji: '🎆', description: 'Log 1000 completed check-ins', tier: 5, earned: totalCheckIns >= 1000, progress: pct(totalCheckIns, 1000), category: 'Consistency' },
+    { id: 'day-30', name: '30 Active Days', emoji: '🗓️', description: 'Complete check-ins across 30 distinct days', tier: 0, earned: activeDays >= 30, progress: pct(activeDays, 30), category: 'Consistency' },
+    { id: 'day-90', name: '90 Active Days', emoji: '📅', description: 'Log a completed day on 90 distinct days', tier: 1, earned: activeDays >= 90, progress: pct(activeDays, 90), category: 'Consistency' },
+    { id: 'day-200', name: 'Half-Year Active', emoji: '🌗', description: 'Log a completed day on 200 distinct days', tier: 2, earned: activeDays >= 200, progress: pct(activeDays, 200), category: 'Consistency' },
+
+    // ---- Mastery: perfect day & habit masters ----
+    { id: 'master-1', name: 'Solid Builder', emoji: '🧱', description: 'Have 1 habit at 70%+ completion over 30 days', tier: 0, earned: masters >= 1, progress: pct(masters, 1), category: 'Mastery' },
+    { id: 'master-3', name: 'Stable 3', emoji: '🧲', description: '3 habits at 70%+ over 30 days', tier: 1, earned: masters >= 3, progress: pct(masters, 3), category: 'Mastery' },
+    { id: 'master-5', name: 'Golden Rhythm', emoji: '🏆', description: '5+ habits at 70%+ over 30 days', tier: 2, earned: masters >= 5, progress: pct(masters, 5), category: 'Mastery' },
+    { id: 'master-8', name: 'Wheel', emoji: '🎡', description: '8+ habits at 70%+ over 30 days', tier: 3, earned: masters >= 8, progress: pct(masters, 8), category: 'Mastery' },
+    { id: 'perfect-first', name: 'Perfect Day', emoji: '💯', description: 'Every active habit done in a single day', earned: perfectDay, progress: perfectDay ? 100 : 0, category: 'Mastery' },
+
+    // ---- Urges: the mind chitchen ----
+    { id: 'urge-1', name: 'First Wave', emoji: '🌊', description: 'Surf your first urge', tier: 0, earned: surfed >= 1, progress: pct(surfed, 1), category: 'Urge' },
+    { id: 'urge-10', name: 'Wave Rider', emoji: '🏄', description: 'Surf 10 urges', tier: 1, earned: surfed >= 10, progress: pct(surfed, 10), category: 'Urge' },
+    { id: 'urge-25', name: 'Surfing the Storm', emoji: '🌩️', description: 'Surf 25 urges', tier: 2, earned: surfed >= 25, progress: pct(surfed, 25), category: 'Urge' },
+    { id: 'urge-50', name: '50 Waves Surfed', emoji: '🌊', description: 'Surf 50 urges', tier: 3, earned: surfed >= 50, progress: pct(surfed, 50), category: 'Urge' },
+    { id: 'urge-100', name: 'Oceantic', emoji: '🌊', description: '100 urges surfed', tier: 4, earned: surfed >= 100, progress: pct(surfed, 100), category: 'Urge' },
+    { id: 'aware-25', name: 'Self-Aware', emoji: '👁️', description: 'Log 25 urges of any outcome', tier: 0, earned: urgesLogged >= 25, progress: pct(urgesLogged, 25), category: 'Urge' },
+
+    // ---- Mood & Reflection ----
+    { id: 'mood-7', name: '7 Mood Logs', emoji: '🎭', description: 'Record your mood on 7 days', tier: 0, earned: moodsLogged >= 7, progress: pct(moodsLogged, 7), category: 'Reflection' },
+    { id: 'mood-30', name: '30 Mood Logs', emoji: '🌈', description: 'Record your mood on 30 days', tier: 1, earned: moodsLogged >= 30, progress: pct(moodsLogged, 30), category: 'Reflection' },
+    { id: 'mood-90', name: '90 Mood Logs', emoji: '🔮', description: 'Record your mood on 90 days', tier: 2, earned: moodsLogged >= 90, progress: pct(moodsLogged, 90), category: 'Reflection' },
+    { id: 'journal-10', name: 'Journaling Habit', emoji: '📓', description: 'Write 10 journal entries', tier: 0, earned: journalCount >= 10, progress: pct(journalCount, 10), category: 'Reflection' },
+    { id: 'journal-50', name: 'Deep Journaler', emoji: '🖋️', description: 'Write 50 journal entries', tier: 1, earned: journalCount >= 50, progress: pct(journalCount, 50), category: 'Reflection' },
+
+    // ---- Skills & Capacities ----
+    { id: 'skill-1', name: 'Skill Builder', emoji: '🧩', description: 'Link a habit to a skill', tier: 0, earned: activeSkills >= 1, progress: pct(activeSkills, 1), category: 'Skills' },
+    { id: 'skill-3', name: 'Tri-Skill', emoji: '🎲', description: 'Level 3 skills', tier: 1, earned: activeSkills >= 3, progress: pct(activeSkills, 3), category: 'Skills' },
+    { id: 'skill-5', name: 'Pentagon', emoji: '🔺', description: 'Level 5 skills', tier: 2, earned: activeSkills >= 5, progress: pct(activeSkills, 5), category: 'Skills' },
+    { id: 'cap-1', name: 'First Capacity', emoji: '📊', description: 'Train a capacity', tier: 0, earned: trainingCapacities >= 1, progress: pct(trainingCapacities, 1), category: 'Skills' },
+    { id: 'cap-3', name: '3 Capacities', emoji: '📈', description: 'Train 3 capacities', tier: 1, earned: trainingCapacities >= 3, progress: pct(trainingCapacities, 3), category: 'Skills' },
+    { id: 'cap-5', name: '5 Capacities', emoji: '🧪', description: 'Train 5 capacities', tier: 2, earned: trainingCapacities >= 5, progress: pct(trainingCapacities, 5), category: 'Skills' },
+
+    // ---- Levers & Personas: the reflective self ----
+    { id: 'lever-1', name: 'First Lever', emoji: '⚙️', description: 'Save your first lever', tier: 0, earned: leverCount >= 1, progress: pct(leverCount, 1), category: 'Self' },
+    { id: 'lever-5', name: '5 Levers', emoji: '🪄', description: 'Save 5 levers', tier: 1, earned: leverCount >= 5, progress: pct(leverCount, 5), category: 'Self' },
+    { id: 'lever-15', name: '15 Levers', emoji: '🗝️', description: 'Save 15 levers', tier: 2, earned: leverCount >= 15, progress: pct(leverCount, 15), category: 'Self' },
+    { id: 'persona-1', name: 'First Persona', emoji: '🧭', description: 'Define your first persona', tier: 0, earned: personaCount >= 1, progress: pct(personaCount, 1), category: 'Self' },
+    { id: 'persona-3', name: '3 Personas', emoji: '👥', description: 'Define 3 personas', tier: 1, earned: personaCount >= 3, progress: pct(personaCount, 3), category: 'Self' },
+    { id: 'persona-5', name: 'Many Selves', emoji: '🪞', description: 'Define 5 personas', tier: 2, earned: personaCount >= 5, progress: pct(personaCount, 5), category: 'Self' },
+
+    // ---- Milestones from real events (earnedAt) ----
+    { id: 'first-steps', name: 'First Steps', emoji: '🚀', description: 'Complete your first check-in', earned: totalCheckIns >= 1, earnedAt: earliestCheckIn, category: 'Milestones' },
+    { id: 'first-win', name: 'First Win', emoji: '🏅', description: 'Tag your first achievement', earned: achievementNotes >= 1, earnedAt: earliestAchievement, category: 'Milestones' },
+    { id: 'first-challenge', name: 'First Challenge', emoji: '🎯', description: 'Complete your first challenge', earned: completedChallenges >= 1, earnedAt: earliestChallenge, category: 'Milestones' },
+    { id: 'first-surf', name: 'First Surf', emoji: '🏄', description: 'Surf your first urge', earned: surfed >= 1, earnedAt: earliestSurf, category: 'Milestones' },
+    { id: 'challenge-5', name: '5 Challenges', emoji: '🎖️', description: 'Complete 5 challenges', tier: 0, earned: completedChallenges >= 5, progress: pct(completedChallenges, 5), category: 'Mastery' },
   ];
 
-  return defs.map((d) => ({ ...d }));
+  return defs;
 }
 
 // --- Week-over-week comparison ("vs who you were before") ---

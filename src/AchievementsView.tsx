@@ -48,6 +48,7 @@ export default function AchievementsView() {
   const [personaEmoji, setPersonaEmoji] = useState('⭐');
   const [personaDesc, setPersonaDesc] = useState('');
   const [personaHabits, setPersonaHabits] = useState<string[]>([]);
+  const [medalFilter, setMedalFilter] = useState<'all' | 'earned'>('all');
 
   useEffect(() => {
     const unsub = subscribe(() => setTick((t) => t + 1));
@@ -80,7 +81,24 @@ export default function AchievementsView() {
   );
   const progress = useMemo(() => levelProgress(xpBreakdown.total), [xpBreakdown.total]);
   const medals = useMemo(
-    () => computeMedals(data.habits, data.checkIns, data.notes, data.challenges, xpBreakdown.total, progress.level),
+    () => computeMedals(
+      data.habits,
+      data.checkIns,
+      data.notes,
+      data.challenges,
+      xpBreakdown.total,
+      progress.level,
+      {
+        urges: data.urges,
+        moods: data.moods,
+        capacityRatings: data.capacityRatings,
+        skills: data.skills,
+        capacities: data.capacities,
+        levers: data.levers,
+        personas: data.personas,
+        journalCount: data.journalEntries.length,
+      },
+    ),
     [data, xpBreakdown.total, progress.level],
   );
   const comparison = useMemo(() => compareLastWeeks(data.habits, data.checkIns), [data]);
@@ -238,19 +256,53 @@ export default function AchievementsView() {
 
         {/* Medals */}
         <div className="gamification-medals">
-          <h3>🎖️ Medals <span className="gamification-medals-count">{earnedMedals}/{medals.length}</span></h3>
-          <div className="gamification-medals-grid">
-            {medals.map((m) => (
-              <div
-                key={m.id}
-                className={`gamification-medal ${m.earned ? 'earned' : ''}`}
-                title={m.description}
+          <div className="gamification-medals-head">
+            <h3>🎖️ Medals <span className="gamification-medals-count">{earnedMedals}/{medals.length}</span></h3>
+            <div className="gamification-medals-filter">
+              <button
+                className={`btn btn-sm ${medalFilter === 'all' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setMedalFilter('all')}
               >
-                <span className="gamification-medal-emoji">{m.emoji}</span>
-                <span className="gamification-medal-name">{m.name}</span>
-              </div>
-            ))}
+                All
+              </button>
+              <button
+                className={`btn btn-sm ${medalFilter === 'earned' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setMedalFilter('earned')}
+              >
+                Earned
+              </button>
+            </div>
           </div>
+
+          {(() => {
+            const groups = new Map<string, { emoji: string; medals: typeof medals }>();
+            for (const m of medals) {
+              if (medalFilter === 'earned' && !m.earned) continue;
+              const cat = m.category ?? 'Other';
+              if (!groups.has(cat)) groups.set(cat, { emoji: '🎖️', medals: [] });
+              groups.get(cat)!.medals.push(m);
+            }
+            return Array.from(groups.entries()).map(([cat, group]) => (
+              <div key={cat} className="gamification-medal-group">
+                <h4 className="gamification-medal-category">{group.emoji} {cat}</h4>
+                <div className="gamification-medals-grid">
+                  {group.medals.map((m) => (
+                    <div
+                      key={m.id}
+                      className={`gamification-medal ${m.earned ? 'earned' : ''}`}
+                      title={m.description}
+                    >
+                      <span className="gamification-medal-emoji">{m.emoji}</span>
+                      <span className="gamification-medal-name">{m.name}</span>
+                      {m.progress !== undefined && !m.earned && (
+                        <span className="gamification-medal-progress">{m.progress}%</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ));
+          })()}
         </div>
 
         {/* Personas */}
