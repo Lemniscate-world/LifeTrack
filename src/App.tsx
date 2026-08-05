@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import type { Habit, Note, CheckIn, Mantra } from './types';
+import type { Habit, Note, CheckIn, Mantra, Lever } from './types';
 import {
   getHabits,
   getMonthCheckIns,
@@ -45,6 +45,9 @@ import {
   getPreferences,
   updatePreferences,
   getActiveChallenges,
+  getLevers,
+  addLever,
+  deleteLever,
 } from './store';
 import { computeStreakStats, computeCompletionRate, computeWeightedScore, trackingStart } from './stats';
 import { Heatmap, Sparkline } from './Heatmap';
@@ -72,7 +75,7 @@ import { parseAiAnalysis, type AiAnalysis, type AiChatMessage } from './aiAnalys
 // (Mood view removed — emotional state is tracked via the 'emotional' chaos dimension.)
 import { generateInsights, type Recommendation, type RecKind } from './recommendations';
 import { computeCorrelations } from './correlations';
-import { detectNegativePatterns, type PatternHit } from './psychoanalysis';
+import { detectNegativePatterns, patternTrend, type PatternHit, type TrendPeriod } from './psychoanalysis';
 import { computeXp, levelForXp, rankForLevel } from './gamification';
 import Confetti from './Confetti';
 import { getDailyEntryMantra, todayStr, shouldShowMantraNotification, markMantraNotificationShown, MANTRA_DOMAINS, sendSystemNotification } from './mantras';
@@ -1972,6 +1975,51 @@ function InsightsView({
       return detectNegativePatterns(checkIns, allData.notes ?? [], allData.urges ?? []);
     } catch { return []; }
   }, [checkIns]);
+
+  // --- Levers (v0.5.0): "what works for me" + psychological evolution trend ---
+  const levers: Lever[] = useMemo(() => {
+    try { return getLevers(); } catch { return []; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkIns]);
+  const trend: TrendPeriod[] = useMemo(() => {
+    try {
+      const allData = exportAllData();
+      return patternTrend(checkIns, allData.notes ?? [], allData.urges ?? []);
+    } catch { return []; }
+  }, [checkIns]);
+  const [leverContent, setLeverContent] = useState('');
+  const [leverEffect, setLeverEffect] = useState('');
+  const [leverNotes, setLeverNotes] = useState('');
+  const [leverAddedId, setLeverAddedId] = useState<string | null>(null);
+
+  const handleAddLever = (e: React.FormEvent) => {
+    e.preventDefault();
+    const content = leverContent.trim();
+    if (!content) return;
+    try {
+      const created = addLever(content, leverEffect.trim() || undefined, leverNotes.trim() || undefined);
+      setLeverAddedId(created.id);
+      setLeverContent('');
+      setLeverEffect('');
+      setLeverNotes('');
+      setTimeout(() => setLeverAddedId((cur) => (cur === created.id ? null : cur)), 2000);
+    } catch { /* ignore */ }
+  };
+
+  const handleConvertLever = (lever: Lever) => {
+    const why: string[] = [];
+    if (lever.content) why.push(`Le facteur : ${lever.content}`);
+    if (lever.effect) why.push(`Effet attendu : ${lever.effect}`);
+    const name = lever.content.length > 40 ? `${lever.content.slice(0, 40)}…` : lever.content;
+    try {
+      addHabit(name);
+      if (why.length > 0) {
+        const created = getHabits().find((h) => h.name === name);
+        if (created) updateHabit(created.id, { why });
+      }
+      deleteLever(lever.id);
+    } catch { /* ignore */ }
+  };
   const [psychoHistory, setPsychoHistory] = useState<AiChatMessage[]>([]);
   const [psychoInput, setPsychoInput] = useState('');
   const [psychoLoading, setPsychoLoading] = useState(false);
@@ -2490,6 +2538,117 @@ function InsightsView({
           </form>
         </div>
       </div>
+
+      {/* --- Levers (v0.5.0): "what works for me" --- */}
+      <div className="lever-section">
+        <div className="lever-header">
+          <h3>⚙️ What works for me</h3>
+          <span className="lever-subtitle">
+            Record interventions you noticed actually help — then turn them into habits.
+          </span>
+        </div>
+
+        <form className="lever-form" onSubmit={handleAddLever}>
+          <input
+            className="lever-input"
+            value={leverContent}
+            onChange={(e) => setLeverContent(e.target.value)}
+            placeholder="Le facteur qui a marché (ex : Magnésium B2 le matin)"
+            required
+          />
+          <input
+            className="lever-input lever-input-sm"
+            value={leverEffect}
+            onChange={(e) => setLeverEffect(e.target.value)}
+            placeholder="Effet observé (ex : +15 d'énergie)"
+          />
+          <input
+            className="lever-input lever-input-sm"
+            value={leverNotes}
+            onChange={(e) => setLeverNotes(e.target.value)}
+            placeholder="Notes / contexte"
+          />
+          <button className="btn btn-primary" type="submit">Ajouter</button>
+        </form>
+
+        {levers.length === 0 ? (
+          <p className="lever-none">
+            No levers saved yet. Whenever you notice something that works — a supplement,
+            a routine, a mindset shift — note it here so you don't forget.
+          </p>
+        ) : (
+          <div className="lever-list">
+            {levers.map((lever) => (
+              <div className="lever-card" key={lever.id}>
+                <div className="lever-card-main">
+                  <span className="lever-content">{lever.content}</span>
+                  {lever.effect && <span className="lever-effect">→ {lever.effect}</span>}
+                  {lever.notes && <span className="lever-notes">{lever.notes}</span>}
+                  <span className="lever-date">{new Date(lever.createdAt).toLocaleDateString()}</span>
+                  {leverAddedId === lever.id && <span className="lever-saved">✓ Ajouté</span>}
+                </div>
+                <div className="lever-actions">
+                  <button
+                    className="btn btn-sm btn-primary"
+                    onClick={() => handleConvertLever(lever)}
+                    title="Transforme ce levier en habitude suivie"
+                  >
+                    ➕ Habitude
+                  </button>
+                  <button
+                    className="btn btn-sm btn-ghost"
+                    onClick={() => deleteLever(lever.id)}
+                    title="Supprimer"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* --- Psychological evolution (v0.5.0): trend of negative patterns over weeks --- */}
+      {trend.length >= 2 && (
+        <div className="evo-section">
+          <div className="evo-header">
+            <h3>📉 Psychological evolution</h3>
+            <span className="evo-subtitle">
+              Weekly count of negative patterns in your writing — are they declining?
+            </span>
+          </div>
+          <div className="evo-bars">
+            {trend.map((period, i) => {
+              const maxTotal = Math.max(...trend.map((t) => t.total), 1);
+              const hot = period.total > 0;
+              const declining = i > 0 && period.total < trend[i - 1].total;
+              return (
+                <div className="evo-col" key={period.weekStart}>
+                  <div className="evo-label">{period.label}</div>
+                  <div className="evo-track">
+                    <div
+                      className={`evo-bar ${hot ? 'evo-bar-hot' : 'evo-bar-clear'} ${declining ? 'evo-bar-down' : ''}`}
+                      style={{ height: `${Math.max(period.total === 0 ? 3 : 12, (period.total / maxTotal) * 100)}%` }}
+                      title={`${period.total} negative pattern${period.total > 1 ? 's' : ''} this week`}
+                    />
+                  </div>
+                  <div className="evo-count">{period.total}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="evo-insight">
+            {(() => {
+              const first = trend[0].total;
+              const last = trend[trend.length - 1].total;
+              if (last < first) return '🎉 Your negative patterns are trending down — the counter-techniques are working.';
+              if (last > first) return '⚠️ Negative patterns are trending up recently. Consider asking the psychoanalysis assistant.';
+              return '↔️ Negative patterns are holding steady. Small consistent counter-steps can push them down.';
+            })()}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalPersonality, Challenge, Persona } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalPersonality, Challenge, Persona, Lever } from './types';
 import { computeStreakStats } from './stats';
 import { computeChallengeProgress } from './challenges';
 import {
@@ -163,6 +163,16 @@ function isValidPersona(x: unknown): x is Persona {
   return true;
 }
 
+// Lever (v0.5.0): "what works for me" — an intervention + observed effect.
+function isValidLever(x: unknown): x is Lever {
+  if (!x || typeof x !== 'object') return false;
+  const l = x as Record<string, unknown>;
+  if (typeof l.id !== 'string' || typeof l.content !== 'string' || typeof l.createdAt !== 'string') return false;
+  if (l.effect !== undefined && typeof l.effect !== 'string') return false;
+  if (l.notes !== undefined && typeof l.notes !== 'string') return false;
+  return true;
+}
+
 // --- Sanitize: filter out malformed entries from parsed data ---
 function sanitizeData(raw: unknown): AppData {
   const empty: AppData = {
@@ -183,6 +193,7 @@ function sanitizeData(raw: unknown): AppData {
     journalEntries: [],
     challenges: [],
     personas: [],
+    levers: [],
     preferences: { darkMode: false, theme: '' },
   };
   if (!raw || typeof raw !== 'object') return empty;
@@ -330,6 +341,7 @@ function sanitizeData(raw: unknown): AppData {
     journalEntries: Array.isArray(obj.journalEntries) ? obj.journalEntries.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'content' in (e as object) && 'personality' in (e as object)) as JournalEntry[] : [],
     challenges: Array.isArray(obj.challenges) ? obj.challenges.filter(isValidChallenge) as Challenge[] : [],
     personas: validPersonas,
+    levers: Array.isArray(obj.levers) ? obj.levers.filter(isValidLever) as Lever[] : [],
     preferences: sanitizePreferences(obj.preferences),
   };
 }
@@ -608,6 +620,7 @@ function freshData(): AppData {
     journalEntries: [],
     challenges: [],
     personas: [],
+    levers: [],
     preferences: { darkMode: false, theme: '' },
   };
 }
@@ -1778,6 +1791,30 @@ export function deletePersona(id: string): void {
   notify();
 }
 
+// --- Levers (v0.5.0): "what works for me" ---
+export function getLevers(): Lever[] {
+  return [...data.levers].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export function addLever(content: string, effect?: string, notes?: string): Lever {
+  const lever: Lever = {
+    id: crypto.randomUUID(),
+    content: content.trim(),
+    ...(effect?.trim() ? { effect: effect.trim() } : {}),
+    ...(notes?.trim() ? { notes: notes.trim() } : {}),
+    createdAt: new Date().toISOString(),
+  };
+  if (lever.content === '') throw new Error('Lever content cannot be empty');
+  data.levers.push(lever);
+  notify();
+  return lever;
+}
+
+export function deleteLever(id: string): void {
+  data.levers = data.levers.filter((l) => l.id !== id);
+  notify();
+}
+
 interface ImportedHabit {
   id: string;
   name: string;
@@ -1822,6 +1859,7 @@ export interface ImportMergeResult {
   urgesRestored: number;
   mantrasRestored: number;
   chaosDimensionsRestored: number;
+  leversImported: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -2000,6 +2038,7 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
     urgesRestored: 0,
     mantrasRestored: 0,
     chaosDimensionsRestored: 0,
+    leversImported: 0,
   };
   const idMap = new Map<string, string>();
   const habitsByName = new Map(data.habits.map((habit) => [normalizeHabitName(habit.name), habit]));
@@ -2393,6 +2432,24 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
       habitIds,
       createdAt: rawP.createdAt,
     });
+  }
+
+  // --- v0.5.0: Import levers (no habit references → no id remapping) ---
+  if (!data.levers) data.levers = [];
+  const rawLevers = Array.isArray((raw as Record<string, unknown>).levers)
+    ? (raw as Record<string, unknown>).levers as unknown[]
+    : [];
+  for (const rawL of rawLevers) {
+    if (!isValidLever(rawL)) continue;
+    if (data.levers.some((l) => l.id === rawL.id)) continue;
+    data.levers.push({
+      id: rawL.id,
+      content: rawL.content,
+      effect: rawL.effect,
+      notes: rawL.notes,
+      createdAt: rawL.createdAt,
+    });
+    result.leversImported += 1;
   }
 
   // --- v0.3.2: Import custom urge types ---

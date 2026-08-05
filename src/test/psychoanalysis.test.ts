@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { NEGATIVE_PATTERNS, detectNegativePatterns, detectPatternCount } from '../psychoanalysis';
+import { NEGATIVE_PATTERNS, detectNegativePatterns, detectPatternCount, patternTrend } from '../psychoanalysis';
 import type { CheckIn, Note, UrgeEntry } from '../types';
 
 describe('psychoanalysis — pattern library', () => {
@@ -69,5 +69,44 @@ describe('psychoanalysis — local detection (zero-cloud)', () => {
     const over = hits.find((h) => h.pattern.id === 'overgeneralization');
     expect(over).toBeDefined();
     expect(over!.count).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('psychoanalysis — patternTrend (psychological evolution)', () => {
+  it('returns one bucket per week, oldest first, with totals', () => {
+    const checkIns: CheckIn[] = [
+      { habitId: 'h1', date: '2026-07-01', completed: true, notes: ['si j\'échoue tout est foutu'] },
+      { habitId: 'h1', date: '2026-07-08', completed: true, notes: ['tout est foutu, je n\'y arriverai jamais'] },
+    ];
+    const trend = patternTrend(checkIns, [], []);
+    expect(trend.length).toBeGreaterThanOrEqual(2);
+    expect(trend[0].weekStart <= trend[1].weekStart).toBe(true);
+    expect(trend.every((t) => t.total >= 0)).toBe(true);
+    // Both weeks include "foutu" → catastrophizing should be present.
+    expect(trend.some((t) => t.counts.some((c) => c.patternId === 'catastrophizing'))).toBe(true);
+  });
+
+  it('returns empty array when there is no written data', () => {
+    expect(patternTrend([], [], [])).toEqual([]);
+  });
+
+  it('counts a declining-ish series (recent week lower or equal is allowed)', () => {
+    const checkIns: CheckIn[] = [
+      { habitId: 'h1', date: '2026-07-01', completed: true, notes: ['tout est foutu', 'je le savais cela finirait mal'] },
+      { habitId: 'h1', date: '2026-07-08', completed: true, notes: ['belle session, rien à redire'] },
+    ];
+    const trend = patternTrend(checkIns, [], []);
+    expect(trend.length).toBeGreaterThanOrEqual(2);
+    const last = trend[trend.length - 1];
+    // The recent, positive week should carry few or no pattern hits.
+    expect(last.total).toBeLessThanOrEqual(trend[0].total);
+  });
+
+  it('labels weeks with a short French month label', () => {
+    const checkIns: CheckIn[] = [
+      { habitId: 'h1', date: '2026-07-01', completed: true, notes: ['mauvaise passe, tout est foutu'] },
+    ];
+    const trend = patternTrend(checkIns, [], []);
+    expect(trend[0].label).toMatch(/^\d{2} /);
   });
 });

@@ -248,6 +248,19 @@ export interface Persona {
   createdAt: string;
 }
 
+// --- Levers (v0.5.0) ---
+// "What works for me": a reusable record of an intervention and its observed
+// effect (e.g. "Magnesium B2 le matin" → "+10 d'énergie"). Captured so a
+// discovery is never forgotten and can be re-applied deliberately — and
+// converted into a habit (with a WHY and an optional stack trigger).
+export interface Lever {
+  id: string;
+  content: string;        // the action / intervention
+  effect?: string;        // observed result ("+15 d'énergie")
+  notes?: string;         // conditions or context
+  createdAt: string;
+}
+
 export interface AppData {
   habits: Habit[];
   checkIns: CheckIn[];
@@ -266,6 +279,7 @@ export interface AppData {
   journalEntries: JournalEntry[];
   challenges: Challenge[];
   personas: Persona[];
+  levers: Lever[];
   preferences: UserPreferences;
 }
 

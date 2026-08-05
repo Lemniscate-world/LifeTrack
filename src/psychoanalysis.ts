@@ -237,3 +237,121 @@ export function detectNegativePatterns(checkIns: CheckIn[], notes: Note[], urges
 export function detectPatternCount(checkIns: CheckIn[], notes: Note[], urges: UrgeEntry[]): number {
   return detectNegativePatterns(checkIns, notes, urges).length;
 }
+
+/** A per-period breakdown of negative-pattern occurrences. */
+export interface TrendPeriod {
+  /** Monday of the week, as YYYY-MM-DD. */
+  weekStart: string;
+  /** Short human label, e.g. "05 août". */
+  label: string;
+  /** Total negative-pattern hits logged that week. */
+  total: number;
+  /** Per-pattern occurrence counts (only patterns present that week). */
+  counts: { patternId: string; count: number }[];
+}
+
+/** ZIP-coded date of a text snippet so we can bucket it by week. */
+interface DatedText {
+  date: string; // YYYY-MM-DD
+  text: string;
+}
+
+/** Gather every snippet with the date it was written (best-effort). */
+function collectDatedTexts(checkIns: CheckIn[], notes: Note[], urges: UrgeEntry[]): DatedText[] {
+  const out: DatedText[] = [];
+  for (const ci of checkIns) {
+    for (const n of ci.notes ?? []) if (n && n.trim()) out.push({ date: ci.date, text: n.trim() });
+    const legacy = (ci as unknown as Record<string, unknown>).note;
+    if (typeof legacy === 'string' && legacy.trim()) out.push({ date: ci.date, text: legacy.trim() });
+  }
+  const slice = (iso: unknown): string =>
+    typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10) : '';
+  for (const n of notes) {
+    const d = slice(n.createdAt);
+    if (d && n.content && n.content.trim()) out.push({ date: d, text: n.content.trim() });
+  }
+  for (const u of urges) {
+    const d = slice(u.startTime);
+    if (!d) continue;
+    if (u.note && u.note.trim()) out.push({ date: d, text: u.note.trim() });
+    if (u.trigger && u.trigger.trim()) out.push({ date: d, text: u.trigger.trim() });
+  }
+  return out;
+}
+
+/** Returns the Monday (YYYY-MM-DD) of the week containing a YYYY-MM-DD date. */
+function weekStartOf(dateKey: string): string {
+  const [y, m, d] = dateKey.split('-').map((n) => Number(n));
+  const date = new Date(y, m - 1, d);
+  const day = date.getDay(); // 0 (Sun) .. 6 (Sat)
+  const diff = day === 0 ? -6 : 1 - day; // back to Monday
+  date.setDate(date.getDate() + diff);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/** French short label for a week start, e.g. "05 août". */
+function shortLabel(dateKey: string): string {
+  const [, m, d] = dateKey.split('-').map((n) => Number(n));
+  return `${String(d).padStart(2, '0')} ${['janv', 'févr', 'mars', 'avr', 'mai', 'juin', 'juil', 'août', 'sept', 'oct', 'nov', 'déc'][m - 1] ?? ''}`;
+}
+
+const OVERLAP_SKIP = new Set(['overgeneralization', 'excessive_guilt']);
+
+/**
+ * Weekly evolution of negative patterns over time.
+ *
+ * Splits the user's writing into ISO weeks (oldest → newest) and counts key
+ * pattern occurrences per week, returning a trend the user can read: are the
+ * patterns that once dominated still present, or are they declining?
+ *
+ * Deterministic and local. Only includes weeks that actually contain writing.
+ */
+export function patternTrend(checkIns: CheckIn[], notes: Note[], urges: UrgeEntry[]): TrendPeriod[] {
+  const items = collectDatedTexts(checkIns, notes, urges)
+    .filter((t) => /^\d{4}-\d{2}-\d{2}$/.test(t.date) && !Number.isNaN(new Date(t.date).getTime()));
+  if (items.length === 0) return [];
+
+  const buckets = new Map<string, string[]>();
+  for (const item of items) {
+    const wk = weekStartOf(item.date);
+    const arr = buckets.get(wk) ?? [];
+    arr.push(item.text);
+    buckets.set(wk, arr);
+  }
+
+  const weeks = [...buckets.keys()].sort();
+  const trend: TrendPeriod[] = [];
+  for (const wk of weeks) {
+    const texts = buckets.get(wk) ?? [];
+    let total = 0;
+    const counts = new Map<string, number>();
+    for (const pattern of NEGATIVE_PATTERNS) {
+      if (OVERLAP_SKIP.has(pattern.id)) continue;
+      let count = 0;
+      for (const t of texts) {
+        const nt = normalize(t);
+        for (const kw of pattern.keywords) {
+          const nk = normalize(kw);
+          let idx = nt.indexOf(nk);
+          while (idx !== -1) {
+            count++;
+            idx = nt.indexOf(nk, idx + nk.length);
+          }
+        }
+      }
+      if (count > 0) {
+        counts.set(pattern.id, count);
+        total += count;
+      }
+    }
+    trend.push({
+      weekStart: wk,
+      label: shortLabel(wk),
+      total,
+      counts: [...counts.entries()]
+        .map(([patternId, count]) => ({ patternId, count }))
+        .sort((a, b) => b.count - a.count),
+    });
+  }
+  return trend;
+}

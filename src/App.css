@@ -7611,3 +7611,207 @@ body {
   color: var(--danger, #ef4444);
   font-size: 13px;
 }
+
+/* ============ v0.5.0 - LEVERS + PSYCHOLOGICAL EVOLUTION ============ */
+
+.lever-section {
+  margin-top: 28px;
+  padding: 16px;
+  background: var(--card-bg, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.lever-header {
+  margin-bottom: 12px;
+}
+
+.lever-header h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.lever-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.lever-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.lever-input {
+  flex: 2 1 240px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.lever-input-sm {
+  flex: 1 1 150px;
+}
+
+.lever-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.lever-none {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.lever-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lever-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent, #8b5cf6);
+  border-radius: 10px;
+  background: var(--bg-muted, rgba(127,127,127,0.05));
+}
+
+.lever-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lever-content {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.lever-effect {
+  font-size: 12px;
+  color: var(--success, #22c55e);
+}
+
+.lever-notes {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.lever-date {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
+.lever-saved {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--success, #22c55e);
+}
+
+.lever-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.evo-section {
+  margin-top: 28px;
+  padding: 16px;
+  background: var(--card-bg, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.evo-header {
+  margin-bottom: 12px;
+}
+
+.evo-header h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.evo-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.evo-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  min-height: 120px;
+}
+
+.evo-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  gap: 4px;
+}
+
+.evo-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.evo-track {
+  width: 100%;
+  max-width: 42px;
+  height: 90px;
+  display: flex;
+  align-items: flex-end;
+  background: var(--bg-muted, rgba(127,127,127,0.06));
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.evo-bar {
+  width: 100%;
+  border-radius: 4px;
+  transition: height 0.3s ease;
+}
+
+.evo-bar-hot {
+  background: linear-gradient(180deg, var(--danger, #ef4444), var(--accent, #8b5cf6));
+}
+
+.evo-bar-clear {
+  background: var(--border);
+}
+
+.evo-bar-down {
+  background: linear-gradient(180deg, var(--success, #22c55e), #86efac);
+}
+
+.evo-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.evo-insight {
+  margin-top: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg-muted, rgba(127,127,127,0.05));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
