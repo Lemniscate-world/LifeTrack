@@ -196,10 +196,17 @@ export interface CustomUrgeType {
 export interface CorrelationResult {
   metricA: string;          // label like "Meditation" or "Mood"
   metricB: string;
-  coefficient: number;      // Pearson r, -1 to 1
+  coefficient: number;      // r (Pearson) or rho (Spearman), -1 to 1
   strength: 'strong' | 'moderate' | 'weak' | 'none';
   direction: 'positive' | 'negative';
-  sampleSize: number;       // number of data points
+  sampleSize: number;       // number of data points (pairwise-valid days)
+  method: 'pearson' | 'spearman';
+  pValue: number;           // two-tailed
+  qValue: number;           // Benjamini–Hochberg FDR-adjusted (≤ pValue)
+  significant: boolean;     // true when qValue < 0.05
+  ciLow: number;            // 95% CI lower bound
+  ciHigh: number;           // 95% CI upper bound
+  requiredN: number;        // pairs needed to detect this effect at 80% power (∞ = unreliable)
 }
 
 // --- Journal (v0.4.0) ---

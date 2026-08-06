@@ -241,9 +241,16 @@ export function buildAiContext(data: AppData): string {
     } catch { return []; }
   })();
   if (correlations.length > 0) {
-    sections.push(`## CORRELATIONS (computed on-device)\n${correlations.slice(0, 10).map((c) => `  ${c.metricA} ↔ ${c.metricB}: r=${c.coefficient.toFixed(2)} (${c.direction}, ${c.strength}, n=${c.sampleSize})`).join('\n')}`);
+    const sig = correlations.filter((c) => c.significant);
+    const show = sig.length > 0 ? sig.slice(0, 10) : correlations.slice(0, 10);
+    sections.push(
+      `## CORRELATIONS (computed on-device, ${correlations.length} tested; ${sig.length} significant after FDR)\n` +
+      show.map((c) =>
+        `  ${c.metricA} ↔ ${c.metricB}: ${c.method} ${c.coefficient.toFixed(2)} (${c.direction}, ${c.strength}, n=${c.sampleSize}, p=${c.pValue.toFixed(3)}, q=${c.qValue.toFixed(3)}${c.significant ? ' ✓ significant' : ''}${c.sampleSize < c.requiredN ? `, ⚠ need ${c.requiredN} points` : ''})`
+      ).join('\n'),
+    );
   } else {
-    sections.push('## CORRELATIONS\n  (not enough data yet)');
+    sections.push('## CORRELATIONS\n  (not enough paired data yet — keep logging habits + moods on the same days)');
   }
 
   sections.push(`## SKILLS & CAPACITIES\n${summarizeSkills(data)}`);

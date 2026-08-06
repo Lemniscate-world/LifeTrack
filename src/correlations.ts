@@ -1,82 +1,79 @@
 // src/correlations.ts
-// Pure computation engine for finding correlations between habits, mood, and capacities.
-// All functions are pure (input → output) for easy testing.
+// Pure, rigorous correlation engine between habits, mood and capacities.
+//
+// Compared with the previous version this engine:
+//   - uses PAIRWISE DELETION: each correlation is computed only over days where
+//     BOTH series have real data, so a missing mood is never imputed as "neutral"
+//     and a missing check-in is never treated as "not done" just because a habit
+//     did not exist yet.
+//   - uses Spearman (rank) whenever an ordinal variable (mood) is involved and
+//     Pearson for metric×metric (habit vs habit).
+//   - reports a two-tailed p-value, a 95% confidence interval, a Benjamini–
+//     Hochberg FDR-adjusted q-value, and the sample size needed to reach 80%
+//     power — instead of hiding behind arbitrary |r| thresholds.
+// All functions are pure (input → output) for easy isolated testing.
 
 import type { CheckIn, Habit, CapacityRating, CorrelationResult } from './types';
-import { toDateKey } from './stats';
+import { pearsonTest, spearmanTest, benjaminiHochberg, requiredSampleSize } from './statistics';
 
-/** Mood value mapping for numerical correlation (higher = better) */
-const MOOD_VALUES: Record<string, number> = {
-  amazing: 5, great: 4, calm: 3, okay: 2, tired: 1, sick: 0, bad: -1, angry: -2,
+/** Distinct ordinal rank for each mood id (the raw number is irrelevant; Spearman
+ * uses relative order). angry and bad are both low; sick slightly above bad. */
+const MOOD_RANK: Record<string, number> = {
+  bad: 1, angry: 2, sick: 3, tired: 4, okay: 5, calm: 6, great: 7, amazing: 8,
 };
 
-/** Compute Pearson correlation coefficient between two arrays of equal length */
-export function pearsonR(xs: number[], ys: number[]): number {
-  const n = xs.length;
-  if (n < 3) return 0; // too few points
-  const sumX = xs.reduce((a, b) => a + b, 0);
-  const sumY = ys.reduce((a, b) => a + b, 0);
-  const sumXY = xs.reduce((a, x, i) => a + x * ys[i], 0);
-  const sumX2 = xs.reduce((a, x) => a + x * x, 0);
-  const sumY2 = ys.reduce((a, y) => a + y * y, 0);
-  const num = n * sumXY - sumX * sumY;
-  const den = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
-  if (den === 0) return 0;
-  return num / den;
+function moodRank(moodId: string): number {
+  return MOOD_RANK[moodId] ?? 5;
 }
 
-/** Build a daily time series for a habit's completion count */
-function habitTimeSeries(habitId: string, checkIns: CheckIn[], days: string[]): number[] {
-  const ciMap = new Map<string, number>();
+/** Enumerate every distinct date across all sources, oldest → newest. */
+function allDates(checkIns: CheckIn[], moods: Record<string, string>, ratings: CapacityRating[]): string[] {
+  const set = new Set<string>();
+  for (const c of checkIns) if (c.date) set.add(c.date);
+  for (const k of Object.keys(moods)) set.add(k);
+  for (const r of ratings) if (r.date) set.add(r.date);
+  return [...set].sort();
+}
+
+/**
+ * Daily state for a habit: number of completions on days it was done, 0 on
+ * days with an explicit miss, and absent on days with no check-in at all
+ * (ambiguous — excluded by pairwise deletion). This keeps a series from being
+ * constant "all done" just because missing days were never recorded.
+ */
+function habitSeriesByDate(habitId: string, checkIns: CheckIn[]): Map<string, number> {
+  const m = new Map<string, number>();
   for (const c of checkIns) {
-    if (c.habitId === habitId && c.completed) {
-      ciMap.set(c.date, (ciMap.get(c.date) ?? 0) + (c.count ?? 1));
+    if (c.habitId !== habitId) continue;
+    if (c.completed) {
+      m.set(c.date, (m.get(c.date) ?? 0) + (c.count ?? 1));
+    } else if (!m.has(c.date)) {
+      m.set(c.date, 0);
     }
   }
-  return days.map(d => ciMap.get(d) ?? 0);
+  return m;
 }
 
-/** Build a daily time series for mood */
-function moodTimeSeries(moods: Record<string, string>, days: string[]): number[] {
-  return days.map(d => {
-    const m = moods[d];
-    return m ? (MOOD_VALUES[m] ?? 0) : 0;
-  });
-}
-
-/** Build a daily time series for a capacity rating */
-function capacityTimeSeries(capacityId: string, ratings: CapacityRating[], days: string[]): number[] {
-  const rMap = new Map<string, number>();
-  for (const r of ratings) {
-    if (r.capacityId === capacityId && r.rating !== undefined) {
-      rMap.set(r.date, r.rating);
+/**
+ * Align two data sources on the days where BOTH have an entry, returning
+ * numeric x/y arrays with pairwise deletion (no 0-imputation).
+ */
+function align(
+  a: Map<string, number>,
+  b: Map<string, number>,
+): { xs: number[]; ys: number[] } {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const date of a.keys()) {
+    if (b.has(date)) {
+      xs.push(a.get(date)!);
+      ys.push(b.get(date)!);
     }
   }
-  return days.map(d => rMap.get(d) ?? 0);
+  return { xs, ys };
 }
 
-/** Get all dates with at least some data in a range */
-function getActiveDays(
-  startDate: string,
-  endDate: string,
-  checkIns: CheckIn[],
-  moods: Record<string, string>,
-): string[] {
-  const days: string[] = [];
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  const d = new Date(start);
-  while (d <= end) {
-    days.push(toDateKey(d));
-    d.setDate(d.getDate() + 1);
-  }
-  // Only keep days with at least 1 check-in or mood entry
-  const ciDates = new Set(checkIns.map(c => c.date));
-  const moodDates = new Set(Object.keys(moods));
-  return days.filter(day => ciDates.has(day) || moodDates.has(day));
-}
-
-/** Classify correlation strength */
+/** Classify effect-size strength by |coefficient|. */
 function classifyStrength(r: number): CorrelationResult['strength'] {
   const abs = Math.abs(r);
   if (abs >= 0.6) return 'strong';
@@ -85,7 +82,39 @@ function classifyStrength(r: number): CorrelationResult['strength'] {
   return 'none';
 }
 
-/** Compute correlations between all habits and mood */
+/** Build a CorrelationResult from a test outcome. */
+function build(
+  metricA: string,
+  metricB: string,
+  method: 'pearson' | 'spearman',
+  xs: number[],
+  ys: number[],
+): { item: Omit<CorrelationResult, 'qValue' | 'significant'>; p: number } | null {
+  const test = method === 'pearson' ? pearsonTest(xs, ys) : spearmanTest(xs, ys);
+  if (!test || test.p === 1) return null;
+  const coefficient = method === 'pearson' ? (test as { r: number }).r : (test as { rho: number }).rho;
+  return {
+    item: {
+      metricA,
+      metricB,
+      coefficient,
+      strength: classifyStrength(coefficient),
+      direction: coefficient >= 0 ? 'positive' : 'negative',
+      sampleSize: xs.length,
+      method,
+      pValue: test.p,
+      ciLow: test.ci[0],
+      ciHigh: test.ci[1],
+      requiredN: requiredSampleSize(coefficient, 0.05, 0.8),
+    },
+    p: test.p,
+  };
+}
+
+/**
+ * Compute correlations between habits, mood and capacities. Returns results
+ * sorted by absolute coefficient (strongest first) with FDR-adjusted q.
+ */
 export function computeCorrelations(
   habits: Habit[],
   checkIns: CheckIn[],
@@ -93,74 +122,100 @@ export function computeCorrelations(
   capacities: { id: string; name: string }[],
   ratings: CapacityRating[],
 ): CorrelationResult[] {
-  const results: CorrelationResult[] = [];
-  
-  // Determine date range: last 90 days or all data
-  const allDates = [
-    ...checkIns.map(c => c.date),
-    ...Object.keys(moods),
-    ...ratings.map(r => r.date),
-  ].sort();
-  if (allDates.length < 3) return results;
-  
-  const startDate = allDates[0];
-  const endDate = allDates[allDates.length - 1];
-  const days = getActiveDays(startDate, endDate, checkIns, moods);
-  if (days.length < 5) return results; // need minimum data
+  const dates = allDates(checkIns, moods, ratings);
+  if (dates.length < 5) return [];
 
-  // Habit vs Habit correlations
-  const activeHabits = habits.filter(h => !h.archived);
-  for (let i = 0; i < activeHabits.length; i++) {
-    for (let j = i + 1; j < activeHabits.length; j++) {
-      const xs = habitTimeSeries(activeHabits[i].id, checkIns, days);
-      const ys = habitTimeSeries(activeHabits[j].id, checkIns, days);
-      const r = pearsonR(xs, ys);
-      if (Math.abs(r) >= 0.15) {
-        results.push({
-          metricA: activeHabits[i].name,
-          metricB: activeHabits[j].name,
-          coefficient: Math.round(r * 100) / 100,
-          strength: classifyStrength(r),
-          direction: r >= 0 ? 'positive' : 'negative',
-          sampleSize: days.length,
-        });
+  // --- Build each series as a date→value map for clean pairwise alignment ---
+  const habitSeries = new Map<string, Map<string, number>>();
+  for (const h of habits) {
+    if (h.archived) continue;
+    const hd = habitSeriesByDate(h.id, checkIns);
+    if (hd.size >= 3) habitSeries.set(h.id, hd);
+  }
+  const activeHabits = habits.filter((h) => !h.archived);
+
+  // Mood series as rank values (only on days a mood exists).
+  const moodSeries = new Map<string, number>();
+  for (const [date, moodId] of Object.entries(moods)) {
+    moodSeries.set(date, moodRank(moodId));
+  }
+
+  // Capacity series as rated values.
+  const capSeries = new Map<string, Map<string, number>>();
+  for (const cap of capacities) {
+    const cm = new Map<string, number>();
+    for (const r of ratings) {
+      if (r.capacityId === cap.id && r.rating !== undefined) {
+        cm.set(r.date, r.rating);
+      }
+    }
+    if (cm.size >= 3) capSeries.set(cap.id, cm);
+  }
+
+  // --- compute raw results with p-values ---
+  interface Raw { item: Omit<CorrelationResult, 'qValue' | 'significant'>; p: number }
+  const raw: Raw[] = [];
+
+  // habit ↔ habit (Pearson: both are metric counts)
+  const habitArr = [...habitSeries.entries()];
+  for (let i = 0; i < habitArr.length; i++) {
+    for (let j = i + 1; j < habitArr.length; j++) {
+      const [idA, mapA] = habitArr[i];
+      const [idB, mapB] = habitArr[j];
+      const { xs, ys } = align(mapA, mapB);
+      if (xs.length >= 6) {
+        const r = build(nameOf(idA), nameOf(idB), 'pearson', xs, ys);
+        if (r) raw.push(r);
       }
     }
   }
 
-  // Habit vs Mood correlations
-  const moodSeries = moodTimeSeries(moods, days);
-  for (const habit of activeHabits) {
-    const xs = habitTimeSeries(habit.id, checkIns, days);
-    const r = pearsonR(xs, moodSeries);
-    if (Math.abs(r) >= 0.15) {
-      results.push({
-        metricA: habit.name,
-        metricB: 'Mood',
-        coefficient: Math.round(r * 100) / 100,
-        strength: classifyStrength(r),
-        direction: r >= 0 ? 'positive' : 'negative',
-        sampleSize: days.length,
-      });
+  // habit ↔ mood (Spearman, mood is ordinal)
+  for (const [id, map] of habitSeries) {
+    const { xs, ys } = align(map, moodSeries);
+    if (xs.length >= 6) {
+      const r = build(nameOf(id), 'Mood', 'spearman', xs, ys);
+      if (r) raw.push(r);
     }
   }
 
-  // Capacity vs Mood correlations
-  for (const cap of capacities) {
-    const xs = capacityTimeSeries(cap.id, ratings, days);
-    const r = pearsonR(xs, moodSeries);
-    if (Math.abs(r) >= 0.15) {
-      results.push({
-        metricA: cap.name,
-        metricB: 'Mood',
-        coefficient: Math.round(r * 100) / 100,
-        strength: classifyStrength(r),
-        direction: r >= 0 ? 'positive' : 'negative',
-        sampleSize: days.length,
-      });
+  // capacity ↔ mood (Spearman, mood is ordinal)
+  for (const [, cm] of capSeries) {
+    const { xs, ys } = align(cm, moodSeries);
+    if (xs.length >= 6) {
+      const r = build('Capacité', 'Mood', 'spearman', xs, ys);
+      if (r) raw.push(r);
     }
   }
 
-  // Sort by absolute correlation strength (strongest first)
-  return results.sort((a, b) => Math.abs(b.coefficient) - Math.abs(a.coefficient));
+  // habit ↔ capacity (Pearson, both metric) — rare but rigorous
+  for (const [capId, cm] of capSeries) {
+    for (const [habitId, hm] of habitSeries) {
+      const { xs, ys } = align(hm, cm);
+      if (xs.length >= 6) {
+        const r = build(nameOf(habitId), nameOf(capId), 'pearson', xs, ys);
+        if (r) raw.push(r);
+      }
+    }
+  }
+
+  if (raw.length === 0) return [];
+
+  // --- multiple-comparison correction (Benjamini–Hochberg) ---
+  const qValues = benjaminiHochberg(raw.map((r) => r.p));
+
+  return raw
+    .map((r, idx): CorrelationResult => ({
+      ...r.item,
+      qValue: qValues[idx],
+      significant: qValues[idx] < 0.05,
+    }))
+    .sort((a, b) => Math.abs(b.coefficient) - Math.abs(a.coefficient));
+
+  function nameOf(id: string): string {
+    const h = activeHabits.find((x) => x.id === id);
+    if (h) return h.name;
+    const cap = capacities.find((c) => c.id === id);
+    return cap ? cap.name : id;
+  }
 }

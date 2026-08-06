@@ -2463,9 +2463,22 @@ function InsightsView({
                   {c.direction === 'positive' ? '↑' : '↓'} {Math.abs(c.coefficient).toFixed(2)}
                 </span>
                 <span className="correlation-strength">{c.strength}</span>
+                <span className={`correlation-signif ${c.significant ? 'sig' : 'ns'}`}>
+                  {c.significant ? '✓' : 'n.s.'} {c.method}
+                </span>
+                {c.sampleSize < c.requiredN && (
+                  <span className="correlation-power" title="Données insuffisantes pour une conclusion fiable">
+                    ⚠ {c.sampleSize}/{c.requiredN} points
+                  </span>
+                )}
               </div>
             ))}
           </div>
+          <p className="correlations-note">
+            {correlations.filter((c) => c.significant).length > 0
+              ? '✓ = statistiquement significatif après correction FDR (p<0.05).'
+              : 'Aucune corrélation statistiquement fiable pour l’instant — il faut plus de données.'}
+          </p>
         </div>
       )}
 

@@ -919,6 +919,27 @@ body {
 
 .correlation-item.strong .correlation-strength { background: #10B98122; color: #10B981; }
 .correlation-item.moderate .correlation-strength { background: #F59E0B22; color: #F59E0B; }
+.correlations-note {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.correlation-signif {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.correlation-signif.sig { background: #10B98122; color: #10B981; }
+.correlation-signif.ns { background: var(--bg-alt); color: var(--text-muted); }
+.correlation-power {
+  font-size: 10px;
+  color: #F59E0B;
+  background: #F59E0B1a;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
 
 .goal-input {
   width: 46px;
