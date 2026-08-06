@@ -267,4 +267,16 @@ describe('suggestPersonas', () => {
   it('returns no suggestions without data', () => {
     expect(suggestPersonas([], [])).toEqual([]);
   });
+
+  it('suggests reflective personas from moods and urges context', () => {
+    const moods: Record<string, string> = { '2026-01-01': 'calm', '2026-01-02': 'calm' };
+    const urges = [
+      { id: 'u1', type: 'craving', intensity: 6, startTime: '2026-01-01T08:00:00Z', outcome: 'surfed' as const },
+      { id: 'u2', type: 'craving', intensity: 4, startTime: '2026-01-02T08:00:00Z', outcome: 'surfed' as const },
+    ];
+    const suggestions = suggestPersonas([], [], undefined, { moods, urges, levers: [{ id: 'l', content: 'M', createdAt: '2026-01-01' }] });
+    expect(suggestions.some((s) => s.name.includes('Observateur'))).toBe(true);
+    expect(suggestions.some((s) => s.name.includes('Surfeur'))).toBe(true);
+    expect(suggestions.some((s) => s.name.includes('Ingénieur'))).toBe(true);
+  });
 });

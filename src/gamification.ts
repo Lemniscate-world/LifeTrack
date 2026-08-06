@@ -554,14 +554,78 @@ const CATEGORY_META: Record<string, { label: string; emoji: string }> = {
   finance: { label: 'Finances', emoji: '💰' },
 };
 
+/** Extra signals `suggestPersonas` can draw on to detect more self-versions. */
+export interface PersonaSuggestionContext {
+  moods?: Record<string, string>;   // date -> mood id
+  urges?: UrgeEntry[];
+  levers?: Lever[];
+  noteCount?: number;               // achieved/standalone note count
+}
+
 /** Strong habits: ≥ 70% completion over the last 14 days, grouped by category. */
 export function suggestPersonas(
   habits: Habit[],
   checkIns: CheckIn[],
   now: Date = new Date(),
+  ctx: PersonaSuggestionContext = {},
 ): PersonaSuggestion[] {
   const active = habits.filter((h) => !h.archived);
-  if (active.length === 0) return [];
+  const suggestions: PersonaSuggestion[] = [];
+
+  // 3. Reflective / self-observation personas. These run even with no habits,
+  //    so users who only log moods/urges still get detected selves.
+  const moodEntries = Object.keys(ctx.moods ?? {}).length;
+  const surfed = (ctx.urges ?? []).filter((u) => u.outcome === 'surfed').length;
+  const urgesLogged = (ctx.urges ?? []).length;
+  const leverCount = (ctx.levers ?? []).length;
+  const noteCount = ctx.noteCount ?? 0;
+
+  if (moodEntries > 0) {
+    suggestions.push({
+      name: 'Observateur·rice de soi',
+      emoji: '🔍',
+      description: 'Vous écrivez ce que vous ressentez jour après jour.',
+      habitIds: [],
+      avgPct: Math.min(100, moodEntries),
+      reason: `${moodEntries} humeurs consignées.`,
+    });
+  }
+  if (urgesLogged > 0) {
+    const rate = urgesLogged > 0 ? Math.round((surfed / urgesLogged) * 100) : 0;
+    suggestions.push({
+      name: rate >= 50 ? 'Surfeur·euse d’urgences' : 'Curieux·se de vos pulsions',
+      emoji: '🌊',
+      description:
+        rate >= 50
+          ? 'Vous surfez plus de la moitié de vos envies au lieu d’y céder.'
+          : 'Vous observez vos envies avant qu’elles ne vous contrôlent.',
+      habitIds: [],
+      avgPct: Math.min(100, rate),
+      reason: `${surfed}/${urgesLogged} urges surfées.`,
+    });
+  }
+  if (leverCount > 0) {
+    suggestions.push({
+      name: 'Ingénieur·e du quotidien',
+      emoji: '⚙️',
+      description: `Vous savez ce qui agit sur vous (${leverCount} levier${leverCount > 1 ? 's' : ''}).`,
+      habitIds: [],
+      avgPct: Math.min(100, leverCount * 10),
+      reason: `${leverCount} leviers documentés.`,
+    });
+  }
+  if (noteCount > 0) {
+    suggestions.push({
+      name: 'Narrateur·rice de sa vie',
+      emoji: '📓',
+      description: 'Vous mettez votre progression en récit.',
+      habitIds: [],
+      avgPct: Math.min(100, noteCount),
+      reason: `${noteCount} notes/écrits notés.`,
+    });
+  }
+
+  if (active.length === 0) return suggestions.slice(0, 15);
 
   const windowDays = 14;
   const window = new Set<string>();
@@ -579,9 +643,6 @@ export function suggestPersonas(
     return { habit: h, days, pct: Math.round((days.size / windowDays) * 100) };
   });
 
-  const suggestions: PersonaSuggestion[] = [];
-
-  // 1. Emerging categories: ≥2 habits at ≥70% in the same category.
   const byCategory = new Map<string, { label: string; emoji: string; items: { habit: Habit; pct: number }[] }>();
   for (const ph of perHabit) {
     const h = ph.habit;
@@ -621,5 +682,5 @@ export function suggestPersonas(
     });
   }
 
-  return suggestions.slice(0, 4);
+  return suggestions.slice(0, 15);
 }

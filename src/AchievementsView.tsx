@@ -149,7 +149,12 @@ export default function AchievementsView() {
   // Auto-detected personas — suggestions the user can accept or dismiss.
   const [dismissedSuggestions, setDismissedSuggestions] = useState<string[]>([]);
   const personaSuggestions: PersonaSuggestion[] = useMemo(() => {
-    const fresh = suggestPersonas(data.habits, data.checkIns);
+    const fresh = suggestPersonas(data.habits, data.checkIns, undefined, {
+      moods: data.moods,
+      urges: data.urges,
+      levers: data.levers,
+      noteCount: data.notes.length,
+    });
     return fresh
       .filter((s) => !dismissedSuggestions.includes(s.name))
       .filter((s) => !personas.some((p) => p.name === s.name)); // don't suggest already-created personas
