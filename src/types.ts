@@ -252,6 +252,8 @@ export interface Persona {
   emoji: string;
   description?: string;   // the version of you this persona represents
   habitIds: string[];     // habits that build this persona
+  /** 'habit' = tied to habits (drop if they're deleted); 'reflective' = self-observation, survives with zero habits */
+  kind?: 'habit' | 'reflective';
   createdAt: string;
 }
 

@@ -312,7 +312,10 @@ function sanitizeData(raw: unknown): AppData {
   const validPersonas: Persona[] = [];
   for (const p of storedPersonas) {
     const habitIds = p.habitIds.filter((id) => validHabitIds.has(id));
-    if (habitIds.length === 0) continue; // persona without any real habit → drop
+    // Reflective personas (self-observation, e.g. accepted suggestions with no
+    // habits) survive with zero habits; habit-linked personas are dropped when
+    // all of their habits are deleted.
+    if (habitIds.length === 0 && p.kind !== 'reflective') continue;
     validPersonas.push({ ...p, habitIds });
   }
 
@@ -1855,12 +1858,14 @@ export function addPersona(
   emoji: string,
   habitIds: string[],
   description?: string,
+  kind?: 'habit' | 'reflective',
 ): Persona {
   const persona: Persona = {
     id: crypto.randomUUID(),
     name: name.trim(),
     emoji: emoji || '⭐',
     habitIds: [...new Set(habitIds.filter((id) => data.habits.some((h) => h.id === id)))],
+    ...(kind ? { kind } : {}),
     ...(description?.trim() ? { description: description.trim() } : {}),
     createdAt: new Date().toISOString(),
   };
@@ -2517,7 +2522,7 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
     const habitIds = rawP.habitIds
       .map((id) => idMap.get(id) ?? id)
       .filter((id) => data.habits.some((h) => h.id === id));
-    if (habitIds.length === 0) continue; // persona without any matching habit → drop
+    if (habitIds.length === 0 && rawP.kind !== 'reflective') continue; // persona without any matching habit → drop
     if (data.personas.some((p) => p.id === rawP.id)) continue;
     data.personas.push({
       id: rawP.id,
@@ -2525,6 +2530,7 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
       emoji: rawP.emoji,
       description: rawP.description,
       habitIds,
+      kind: rawP.kind,
       createdAt: rawP.createdAt,
     });
   }

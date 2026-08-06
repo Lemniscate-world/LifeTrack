@@ -172,7 +172,7 @@ export default function AchievementsView() {
   }, [data, dismissedSuggestions, personas]);
 
   const handleAcceptSuggestion = (s: PersonaSuggestion) => {
-    addPersona(s.name, s.emoji, s.habitIds, s.description);
+    addPersona(s.name, s.emoji, s.habitIds, s.description, s.kind);
     setDismissedSuggestions((prev) => [...prev, s.name]);
   };
 

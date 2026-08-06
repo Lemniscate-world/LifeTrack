@@ -91,6 +91,22 @@ describe('Personas CRUD', () => {
     expect(imported[0].name).toBe('Calm');
   });
 
+  it('persists an accepted reflective persona with zero habits (was dropped on reload)', () => {
+    addPersona('Observateur·rice de soi', '🔍', [], 'Vous écrivez ce que vous ressentez.', 'reflective');
+    expect(getPersonas()).toHaveLength(1);
+
+    // Simulate an app restart: purge localStorage, reset, then reload from disk.
+    const exported = exportAllData();
+    localStorage.clear();
+    resetStore();
+    flushSave();
+    const result = mergeImportedData(exported);
+    expect(result.habitsCreated).toBe(0);
+    const after = getPersonas();
+    expect(after).toHaveLength(1);
+    expect(after[0].kind).toBe('reflective');
+  });
+
   it('never loses existing data when importing legacy data without a personas field', () => {
     const h = addHabit('Sleep');
     const legacy = {

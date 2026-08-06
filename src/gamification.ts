@@ -544,6 +544,8 @@ export interface PersonaSuggestion {
   habitIds: string[];
   avgPct: number;   // average completion rate across the suggested habits (14d)
   reason: string;   // why the app thinks this is emerging
+  /** 'habit' personas need their habits; 'reflective' personas survive with zero habits. */
+  kind: 'habit' | 'reflective';
 }
 
 const CATEGORY_META: Record<string, { label: string; emoji: string }> = {
@@ -586,6 +588,7 @@ export function suggestPersonas(
       emoji: '🔍',
       description: 'Vous écrivez ce que vous ressentez jour après jour.',
       habitIds: [],
+      kind: 'reflective',
       avgPct: Math.min(100, moodEntries),
       reason: `${moodEntries} humeurs consignées.`,
     });
@@ -600,6 +603,7 @@ export function suggestPersonas(
           ? 'Vous surfez plus de la moitié de vos envies au lieu d’y céder.'
           : 'Vous observez vos envies avant qu’elles ne vous contrôlent.',
       habitIds: [],
+      kind: 'reflective',
       avgPct: Math.min(100, rate),
       reason: `${surfed}/${urgesLogged} urges surfées.`,
     });
@@ -610,6 +614,7 @@ export function suggestPersonas(
       emoji: '⚙️',
       description: `Vous savez ce qui agit sur vous (${leverCount} levier${leverCount > 1 ? 's' : ''}).`,
       habitIds: [],
+      kind: 'reflective',
       avgPct: Math.min(100, leverCount * 10),
       reason: `${leverCount} leviers documentés.`,
     });
@@ -620,6 +625,7 @@ export function suggestPersonas(
       emoji: '📓',
       description: 'Vous mettez votre progression en récit.',
       habitIds: [],
+      kind: 'reflective',
       avgPct: Math.min(100, noteCount),
       reason: `${noteCount} notes/écrits notés.`,
     });
@@ -660,6 +666,7 @@ export function suggestPersonas(
         emoji: group.emoji,
         description: `Une identité qui émerge : ${strong.map((x) => x.habit.name).join(', ')}.`,
         habitIds: strong.map((x) => x.habit.id),
+        kind: 'habit',
         avgPct: avg,
         reason: `${strong.length} habitudes ${group.label.toLowerCase()} à ≥70% sur 14 jours.`,
       });
@@ -677,6 +684,7 @@ export function suggestPersonas(
       emoji: '🔥',
       description: `Vous incarnez déjà ${best.habit.name} au quotidien.`,
       habitIds: [best.habit.id],
+      kind: 'habit',
       avgPct: best.pct,
       reason: `${best.habit.name} tenu à ${best.pct}% sur 14 jours.`,
     });
