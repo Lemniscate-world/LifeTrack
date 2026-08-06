@@ -180,6 +180,19 @@ describe('computeMedals', () => {
     expect(medals.find((m) => m.id === 'urge-10')?.earned).toBe(true);
     expect(medals.find((m) => m.id === 'lever-1')?.earned).toBe(true);
   });
+  it('awards the new deep-analysis medals', () => {
+    // 1 negative pattern detected in a note → detective medal.
+    const notes: Note[] = [{ id: 'n', habitId: '', content: 'Tout est foutu, je suis totalement ruine', createdAt: '2026-01-02T10:00:00Z' }];
+    const moods: Record<string, string> = { '2026-02-10': 'calm' };
+    const levers = [{ id: 'l', content: 'Marche', effect: '+ énergie', createdAt: '2026-01-01' }];
+    const medals = computeMedals([], [], notes, [], 0, 1, { moods, levers });
+    expect(medals.find((m) => m.id === 'pattern-1')?.earned).toBe(true);
+    expect(medals.find((m) => m.id === 'lever-effect')?.earned).toBe(true);
+    // Not earned yet: surf nowriteable needs 10 urges at ≥50%.
+    expect(medals.find((m) => m.id === 'surf-balance')?.earned).toBe(false);
+    // Emotions need 8+ mood days; one mood day cannot rise the trajectory.
+    expect(medals.find((m) => m.id === 'mood-rising')?.earned).toBe(false);
+  });
 });
 
 describe('week-over-week comparison', () => {

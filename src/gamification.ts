@@ -8,6 +8,8 @@
 // and no double-bookkeeping is possible.
 
 import type { Capacity, CapacityRating, Challenge, CheckIn, Habit, Lever, Note, Persona, Skill, UrgeEntry } from './types';
+import { moodRank } from './correlations';
+import { detectNegativePatterns } from './psychoanalysis';
 
 // --- XP rules ---
 export const XP_RULES = {
@@ -301,6 +303,23 @@ export function computeMedals(
   const personaCount = (ctx.personas ?? []).length;
   const journalCount = ctx.journalCount ?? 0;
 
+  // --- Deep metrics (v0.5.2): patterns, surf rate, mood trajectory, lever effect ---
+  const patternCount = detectNegativePatterns(checkIns, notes, ctx.urges ?? []).length;
+  const surfRate = urgesLogged > 0 ? surfed / urgesLogged : 0;
+  const leverWithEffect = (ctx.levers ?? []).some((l) => Boolean(l.effect));
+  // Mood trajectory: average mood rank of the most recent ≤14 logged days vs the
+  // ≤14 days before that window (both need ≥4 samples).
+  const moodDates = Object.keys(ctx.moods ?? {})
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .sort();
+  let moodRising = false;
+  if (moodDates.length >= 8) {
+    const recent = moodDates.slice(-14);
+    const earlier = moodDates.slice(-28, -14);
+    const avg = (arr: string[]) => arr.reduce((s, d) => s + moodRank((ctx.moods ?? {})[d]), 0) / arr.length;
+    if (recent.length >= 4 && earlier.length >= 4 && avg(recent) >= avg(earlier) + 0.5) moodRising = true;
+  }
+
   let earliestCheckIn: string | undefined;
   for (const ci of checkIns) {
     if (!ci.completed) continue;
@@ -395,6 +414,14 @@ export function computeMedals(
     { id: 'mood-90', name: '90 Mood Logs', emoji: '🔮', description: 'Record your mood on 90 days', tier: 2, earned: moodsLogged >= 90, progress: pct(moodsLogged, 90), category: 'Reflection' },
     { id: 'journal-10', name: 'Journaling Habit', emoji: '📓', description: 'Write 10 journal entries', tier: 0, earned: journalCount >= 10, progress: pct(journalCount, 10), category: 'Reflection' },
     { id: 'journal-50', name: 'Deep Journaler', emoji: '🖋️', description: 'Write 50 journal entries', tier: 1, earned: journalCount >= 50, progress: pct(journalCount, 50), category: 'Reflection' },
+
+    // ---- Deep analytics (v0.5.2): patterns, mood trajectory, surf balance ----
+    { id: 'pattern-1', name: 'Détective de soi', emoji: '🕵️', description: 'Repérer 1 schéma négatif dans ses écrits', tier: 0, earned: patternCount >= 1, progress: pct(patternCount, 1), category: 'Reflection' },
+    { id: 'pattern-3', name: 'Cartographe mental', emoji: '🗺️', description: 'Repérer 3 schémas négatifs distincts', tier: 1, earned: patternCount >= 3, progress: pct(patternCount, 3), category: 'Reflection' },
+    { id: 'pattern-6', name: 'Voyageur·se de l\'esprit', emoji: '🧭', description: 'Repérer 6 schémas négatifs distincts', tier: 2, earned: patternCount >= 6, progress: pct(patternCount, 6), category: 'Reflection' },
+    { id: 'surf-balance', name: 'Maître des vagues', emoji: '🏄', description: 'Surfer ≥50% des urges (10 ou plus)', tier: 0, earned: urgesLogged >= 10 && surfRate >= 0.5, progress: pct(surfRate, 0.5), category: 'Urge' },
+    { id: 'mood-rising', name: 'Humeur en hausse', emoji: '🌅', description: 'Humeur moyenne récente meilleure que la précédente', tier: 0, earned: moodRising, progress: moodRising ? 100 : 50, category: 'Reflection' },
+    { id: 'lever-effect', name: 'Scientifique personnel', emoji: '🔬', description: 'Documenter l\'effet d\'au moins un levier', tier: 0, earned: leverWithEffect, progress: leverWithEffect ? 100 : 50, category: 'Self' },
 
     // ---- Skills & Capacities ----
     { id: 'skill-1', name: 'Skill Builder', emoji: '🧩', description: 'Link a habit to a skill', tier: 0, earned: activeSkills >= 1, progress: pct(activeSkills, 1), category: 'Skills' },
