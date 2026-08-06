@@ -76,6 +76,7 @@ import { parseAiAnalysis, type AiAnalysis, type AiChatMessage } from './aiAnalys
 // (Mood view removed — emotional state is tracked via the 'emotional' chaos dimension.)
 import { generateInsights, type Recommendation, type RecKind } from './recommendations';
 import { computeCorrelations } from './correlations';
+import { computeHabitTrends, moodTrend, WEEKDAY_LABELS } from './timeseries';
 import { detectNegativePatterns, patternTrend, type PatternHit, type TrendPeriod } from './psychoanalysis';
 import { computeXp, levelForXp, rankForLevel } from './gamification';
 import Confetti from './Confetti';
@@ -1955,6 +1956,20 @@ function InsightsView({
     } catch { return []; }
   }, [habits, checkIns]);
 
+  // Time-series trends (Mann-Kendall + Theil-Sen + changepoints + seasonality)
+  const habitTrends = useMemo(() => {
+    try {
+      return computeHabitTrends(habits, checkIns);
+    } catch { return []; }
+  }, [habits, checkIns]);
+  const moodTrendResult = useMemo(() => {
+    try {
+      const allData = exportAllData();
+      return moodTrend(allData.moods ?? {});
+    } catch { return null; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [habits, checkIns]);
+
   const habitById = useMemo(() => {
     const m = new Map<string, Habit>();
     for (const h of habits) m.set(h.id, h);
@@ -2478,6 +2493,63 @@ function InsightsView({
             {correlations.filter((c) => c.significant).length > 0
               ? '✓ = statistiquement significatif après correction FDR (p<0.05).'
               : 'Aucune corrélation statistiquement fiable pour l’instant — il faut plus de données.'}
+          </p>
+        </div>
+      )}
+
+      {/* Trends — Mann–Kendall, Theil–Sen, changepoints and seasonality */}
+      {(habitTrends.some((t) => t.trend || t.weekday || t.changepoint) || moodTrendResult) && (
+        <div className="trends-section">
+          <h3>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}>
+              <polyline points="3 18 9 12 13 16 21 8"/><polyline points="15 8 21 8 21 14"/>
+            </svg>
+            Trends
+          </h3>
+          <div className="trends-list">
+            <div className="trends-row trend-mood">
+              <span className="trend-name">Humeur</span>
+              {moodTrendResult ? (
+                <>
+                  <span className={`trend-arrow ${moodTrendResult.direction}`}>
+                    {moodTrendResult.direction === 'up' ? '▲' : moodTrendResult.direction === 'down' ? '▼' : '→'}
+                  </span>
+                  <span className="trend-detail">τ={moodTrendResult.tau.toFixed(2)}<span className="trend-p">p={moodTrendResult.p.toFixed(3)}</span></span>
+                  {!moodTrendResult.significant && <span className="trend-ns">(n.s.)</span>}
+                </>
+              ) : (
+                <span className="trend-ns">moins de 10 jours</span>
+              )}
+            </div>
+            {habitTrends
+              .filter((t) => t.trend || t.weekday || t.changepoint)
+              .map((t) => (
+                <div key={t.habitId} className="trend-row">
+                  <span className="trend-name">{t.name}</span>
+                  {t.trend ? (
+                    <>
+                      <span className={`trend-arrow ${t.trend.direction}`}>
+                        {t.trend.direction === 'up' ? '▲' : t.trend.direction === 'down' ? '▼' : '→'}
+                      </span>
+                      <span className="trend-detail">τ={t.trend.tau.toFixed(2)}<span className="trend-p">p={t.trend.p.toFixed(3)}</span></span>
+                      {!t.trend.significant && <span className="trend-ns">(n.s.)</span>}
+                    </>
+                  ) : (
+                    <span className="trend-ns">—</span>
+                  )}
+                  {t.changepoint && t.changepoint.significant && (
+                    <span className="trend-cp" title={`Changement de régime ~${t.changepointAt}`}>
+                      ~{t.changepointAt ?? '?'} {t.changepoint.direction === 'up' ? '+' : ''}{Math.round(t.changepoint.delta * 100)}%
+                    </span>
+                  )}
+                  {t.weekday && t.weekday.significant && (
+                    <span className="trend-weekday">meilleur jour {WEEKDAY_LABELS[t.weekday.best]} {Math.round(t.weekday.rates[t.weekday.best])}%</span>
+                  )}
+                </div>
+              ))}
+          </div>
+          <p className="trends-note">
+            τ = Kendall tau, p du test de Mann-Kendall (n≥10 jours enregistrés requis).
           </p>
         </div>
       )}

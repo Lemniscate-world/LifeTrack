@@ -22,7 +22,7 @@ const MOOD_RANK: Record<string, number> = {
   bad: 1, angry: 2, sick: 3, tired: 4, okay: 5, calm: 6, great: 7, amazing: 8,
 };
 
-function moodRank(moodId: string): number {
+export function moodRank(moodId: string): number {
   return MOOD_RANK[moodId] ?? 5;
 }
 

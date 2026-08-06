@@ -15,6 +15,7 @@
 import type { AppData, Habit, CheckIn, CapacityRating, Experiment, UrgeEntry } from './types';
 import { computeChaosReport, getAchievementCategories, MOODS } from './store';
 import { computeCorrelations } from './correlations';
+import { computeHabitTrends, moodTrend, WEEKDAY_LABELS } from './timeseries';
 
 const MOOD_LABEL: Record<string, string> = Object.fromEntries(MOODS.map((m) => [m.id, m.label]));
 
@@ -201,6 +202,38 @@ function summarizeAchievements(data: AppData): string {
   return lines.join('\n');
 }
 
+function summarizeTrends(data: AppData): string {
+  const trends = computeHabitTrends(data.habits, data.checkIns);
+  const mood = moodTrend(data.moods ?? {});
+  const shown = trends.filter((t) => t.trend || t.weekday || t.changepoint);
+  if (shown.length === 0 && !mood) {
+    return '  (need ≥10 logged days per habit to estimate trends)';
+  }
+  const lines: string[] = [];
+  for (const t of shown) {
+    let line = `  ${t.name} (${t.days} days logged, ${t.from} → ${t.to})`;
+    if (t.trend) {
+      const arrow = t.trend.direction === 'up' ? '▲' : t.trend.direction === 'down' ? '▼' : '→';
+      line += `: ${arrow} ${t.trend.direction} (tau=${t.trend.tau.toFixed(2)}, slope=${(t.trend.slope >= 0 ? '+' : '') + t.trend.slope.toFixed(3)}/day, p=${t.trend.p.toFixed(3)}${t.trend.significant ? ' ✓ significant' : ' n.s.'})`;
+    } else {
+      line += ': no trend estimate yet';
+    }
+    if (t.changepoint && t.changepoint.significant) {
+      line += ` | changepoint ~${t.changepointAt ?? '?'} (${t.changepoint.direction === 'up' ? '+' : ''}${Math.round(t.changepoint.delta * 100)}% rate shift, p=${t.changepoint.p.toFixed(3)})`;
+    }
+    if (t.weekday && t.weekday.significant) {
+      line += ` | best day ${WEEKDAY_LABELS[t.weekday.best]} ${Math.round(t.weekday.rates[t.weekday.best])}% (chi2 p=${t.weekday.p.toFixed(3)})`;
+    }
+    if (t.volatility) line += ` | σ=${t.volatility.stdDev.toFixed(2)}`;
+    lines.push(line);
+  }
+  if (mood) {
+    const arrow = mood.direction === 'up' ? '▲' : mood.direction === 'down' ? '▼' : '→';
+    lines.push(`  MOOD: ${arrow} ${mood.direction} (tau=${mood.tau.toFixed(2)}, slope=${(mood.slope >= 0 ? '+' : '') + mood.slope.toFixed(3)}/day, p=${mood.p.toFixed(3)}${mood.significant ? ' ✓ significant' : ' n.s.'})`);
+  }
+  return lines.join('\n');
+}
+
 /**
  * Build the complete AI report from a snapshot of the entire app data.
  * Resilient to corrupt inputs: any malformed section falls back gracefully.
@@ -254,6 +287,7 @@ export function buildAiContext(data: AppData): string {
   }
 
   sections.push(`## SKILLS & CAPACITIES\n${summarizeSkills(data)}`);
+  sections.push(`## TRENDS (Mann-Kendall + Theil-Sen + changepoints; computed on-device)\n${summarizeTrends(data)}`);
   sections.push(`## CAPACITY TRENDS\n${summarizeCapacityTrends(data)}`);
   sections.push(`## EXPERIMENTS\n${summarizeExperiments(data)}`);
   sections.push(`## URGES (urge surfing)\n${summarizeUrges(data)}`);

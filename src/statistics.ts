@@ -12,7 +12,7 @@
 // --- Gamma / incomplete beta (used for the t-distribution CDF) ---
 
 // Lanczos approximation of ln(Gamma(x)), x > 0. Good to ~13 digits.
-function logGamma(x: number): number {
+export function logGamma(x: number): number {
   if (x < 0.5) {
     return Math.log(Math.PI) - Math.log(Math.sin(Math.PI * x)) - logGamma(1 - x);
   }
