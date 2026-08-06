@@ -15,6 +15,8 @@
  */
 
 import type { CheckIn, Note, UrgeEntry } from './types';
+import { moodRank } from './correlations';
+import { welchTwoSample } from './leverInsights';
 
 export interface NegativePattern {
   id: string;
@@ -354,4 +356,191 @@ export function patternTrend(checkIns: CheckIn[], notes: Note[], urges: UrgeEntr
     });
   }
   return trend;
+}
+
+// --- Deeper analysis: does a pattern co-occur with lower mood? ------------
+// Deterministic, local, grounded in the user's own writing + mood logs.
+// For every detected pattern we split the days where the user wrote something
+// into "days where this pattern appears" vs "days where it does not", then
+// Welch-test the mood rank of both groups. A significant NEGATIVE delta means
+// the pattern is associated with lower-than-usual mood.
+
+export interface PatternMoodImpact {
+  patternId: string;
+  name: string;
+  emoji: string;
+  hasDays: number;    // days with the pattern AND a mood logged
+  noDays: number;     // days with writing + mood but without this pattern
+  meanWith: number;   // mean mood rank on pattern days
+  meanWithout: number;// mean mood rank on non-pattern days
+  delta: number;      // meanWith − meanWithout (negative = lower mood)
+  p: number;
+  significant: boolean;
+}
+
+/** Date-keyed pattern hits (only dates that produced at least one match). */
+function patternDatesByPattern(
+  checkIns: CheckIn[],
+  notes: Note[],
+  urges: UrgeEntry[],
+): Map<string, Set<string>> {
+  const byPattern = new Map<string, Set<string>>();
+  const items = collectDatedTexts(checkIns, notes, urges);
+  for (const pattern of NEGATIVE_PATTERNS) {
+    const dates = new Set<string>();
+    for (const item of items) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(item.date)) continue;
+      const nt = normalize(item.text);
+      for (const kw of pattern.keywords) {
+        if (nt.includes(normalize(kw))) {
+          dates.add(item.date);
+          break;
+        }
+      }
+    }
+    if (dates.size > 0) byPattern.set(pattern.id, dates);
+  }
+  return byPattern;
+}
+
+/**
+ * For each detected pattern, compare the mood on days where the pattern appears
+ * against days where the user wrote but the pattern does not. Returns impacts
+ * sorted by most negative delta (pattern most associated with bad mood first).
+ * Empty mood data → [].
+ */
+export function patternMoodImpact(
+  checkIns: CheckIn[],
+  notes: Note[],
+  urges: UrgeEntry[],
+  moods: Record<string, string>,
+): PatternMoodImpact[] {
+  const byPattern = patternDatesByPattern(checkIns, notes, urges);
+  // Every date in the writing pool that also has a mood → comparison baseline.
+  const moodDays = new Set(Object.keys(moods).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)));
+  const impacts: PatternMoodImpact[] = [];
+
+  for (const pattern of NEGATIVE_PATTERNS) {
+    const dates = byPattern.get(pattern.id);
+    if (!dates) continue;
+    const withMood: number[] = [];
+    const withoutMood: number[] = [];
+    for (const date of moodDays) {
+      const r = moodRank(moods[date]);
+      if (dates.has(date)) withMood.push(r);
+      else withoutMood.push(r);
+    }
+    const w = welchTwoSample(withMood, withoutMood);
+    if (!w) continue;
+    impacts.push({
+      patternId: pattern.id,
+      name: pattern.name,
+      emoji: pattern.emoji,
+      hasDays: withMood.length,
+      noDays: withoutMood.length,
+      meanWith: w.meanA,
+      meanWithout: w.meanB,
+      delta: w.meanA - w.meanB, // negative → pattern days have lower mood
+      p: w.p,
+      significant: w.significant,
+    });
+  }
+
+  return impacts.sort((a, b) => a.delta - b.delta);
+}
+
+// --- Automatic questions --------------------------------------------------
+// A curated, deterministic question bank so the user never faces an empty chat:
+// the app proposes the most relevant questions for the patterns it detected.
+
+export interface SuggestedQuestion {
+  id: string;
+  patternId: string | null; // null → general opening question
+  question: string;
+}
+
+/** Per-pattern questions, in French, phrased to start a working dialogue. */
+const QUESTION_BANK: Record<string, string[]> = {
+  catastrophizing: [
+    'Ce week-end, j\'ai prédit le pire : qu\'est-ce qui est arrivé en vrai ?',
+    'Quelle preuve concrète contredit mon scénario catastrophe ?',
+    'Décris le pire cas réel, le meilleur cas, puis le plus probable.',
+  ],
+  all_or_nothing: [
+    'Où suis-je entre 0 et 100 % aujourd\'hui, plutôt que tout-ou-rien ?',
+    'Quel est le « 60 % » de cette journée que je traite comme un échec total ?',
+  ],
+  should_statements: [
+    'Quel « je devrais » me mets la pression en ce moment ?',
+    'Transforme ce « je devrais » en choix libre : « je choisis de… ».',
+  ],
+  overgeneralization: [
+    'Donne-moi un contre-exemple récent où ça a marché.',
+    'Sur quoi exactement je généralise à partir d\'un seul événement ?',
+  ],
+  personalization: [
+    'Est-ce vraiment sur moi, ou est-ce surtout la situation ?',
+    'Quels facteurs externes expliquent aussi ce qui s\'est passé ?',
+  ],
+  mental_filter: [
+    'Nomme 3 micro-victoires réelles d\'aujourd\'hui que j\'ai ignorées.',
+    'Qu\'est-ce qui a bien marché malgré ce que je retiens ?',
+  ],
+  procrastination_avoidance: [
+    'Quelle est la version « 2 minutes » de la tâche que j\'évite ?',
+    'De quoi ai-je peur derrière ce report ?',
+  ],
+  self_sabotage: [
+    'Que suis-je en train de faire qui freine mon succès imminent ?',
+    'Quel inconfort ma réussite m\'apporterait-elle ?',
+  ],
+  toxic_comparison: [
+    'À qui est-ce que je me compare, et sur quel critère où je perds toujours ?',
+    'Compare-moi à moi-même d\'il y a un an : qu\'est-ce qui a changé ?',
+  ],
+  excessive_guilt: [
+    'Qu\'est-ce que je fais différemment la prochaine fois, plutôt que de me punir ?',
+    'Quelle est la leçon récupérable derrière cette culpabilité ?',
+  ],
+  impostor_syndrome: [
+    'Quelles preuves objectives de ma compétence est-ce que j\'ignore ?',
+    'Et si mes résultats n\'étaient pas dus à la chance — à quoi ?',
+  ],
+  mind_reading: [
+    'Quelle preuve ai-je que les autres pensent ça de moi ?',
+    'Comment vérifier cette supposition sans supposer ?',
+  ],
+};
+
+const GENERAL_QUESTIONS: { id: string; question: string }[] = [
+  { id: 'general-1', question: 'Quel est le schéma récurrent qui me coûte le plus en ce moment ?' },
+  { id: 'general-2', question: 'Comment mes notes évoluent-elles : vais-je mieux ou moins bien ?' },
+  { id: 'general-3', question: 'Quel serait le premier petit changement que je peux faire cette semaine ?' },
+];
+
+/**
+ * Deterministic automatic questions. Always surfaces 2 questions for the top
+ * detected patterns (by count) and 1 general opener when the user has written
+ * at least one note, so the chat is never empty. No AI call needed.
+ */
+export function suggestedQuestions(
+  checkIns: CheckIn[],
+  notes: Note[],
+  urges: UrgeEntry[],
+): SuggestedQuestion[] {
+  const hits = detectNegativePatterns(checkIns, notes, urges).slice(0, 2);
+  const out: SuggestedQuestion[] = [];
+  for (const hit of hits) {
+    const bank = QUESTION_BANK[hit.pattern.id] ?? [];
+    if (bank.length === 0) continue;
+    out.push({ id: `${hit.pattern.id}-q1`, patternId: hit.pattern.id, question: bank[0] });
+    if (bank.length > 1) {
+      out.push({ id: `${hit.pattern.id}-q2`, patternId: hit.pattern.id, question: bank[1] });
+    }
+  }
+  if (collectUserTexts(checkIns, notes, urges).length > 0) {
+    const general = GENERAL_QUESTIONS[0];
+    out.push({ id: general.id, patternId: null, question: general.question });
+  }
+  return out.slice(0, 4);
 }

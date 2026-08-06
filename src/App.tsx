@@ -79,7 +79,7 @@ import { computeCorrelations } from './correlations';
 import { computeHabitTrends, moodTrend, WEEKDAY_LABELS } from './timeseries';
 import { computeUrgeInsights } from './urgeInsights';
 import { validateLevers, detectRelapses } from './leverInsights';
-import { detectNegativePatterns, patternTrend, type PatternHit, type TrendPeriod } from './psychoanalysis';
+import PsychoanalysisView from './PsychoanalysisView';
 import { computeXp, levelForXp, rankForLevel } from './gamification';
 import Confetti from './Confetti';
 import { getDailyEntryMantra, todayStr, shouldShowMantraNotification, markMantraNotificationShown, MANTRA_DOMAINS, sendSystemNotification } from './mantras';
@@ -2013,26 +2013,10 @@ function InsightsView({
   const aiRanRef = useRef(false);
   const aiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // --- Psychoanalysis (v0.5.0): local negative-pattern detection + AI Q&A ---
-  // Detected patterns are computed locally from the user's own writing; the
-  // AI Q&A then helps dismantle the active ones.
-  const patternHits = useMemo<PatternHit[]>(() => {
-    try {
-      const allData = exportAllData();
-      return detectNegativePatterns(checkIns, allData.notes ?? [], allData.urges ?? []);
-    } catch { return []; }
-  }, [checkIns]);
-
   // --- Levers (v0.5.0): "what works for me" + psychological evolution trend ---
   const levers: Lever[] = useMemo(() => {
     try { return getLevers(); } catch { return []; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checkIns]);
-  const trend: TrendPeriod[] = useMemo(() => {
-    try {
-      const allData = exportAllData();
-      return patternTrend(checkIns, allData.notes ?? [], allData.urges ?? []);
-    } catch { return []; }
   }, [checkIns]);
   const [leverContent, setLeverContent] = useState('');
   const [leverEffect, setLeverEffect] = useState('');
@@ -2067,42 +2051,6 @@ function InsightsView({
       deleteLever(lever.id);
     } catch { /* ignore */ }
   };
-  const [psychoHistory, setPsychoHistory] = useState<AiChatMessage[]>([]);
-  const [psychoInput, setPsychoInput] = useState('');
-  const [psychoLoading, setPsychoLoading] = useState(false);
-
-  const askPsychoanalysis = useCallback(async (rawQuestion: string) => {
-    const question = rawQuestion.trim();
-    if (!question || psychoLoading) return;
-    setPsychoHistory((h) => [...h, { role: 'user', content: question }]);
-    setPsychoInput('');
-    setPsychoLoading(true);
-    try {
-      const summary = buildAiContext(exportAllData());
-      const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-      if (!isTauriEnv) {
-        setPsychoHistory((h) => [...h, { role: 'coach', content: 'Psychoanalysis Q&A requires the desktop app (AI provider).' }]);
-        return;
-      }
-      const { invoke } = await import('@tauri-apps/api/core');
-      const prefs = getPreferences();
-      const answer = await invoke<string>('psychoanalysis_ask', {
-        question,
-        summaryJson: summary,
-        model: prefs.aiModel || null,
-        provider: prefs.aiProvider || 'auto',
-        apiKey: prefs.aiApiKey || '',
-      });
-      setPsychoHistory((h) => [...h, { role: 'coach', content: answer }]);
-    } catch (e) {
-      setPsychoHistory((h) => [...h, {
-        role: 'coach',
-        content: e instanceof Error ? `⚠️ ${e.message}` : '⚠️ Something went wrong while asking.',
-      }]);
-    } finally {
-      setPsychoLoading(false);
-    }
-  }, [psychoLoading]);
 
   const runDeepAnalysis = useCallback(async (force = false) => {
     // Debounce: don't re-run within 5 minutes unless forced
@@ -2659,85 +2607,7 @@ function InsightsView({
         </div>
       )}
 
-      {/* --- Psychoanalysis (v0.5.0): local negative-pattern detection + AI Q&A --- */}
-      <div className="psycho-section">
-        <div className="psycho-header">
-          <h3>🧠 Psychoanalysis</h3>
-          <span className="psycho-subtitle">
-            Negative patterns detected in your own notes — and an AI to help you dissolve them.
-          </span>
-        </div>
-
-        {patternHits.length > 0 ? (
-          <div className="psycho-patterns">
-            {patternHits.slice(0, 4).map((hit) => (
-              <div key={hit.pattern.id} className={`psycho-card psycho-${hit.pattern.id}`}>
-                <div className="psycho-card-head">
-                  <span className="psycho-card-icon">{hit.pattern.emoji}</span>
-                  <div className="psycho-card-title">
-                    {hit.pattern.name}
-                    <span className="psycho-card-count">×{hit.count}</span>
-                  </div>
-                </div>
-                <p className="psycho-card-desc">{hit.pattern.description}</p>
-                {hit.sample && (
-                  <p className="psycho-card-sample">“{hit.sample.slice(0, 120)}{hit.sample.length > 120 ? '…' : ''}”</p>
-                )}
-                <p className="psycho-card-counter">💥 {hit.pattern.counter}</p>
-                <span className="psycho-card-source">{hit.pattern.source}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="psycho-none">
-            No negative patterns detected yet in your notes. As you write, LifeTrack looks for
-            cognitive distortions and self-sabotage signals — completely on-device.
-          </p>
-        )}
-
-        <div className="psycho-chat">
-          <div className="psycho-chat-history">
-            {psychoHistory.length === 0 && (
-              <div className="psycho-chat-empty">
-                💬 Ask the psychoanalysis assistant about a recurring thought or situation — e.g.
-                "Pourquoi je sabote toujours mes projets quand ils marchent ?" It will name the
-                pattern and give you one technique to destroy it.
-              </div>
-            )}
-            {psychoHistory.map((m, i) => (
-              <div key={i} className={`ai-chat-msg ai-chat-${m.role}`}>
-                <span className="ai-chat-who">{m.role === 'user' ? 'You' : 'Psycho'}</span>
-                <span className="ai-chat-content">{m.content}</span>
-              </div>
-            ))}
-            {psychoLoading && (
-              <div className="ai-chat-msg ai-chat-coach">
-                <span className="ai-chat-who">Psycho</span>
-                <span className="ai-chat-content ai-chat-thinking">thinking…</span>
-              </div>
-            )}
-          </div>
-          <form
-            className="ai-chat-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (psychoInput.trim()) askPsychoanalysis(psychoInput);
-            }}
-          >
-            <input
-              className="ai-chat-input"
-              value={psychoInput}
-              onChange={(e) => setPsychoInput(e.target.value)}
-              placeholder="Posez une question sur un schéma négatif…"
-              disabled={psychoLoading}
-            />
-            <button className="btn btn-sm btn-primary" type="submit" disabled={psychoLoading || !psychoInput.trim()}>
-              {psychoLoading ? '…' : 'Send'}
-            </button>
-          </form>
-        </div>
-      </div>
-
+      <PsychoanalysisView />
       {/* --- Levers (v0.5.0): "what works for me" --- */}
       <div className="lever-section">
         <div className="lever-header">
@@ -2808,46 +2678,6 @@ function InsightsView({
         )}
       </div>
 
-      {/* --- Psychological evolution (v0.5.0): trend of negative patterns over weeks --- */}
-      {trend.length >= 2 && (
-        <div className="evo-section">
-          <div className="evo-header">
-            <h3>📉 Psychological evolution</h3>
-            <span className="evo-subtitle">
-              Weekly count of negative patterns in your writing — are they declining?
-            </span>
-          </div>
-          <div className="evo-bars">
-            {trend.map((period, i) => {
-              const maxTotal = Math.max(...trend.map((t) => t.total), 1);
-              const hot = period.total > 0;
-              const declining = i > 0 && period.total < trend[i - 1].total;
-              return (
-                <div className="evo-col" key={period.weekStart}>
-                  <div className="evo-label">{period.label}</div>
-                  <div className="evo-track">
-                    <div
-                      className={`evo-bar ${hot ? 'evo-bar-hot' : 'evo-bar-clear'} ${declining ? 'evo-bar-down' : ''}`}
-                      style={{ height: `${Math.max(period.total === 0 ? 3 : 12, (period.total / maxTotal) * 100)}%` }}
-                      title={`${period.total} negative pattern${period.total > 1 ? 's' : ''} this week`}
-                    />
-                  </div>
-                  <div className="evo-count">{period.total}</div>
-                </div>
-              );
-            })}
-          </div>
-          <div className="evo-insight">
-            {(() => {
-              const first = trend[0].total;
-              const last = trend[trend.length - 1].total;
-              if (last < first) return '🎉 Your negative patterns are trending down — the counter-techniques are working.';
-              if (last > first) return '⚠️ Negative patterns are trending up recently. Consider asking the psychoanalysis assistant.';
-              return '↔️ Negative patterns are holding steady. Small consistent counter-steps can push them down.';
-            })()}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -7865,6 +7865,54 @@ body {
   padding: 8px;
 }
 
+.trends-sub {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 2px 0 10px;
+}
+
+.psycho-questions {
+  margin: 16px 0 4px;
+}
+
+.psycho-questions h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.psycho-question-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.psycho-question-chip {
+  border: 1px solid var(--border);
+  background: var(--card-bg, var(--bg));
+  color: var(--text);
+  border-radius: 14px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, transform 0.05s ease;
+}
+
+.psycho-question-chip:hover:not(:disabled) {
+  background: var(--accent-soft, rgba(139, 92, 246, 0.12));
+}
+
+.psycho-question-chip:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.psycho-question-chip:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* ============ v0.5.0 - ACHIEVEMENTS AI SUMMARY ============ */
 
 .achievements-ai {
