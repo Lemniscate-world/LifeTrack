@@ -244,6 +244,10 @@ export default function AchievementsView() {
             ? 'No achievements yet — tag a note as an achievement when you write it'
             : `${totalCount} achievement${totalCount > 1 ? 's' : ''} across ${byCategory.size} categor${byCategory.size > 1 ? 'ies' : 'y'}`}
         </p>
+        <p className="achievements-subtitle-meta">
+          <em>Wins</em> · your specific events & milestones, tagged on notes. Your enduring
+          abilities (skills & capacities levelled through habits) live in the <strong>Skills</strong> tab.
+        </p>
       </div>
 
       {/* ============ Gamification panel ============ */}
@@ -725,7 +729,8 @@ export default function AchievementsView() {
 
       {totalCount > 0 && (
         <p className="achievements-footer">
-          Achievements are notes you tagged with a category. Remove a tag with the ✕ button to unmark it.
+          Achievements are <strong>wins</strong> — notes you tagged with a category. Remove a tag with the ✕ button to
+          unmark it. Skills & capacities (your enduring abilities) are tracked separately in the Skills tab.
         </p>
       )}
     </div>

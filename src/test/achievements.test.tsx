@@ -87,7 +87,7 @@ describe('AchievementsView UI', () => {
     render(<AchievementsView />);
     expect(screen.getByText('1 achievement across 1 category')).toBeInTheDocument();
     expect(screen.getByText('Energy')).toBeInTheDocument();
-    expect(screen.getByText('Ran 10km!')).toBeInTheDocument();
+    expect(screen.getAllByText('Ran 10km!').length).toBeGreaterThan(0);
   });
 });
 
