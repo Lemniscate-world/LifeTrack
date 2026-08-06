@@ -16,6 +16,7 @@ import type { AppData, Habit, CheckIn, CapacityRating, Experiment, UrgeEntry } f
 import { computeChaosReport, getAchievementCategories, MOODS } from './store';
 import { computeCorrelations } from './correlations';
 import { computeHabitTrends, moodTrend, WEEKDAY_LABELS } from './timeseries';
+import { computeUrgeInsights } from './urgeInsights';
 
 const MOOD_LABEL: Record<string, string> = Object.fromEntries(MOODS.map((m) => [m.id, m.label]));
 
@@ -234,6 +235,44 @@ function summarizeTrends(data: AppData): string {
   return lines.join('\n');
 }
 
+function summarizeUrgeInsights(data: AppData): string {
+  try {
+    const s = computeUrgeInsights(data.urges ?? [], data.moods ?? {}, data.habits, data.checkIns);
+    const lines: string[] = [];
+    if (s.survival && s.survival.n > 0) {
+      lines.push(`  overall surf rate: ${s.survival.rate.toFixed(0)}% (${s.survival.k}/${s.survival.n}, Wilson 95% CI ${s.survival.low.toFixed(0)}-${s.survival.high.toFixed(0)}%)`);
+    }
+    if (s.perType.length > 0) {
+      lines.push(`  per type: ${s.perType.map((t) => `${t.typeId}: ${t.survival.rate.toFixed(0)}% (${t.survival.k}/${t.survival.n})`).join(', ')}`);
+    }
+    if (s.nextDayMood) {
+      const m = s.nextDayMood;
+      lines.push(`  urge intensity → NEXT-DAY mood: rho=${m.rho.toFixed(2)}, n=${m.n}, p=${m.p.toFixed(3)}${m.significant ? ' ✓ significant' : ' n.s.'}`);
+    }
+    if (s.nextDayCompletion) {
+      const m = s.nextDayCompletion;
+      lines.push(`  urge intensity → NEXT-DAY completion: rho=${m.rho.toFixed(2)}, n=${m.n}, p=${m.p.toFixed(3)}${m.significant ? ' ✓ significant' : ' n.s.'}`);
+    }
+    if (s.surfVsGiveIn) {
+      const g = s.surfVsGiveIn;
+      lines.push(`  next-day mood after surf vs give-in: surfed ${g.surfedNextMood.toFixed(1)} (n=${g.nSurfed}) vs gave-in ${g.gaveInNextMood.toFixed(1)} (n=${g.nGaveIn})`);
+    }
+    if (s.successTrend) {
+      const t = s.successTrend;
+      const arrow = t.direction === 'up' ? '▲' : t.direction === 'down' ? '▼' : '→';
+      lines.push(`  surf-rate trend: ${arrow} ${t.direction} (tau=${t.tau.toFixed(2)}, p=${t.p.toFixed(3)}${t.significant ? ' ✓ significant' : ' n.s.'})`);
+    }
+    if (s.emotionalVolatility) {
+      const v = s.emotionalVolatility;
+      lines.push(`  emotional volatility: σ=${v.stdDev.toFixed(2)} (${v.meanAbsChange.toFixed(2)} mood-rank steps/day), ${v.n} days`);
+    }
+    if (lines.length === 0) return '  (not enough urge/mood data yet)';
+    return lines.join('\n');
+  } catch {
+    return '  (unavailable)';
+  }
+}
+
 /**
  * Build the complete AI report from a snapshot of the entire app data.
  * Resilient to corrupt inputs: any malformed section falls back gracefully.
@@ -291,6 +330,7 @@ export function buildAiContext(data: AppData): string {
   sections.push(`## CAPACITY TRENDS\n${summarizeCapacityTrends(data)}`);
   sections.push(`## EXPERIMENTS\n${summarizeExperiments(data)}`);
   sections.push(`## URGES (urge surfing)\n${summarizeUrges(data)}`);
+  sections.push(`## URGES & MOOD ANALYSIS (computed on-device)\n${summarizeUrgeInsights(data)}`);
   sections.push(`## CHAOS PRESSURE\n${summarizeChaos()}`);
   sections.push(`## CUSTOM MANTRAS (user values)\n${summarizeMantras(data)}`);
   sections.push(`## ACHIEVEMENTS (tagged notes by category)\n${summarizeAchievements(data)}`);

@@ -407,7 +407,7 @@ function habitBinarySeries(habitId: string, checkIns: CheckIn[]): { date: string
 }
 
 /** Calendar-day offsets (days since the first date), ascending. */
-function dayOffsets(dates: string[]): number[] {
+export function dayOffsets(dates: string[]): number[] {
   const [y0, m0, d0] = dates[0].split('-').map(Number);
   const t0 = new Date(y0, m0 - 1, d0).getTime();
   return dates.map((date) => {

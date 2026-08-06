@@ -77,6 +77,7 @@ import { parseAiAnalysis, type AiAnalysis, type AiChatMessage } from './aiAnalys
 import { generateInsights, type Recommendation, type RecKind } from './recommendations';
 import { computeCorrelations } from './correlations';
 import { computeHabitTrends, moodTrend, WEEKDAY_LABELS } from './timeseries';
+import { computeUrgeInsights } from './urgeInsights';
 import { detectNegativePatterns, patternTrend, type PatternHit, type TrendPeriod } from './psychoanalysis';
 import { computeXp, levelForXp, rankForLevel } from './gamification';
 import Confetti from './Confetti';
@@ -1970,6 +1971,14 @@ function InsightsView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [habits, checkIns]);
 
+  // Urge & mood analysis (Wilson CI, lag correlations, emotional volatility)
+  const urgeInsights = useMemo(() => {
+    try {
+      const allData = exportAllData();
+      return computeUrgeInsights(allData.urges ?? [], allData.moods ?? {}, habits, checkIns);
+    } catch { return null; }
+  }, [habits, checkIns]);
+
   const habitById = useMemo(() => {
     const m = new Map<string, Habit>();
     for (const h of habits) m.set(h.id, h);
@@ -2551,6 +2560,62 @@ function InsightsView({
           <p className="trends-note">
             τ = Kendall tau, p du test de Mann-Kendall (n≥10 jours enregistrés requis).
           </p>
+        </div>
+      )}
+
+      {/* Urge & mood analysis — Wilson CI, lag correlations, volatility */}
+      {urgeInsights && (urgeInsights.survival?.n || urgeInsights.nextDayMood || urgeInsights.nextDayCompletion || urgeInsights.surfVsGiveIn || urgeInsights.successTrend || urgeInsights.emotionalVolatility) && (
+        <div className="trends-section">
+          <h3>⚡ Urge &amp; Mood</h3>
+          <div className="trends-list">
+            {urgeInsights.survival && urgeInsights.survival.n > 0 && (
+              <div className="trend-row">
+                <span className="trend-name">Taux de surf</span>
+                <span className="trend-detail">
+                  {urgeInsights.survival.rate.toFixed(0)}%
+                  <span className="trend-p">CI 95% {urgeInsights.survival.low.toFixed(0)}-{urgeInsights.survival.high.toFixed(0)}% · {urgeInsights.survival.k}/{urgeInsights.survival.n}</span>
+                </span>
+              </div>
+            )}
+            {urgeInsights.nextDayMood && (
+              <div className="trend-row">
+                <span className="trend-name">Urge → humeur lendemain</span>
+                <span className={`trend-arrow ${urgeInsights.nextDayMood.direction}`}>{urgeInsights.nextDayMood.direction === 'positive' ? '↑' : '↓'}</span>
+                <span className="trend-detail">ρ={urgeInsights.nextDayMood.rho.toFixed(2)}<span className="trend-p">p={urgeInsights.nextDayMood.p.toFixed(3)}</span></span>
+                {!urgeInsights.nextDayMood.significant && <span className="trend-ns">(n.s.)</span>}
+              </div>
+            )}
+            {urgeInsights.nextDayCompletion && (
+              <div className="trend-row">
+                <span className="trend-name">Urge → complétion lendemain</span>
+                <span className={`trend-arrow ${urgeInsights.nextDayCompletion.direction}`}>{urgeInsights.nextDayCompletion.direction === 'positive' ? '↑' : '↓'}</span>
+                <span className="trend-detail">ρ={urgeInsights.nextDayCompletion.rho.toFixed(2)}<span className="trend-p">p={urgeInsights.nextDayCompletion.p.toFixed(3)}</span></span>
+                {!urgeInsights.nextDayCompletion.significant && <span className="trend-ns">(n.s.)</span>}
+              </div>
+            )}
+            {urgeInsights.surfVsGiveIn && (
+              <div className="trend-row">
+                <span className="trend-name">Humeur lendemain</span>
+                <span className="trend-detail">surf {urgeInsights.surfVsGiveIn.surfedNextMood.toFixed(1)} <span className="trend-p">vs</span> céder {urgeInsights.surfVsGiveIn.gaveInNextMood.toFixed(1)}</span>
+              </div>
+            )}
+            {urgeInsights.successTrend && (
+              <div className="trend-row">
+                <span className="trend-name">Progression du surf</span>
+                <span className={`trend-arrow ${urgeInsights.successTrend.direction}`}>
+                  {urgeInsights.successTrend.direction === 'up' ? '▲' : urgeInsights.successTrend.direction === 'down' ? '▼' : '→'}
+                </span>
+                <span className="trend-detail">τ={urgeInsights.successTrend.tau.toFixed(2)}<span className="trend-p">p={urgeInsights.successTrend.p.toFixed(3)}</span></span>
+                {!urgeInsights.successTrend.significant && <span className="trend-ns">(n.s.)</span>}
+              </div>
+            )}
+            {urgeInsights.emotionalVolatility && (
+              <div className="trend-row">
+                <span className="trend-name">Volatilité émotionnelle</span>
+                <span className="trend-detail">σ={urgeInsights.emotionalVolatility.stdDev.toFixed(2)}<span className="trend-p">{urgeInsights.emotionalVolatility.n} j.</span></span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
