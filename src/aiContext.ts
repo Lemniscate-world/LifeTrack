@@ -17,6 +17,7 @@ import { computeChaosReport, getAchievementCategories, MOODS } from './store';
 import { computeCorrelations } from './correlations';
 import { computeHabitTrends, moodTrend, WEEKDAY_LABELS } from './timeseries';
 import { computeUrgeInsights } from './urgeInsights';
+import { validateLevers, detectRelapses } from './leverInsights';
 
 const MOOD_LABEL: Record<string, string> = Object.fromEntries(MOODS.map((m) => [m.id, m.label]));
 
@@ -273,6 +274,38 @@ function summarizeUrgeInsights(data: AppData): string {
   }
 }
 
+function summarizeLeverInsights(data: AppData): string {
+  try {
+    const validations = validateLevers(data.levers ?? [], data.habits, data.checkIns, data.moods ?? {});
+    const relapses = detectRelapses(data.habits, data.checkIns);
+    const lines: string[] = [];
+    const tested = validations.filter((v) => !v.needMoreData);
+    if (validations.length > 0) {
+      lines.push(`  ${tested.length}/${validations.length} levers testable (14-day before/after windows)`);
+      for (const v of tested) {
+        lines.push(`  ${v.content}: ${v.beforeRate.toFixed(0)}% -> ${v.afterRate.toFixed(0)}% (delta ${v.delta >= 0 ? '+' : ''}${v.delta.toFixed(0)}pt, p=${v.p.toFixed(3)}${v.significant ? ' ✓ significant' : ' n.s.'}, d=${v.d ? v.d.toFixed(2) : '—'})${v.moodN >= 5 ? `; mood ${v.beforeMood.toFixed(1)} -> ${v.afterMood.toFixed(1)} (p=${v.moodP.toFixed(3)}${v.moodSignificant ? ' ✓' : ''})` : ''}`);
+      }
+      const untested = validations.filter((v) => v.needMoreData);
+      if (untested.length > 0) lines.push(`  ${untested.length} lever(s) have <5 days logged on one side — wait before judging`);
+    } else {
+      lines.push('  (no levers recorded yet)');
+    }
+    if (relapses.length === 0) {
+      lines.push('  (habits need ≥3 weeks of history to check relapse)');
+    } else {
+      const flagged = relapses.filter((r) => r.relapse);
+      if (flagged.length > 0) {
+        lines.push(`  RELAPSE: ${flagged.map((r) => `${r.name} (last 7d ${r.recentMean.toFixed(0)}% vs ~4wk ${r.baselineMean.toFixed(0)}%, p=${r.p.toFixed(3)})`).join('; ')}`);
+      } else {
+        lines.push('  no statistical relapse detected (last 7 days vs previous ~4 weeks)');
+      }
+    }
+    return lines.join('\n');
+  } catch {
+    return '  (unavailable)';
+  }
+}
+
 /**
  * Build the complete AI report from a snapshot of the entire app data.
  * Resilient to corrupt inputs: any malformed section falls back gracefully.
@@ -331,6 +364,7 @@ export function buildAiContext(data: AppData): string {
   sections.push(`## EXPERIMENTS\n${summarizeExperiments(data)}`);
   sections.push(`## URGES (urge surfing)\n${summarizeUrges(data)}`);
   sections.push(`## URGES & MOOD ANALYSIS (computed on-device)\n${summarizeUrgeInsights(data)}`);
+  sections.push(`## LEVER VALIDATION & RELAPSE\n${summarizeLeverInsights(data)}`);
   sections.push(`## CHAOS PRESSURE\n${summarizeChaos()}`);
   sections.push(`## CUSTOM MANTRAS (user values)\n${summarizeMantras(data)}`);
   sections.push(`## ACHIEVEMENTS (tagged notes by category)\n${summarizeAchievements(data)}`);

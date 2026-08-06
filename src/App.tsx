@@ -78,6 +78,7 @@ import { generateInsights, type Recommendation, type RecKind } from './recommend
 import { computeCorrelations } from './correlations';
 import { computeHabitTrends, moodTrend, WEEKDAY_LABELS } from './timeseries';
 import { computeUrgeInsights } from './urgeInsights';
+import { validateLevers, detectRelapses } from './leverInsights';
 import { detectNegativePatterns, patternTrend, type PatternHit, type TrendPeriod } from './psychoanalysis';
 import { computeXp, levelForXp, rankForLevel } from './gamification';
 import Confetti from './Confetti';
@@ -1979,6 +1980,19 @@ function InsightsView({
     } catch { return null; }
   }, [habits, checkIns]);
 
+  // Lever before/after validation + statistical relapse detection
+  const leverValidations = useMemo(() => {
+    try {
+      const allData = exportAllData();
+      return validateLevers(allData.levers ?? [], habits, checkIns, allData.moods ?? {});
+    } catch { return []; }
+  }, [habits, checkIns]);
+  const relapses = useMemo(() => {
+    try {
+      return detectRelapses(habits, checkIns);
+    } catch { return []; }
+  }, [habits, checkIns]);
+
   const habitById = useMemo(() => {
     const m = new Map<string, Habit>();
     for (const h of habits) m.set(h.id, h);
@@ -2615,6 +2629,32 @@ function InsightsView({
                 <span className="trend-detail">σ={urgeInsights.emotionalVolatility.stdDev.toFixed(2)}<span className="trend-p">{urgeInsights.emotionalVolatility.n} j.</span></span>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Lever before/after validation + relapse detection */}
+      {(leverValidations.length > 0 || relapses.length > 0) && (
+        <div className="trends-section">
+          <h3>🔬 Leviers &amp; Rechute</h3>
+          <div className="trends-list">
+            {leverValidations.filter((v) => !v.needMoreData).map((v) => (
+              <div key={v.leverId} className="trend-row">
+                <span className="trend-name" title={v.content}>
+                  {v.content.length > 26 ? `${v.content.slice(0, 26)}…` : v.content}
+                </span>
+                <span className="trend-detail">{v.beforeRate.toFixed(0)}% → {v.afterRate.toFixed(0)}%<span className="trend-p">p={v.p.toFixed(3)}</span></span>
+                {v.significant
+                  ? <span className="trend-weekday">✓ efficace</span>
+                  : <span className="trend-ns">(n.s.)</span>}
+              </div>
+            ))}
+            {relapses.filter((r) => r.relapse).map((r) => (
+              <div key={r.habitId} className="trend-row">
+                <span className="trend-name">⚠ Rechute : {r.name}</span>
+                <span className="trend-detail">{r.recentMean.toFixed(0)}%<span className="trend-p">vs {r.baselineMean.toFixed(0)}% · p={r.p.toFixed(3)}</span></span>
+              </div>
+            ))}
           </div>
         </div>
       )}
