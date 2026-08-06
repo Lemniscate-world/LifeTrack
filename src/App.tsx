@@ -78,7 +78,7 @@ import { generateInsights, type Recommendation, type RecKind } from './recommend
 import { computeCorrelations } from './correlations';
 import { computeHabitTrends, moodTrend, WEEKDAY_LABELS } from './timeseries';
 import { computeUrgeInsights } from './urgeInsights';
-import { validateLevers, detectRelapses } from './leverInsights';
+import { validateLevers, detectRelapses, suggestLevers } from './leverInsights';
 import PsychoanalysisView from './PsychoanalysisView';
 import { computeXp, levelForXp, rankForLevel } from './gamification';
 import Confetti from './Confetti';
@@ -2018,6 +2018,20 @@ function InsightsView({
     try { return getLevers(); } catch { return []; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkIns]);
+
+  // --- Auto-detected levers (v0.5.2): behaviours linked to a better mood ---
+  const suggestedLevers = useMemo(() => {
+    try { return suggestLevers(habits, checkIns, exportAllData().moods ?? {}); } catch { return []; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkIns]);
+  const [dismissedSuggestions, setDismissed] = useState<string[]>([]);
+  const acceptLeverSuggestion = (name: string, habitId: string, delta: number, p: number) => {
+    try {
+      addLever(name, `Humeur · +${delta.toFixed(1)} pts · p=${p.toFixed(3)}`);
+      setDismissed((prev) => [...prev, habitId]);
+    } catch { /* ignore */ }
+  };
+
   const [leverContent, setLeverContent] = useState('');
   const [leverEffect, setLeverEffect] = useState('');
   const [leverNotes, setLeverNotes] = useState('');
@@ -2674,6 +2688,44 @@ function InsightsView({
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {suggestedLevers.filter((s) => !dismissedSuggestions.includes(s.habitId)).length > 0 && (
+          <div className="lever-suggestions">
+            <h4>🔎 Leviers détectés dans tes données</h4>
+            <p className="lever-suggestions-hint">
+              Des habitudes associées à une humeur nettement meilleure (test de Welch sur les jours
+              réalisés vs non réalisés). Clique pour les transformer en leviers documentés.
+            </p>
+            <div className="lever-suggestions-list">
+              {suggestedLevers
+                .filter((s) => !dismissedSuggestions.includes(s.habitId))
+                .map((s) => (
+                  <div className="lever-suggestion-card" key={s.habitId}>
+                    <span className="lever-suggestion-name">{s.emoji ? `${s.emoji} ` : ''}{s.name}</span>
+                    <span className="lever-suggestion-metric">
+                      humeur {s.meanWith.toFixed(1)} <span className="trend-p">vs</span> {s.meanWithout.toFixed(1)}
+                      <span className="trend-p"> · p={s.p.toFixed(3)} · d={s.d !== null ? s.d.toFixed(2) : '—'}</span>
+                    </span>
+                    <div className="lever-suggestion-actions">
+                      <button
+                        className="btn btn-sm btn-primary"
+                        onClick={() => acceptLeverSuggestion(s.name, s.habitId, s.delta, s.p)}
+                      >
+                        ✓ Accepter
+                      </button>
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => setDismissed((prev) => [...prev, s.habitId])}
+                        title="Ignorer"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
           </div>
         )}
       </div>

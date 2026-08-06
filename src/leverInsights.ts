@@ -274,3 +274,73 @@ export function detectRelapses(
   }
   return out;
 }
+
+// --- Automatic lever suggestions ------------------------------------------
+// We mine the user's OWN data for behaviours that measurably co-occur with a
+// better mood — no user input required. For every habit we Welch-test the mood
+// rank (ordinal) on days the habit was done against days it was not (using only
+// days with an explicit check-in, so unlogged days are excluded as ambiguous).
+// A significant POSITIVE delta means "when I do X, my mood is better" → a
+// candidate lever. The user validates with one click to make it a real lever.
+
+export interface LeverSuggestion {
+  habitId: string;
+  name: string;
+  emoji: string | null;
+  meanWith: number;      // mean mood rank on days the habit was done
+  meanWithout: number;   // mean mood rank on days it was not done
+  delta: number;         // meanWith − meanWithout (positive = better mood)
+  p: number;
+  significant: boolean;
+  d: number | null;      // Cohen's d
+  doneDays: number;
+  notDoneDays: number;
+}
+
+export function suggestLevers(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  moods: Record<string, string>,
+): LeverSuggestion[] {
+  const moodDates = Object.keys(moods).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+  if (moodDates.length < 5) return [];
+  const out: LeverSuggestion[] = [];
+
+  for (const h of habits) {
+    if (h.archived) continue;
+    const state = new Map<string, number>();
+    for (const c of checkIns) {
+      if (c.habitId !== h.id) continue;
+      if (c.completed) state.set(c.date, 1);
+      else if (!state.has(c.date)) state.set(c.date, 0);
+    }
+    const done: number[] = [];
+    const notDone: number[] = [];
+    for (const date of moodDates) {
+      if (!state.has(date)) continue; // ambiguous day (unlogged) → pairwise exclusion
+      const rank = moodRank(moods[date]);
+      if (state.get(date) === 1) done.push(rank);
+      else notDone.push(rank);
+    }
+    const w = welchTwoSample(done, notDone);
+    if (!w) continue;
+    const delta = w.meanA - w.meanB; // done − notDone (positive = better mood)
+    if (delta <= 0 || !w.significant) continue;
+    if (done.length < 5) continue; // require a real sample of done days
+    out.push({
+      habitId: h.id,
+      name: h.name,
+      emoji: (h as unknown as Record<string, string | undefined>).emoji ?? null,
+      meanWith: w.meanA,
+      meanWithout: w.meanB,
+      delta,
+      p: w.p,
+      significant: true,
+      d: w.d,
+      doneDays: done.length,
+      notDoneDays: notDone.length,
+    });
+  }
+
+  return out.sort((a, b) => b.delta - a.delta).slice(0, 8);
+}

@@ -8044,6 +8044,59 @@ body {
   min-width: 0;
 }
 
+.lever-suggestions {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border);
+}
+
+.lever-suggestions h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.lever-suggestions-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 10px;
+}
+
+.lever-suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lever-suggestion-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--positive, #22c55e);
+  border-radius: 10px;
+  background: var(--bg-muted, rgba(127,127,127,0.05));
+}
+
+.lever-suggestion-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.lever-suggestion-metric {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.lever-suggestion-actions {
+  display: flex;
+  gap: 6px;
+}
+
 .lever-content {
   font-size: 13px;
   font-weight: 600;

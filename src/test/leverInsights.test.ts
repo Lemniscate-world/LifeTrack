@@ -6,6 +6,7 @@ import {
   dailyGlobalRate,
   validateLevers,
   detectRelapses,
+  suggestLevers,
 } from '../leverInsights';
 
 function habit(id: string, name = id, createdAt = '2026-01-01T00:00:00.000Z'): Habit {
@@ -150,5 +151,37 @@ describe('detectRelapses', () => {
   it('skips habits with too little history', () => {
     const h = habit('a', 'Run', '2026-01-01T00:00:00.000Z');
     expect(detectRelapses([h], [ci('a', '2026-01-01')], new Date(2026, 0, 10))).toEqual([]);
+  });
+});
+
+describe('suggestLevers', () => {
+  it('detects a habit that co-occurs with a better mood', () => {
+    // Days 1-10 of Jan 2026: habit done + mostly great mood; days 12-21:
+    // miss + low mood. Moods vary so the Welch test has variance.
+    const h = habit('a', 'Méditation');
+    const checks: CheckIn[] = [];
+    const moods: Record<string, string> = {};
+    for (let d = 1; d <= 10; d++) { checks.push(ci('a', keyOf(d))); moods[keyOf(d)] = d % 2 ? 'amazing' : 'great'; }
+    for (let d = 12; d <= 21; d++) { checks.push(ci('a', keyOf(d), false)); moods[keyOf(d)] = d % 2 ? 'bad' : 'tired'; }
+    const sug = suggestLevers([h], checks, moods);
+    expect(sug.length).toBe(1);
+    expect(sug[0].habitId).toBe('a');
+    expect(sug[0].delta).toBeGreaterThan(0);
+    expect(sug[0].significant).toBe(true);
+  });
+
+  it('returns nothing without enough mood data', () => {
+    const h = habit('a');
+    const checks = [ci('a', '2026-01-01')];
+    expect(suggestLevers([h], checks, {})).toEqual([]);
+  });
+
+  it('excludes a habit associated with LOWER mood', () => {
+    const h = habit('a', 'Écran tardif');
+    const checks: CheckIn[] = [];
+    const moods: Record<string, string> = {};
+    for (let d = 1; d <= 10; d++) { checks.push(ci('a', keyOf(d))); moods[keyOf(d)] = 'bad'; }
+    for (let d = 12; d <= 21; d++) { checks.push(ci('a', keyOf(d), false)); moods[keyOf(d)] = 'great'; }
+    expect(suggestLevers([h], checks, moods)).toEqual([]);
   });
 });
