@@ -2147,6 +2147,16 @@ function InsightsView({
     };
   }, [runDeepAnalysis]);
 
+  // Background auto-refresh: keep the AI analysis fresh without any button,
+  // polling every minute. runDeepAnalysis's internal 5-minute debounce throttles
+  // real (potentially slow) model calls, so this never hammers the provider.
+  const deepRunRef = useRef(runDeepAnalysis);
+  deepRunRef.current = runDeepAnalysis;
+  useEffect(() => {
+    const id = setInterval(() => deepRunRef.current(false), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   const kindIcon: Record<RecKind, string> = {
     MISS_PATTERN: '📉',
     STACK_SUGGESTION: '🔗',
