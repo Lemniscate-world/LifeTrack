@@ -548,7 +548,11 @@ async fn analyze_habits(
            \"risks\": [{{\"title\": \"short label\", \"detail\": \"what is sliding toward chaos\", \"action\": \"how to course-correct\"}}],\n  \
            \"next_step\": \"one small, specific action to take today\"\n\
          }}\n\
-         Rules: 1-2 top_priorities, 1-3 trends, 1-3 risks. Be warm, direct, non-judgmental, specific.";
+         Rules: 1-2 top_priorities, 1-3 trends, 1-3 risks. Be warm, direct, non-judgmental, specific.\n\
+         Anti-fabrication (STRICT):\n\
+         - Only reference figures, percentages, dates or habits that literally appear in the report. Never invent a completion rate, a streak, a date, a mood count or a habit that is not written there.\n\
+         - Prefer the computed sections (DATA COVERAGE, CORRELATIONS, TRENDS, URGES & MOOD ANALYSIS, LEVER VALIDATION & RELAPSE). Treat a number marked \"n.s.\" or \"not significant\" as a possible-but-unconfirmed signal, never as a fact.\n\
+         - If a section says the data is insufficient (e.g. \"need ≥10 logged days\"), say so plainly and recommend exactly what to log, instead of guessing a trend or correlation.";
 
     let call = AiCall {
         system_prompt: system_prompt.to_string(),
@@ -746,6 +750,7 @@ async fn psychoanalysis_ask(
          - Quote the user's OWN words as evidence (from the data below) so they see the pattern concretely.\n\
          - Give ONE practical counter-technique to weaken or dissolve it (cognitive restructuring, naming the defense, small behavioral experiment, 2-minute action).\n\
          - Be compassionate but direct. Never diagnose, never prescribe. If someone appears in serious distress, encourage speaking to a professional.\n\
+         Anti-fabrication (STRICT): base every claim on the data given in the report. Never invent a note, date, percentage, urge, habit or mood that is not present. Quote only the user's own words that actually appear. When a correlation or trend is marked \"n.s.\" or a section says data is insufficient, label it as tentative and suggest what to log.\n\
          Reply in the same language the user wrote in. Keep it under 250 words.";
 
     let user_prompt = format!(

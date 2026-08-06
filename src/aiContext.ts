@@ -267,7 +267,7 @@ function summarizeUrgeInsights(data: AppData): string {
       const v = s.emotionalVolatility;
       lines.push(`  emotional volatility: σ=${v.stdDev.toFixed(2)} (${v.meanAbsChange.toFixed(2)} mood-rank steps/day), ${v.n} days`);
     }
-    if (lines.length === 0) return '  (not enough urge/mood data yet)';
+    if (lines.length === 0) return '  (untested — urge analysis needs ≥10 days of resolved urges for a trend, ≥3 surfed + ≥3 gave-in urges for a surf-vs-give-in comparison, and ≥10 mood days for lag/volatility checks)';
     return lines.join('\n');
   } catch {
     return '  (unavailable)';
@@ -306,12 +306,41 @@ function summarizeLeverInsights(data: AppData): string {
   }
 }
 
+function summarizeDataCoverage(data: AppData): string {
+  const all = Array.isArray(data.checkIns) ? data.checkIns : [];
+  const active = (data.habits ?? []).filter((h) => !h.archived);
+  const dates = new Set<string>();
+  for (const c of all) if (c && typeof c.date === 'string') dates.add(c.date);
+  const moods = data.moods && typeof data.moods === 'object' ? data.moods : {};
+  const moodDays = new Set(Object.keys(moods)).size;
+  const urgeDays = new Set((data.urges ?? []).map((u) => (u.startTime || '').slice(0, 10))).size;
+  const noteCount = (data.notes ?? []).length;
+
+  // How many active days actually carry a mood (needed for correlations).
+  const activeDays = new Set<string>();
+  for (const c of all) if (c && c.completed && c.date) activeDays.add(c.date);
+  const moodOnActive = [...activeDays].filter((d) => moods[d]).length;
+
+  const lines = [
+    `  calendar days with any data: ${dates.size}`,
+    `  active habits: ${active.length}; check-ins: ${all.length}`,
+    `  mood days: ${moodDays} (mood recorded on ${moodOnActive} of ${activeDays.size} days with completions)`,
+    `  urge days: ${urgeDays}; standalone notes: ${noteCount}`,
+  ];
+  if (activeDays.size > 0 && moodDays < Math.max(6, Math.floor(activeDays.size / 2))) {
+    lines.push('  GAP: mood is logged on too few active days — correlations with mood stay untestable until you log a mood on most active days.');
+  }
+  return lines.join('\n');
+}
+
 /**
  * Build the complete AI report from a snapshot of the entire app data.
  * Resilient to corrupt inputs: any malformed section falls back gracefully.
  */
 export function buildAiContext(data: AppData): string {
   const sections: string[] = [];
+
+  sections.push(`## DATA COVERAGE\n${summarizeDataCoverage(data)}`);
 
   const habits = buildHabitSummaries(data);
   const habitLines = habits.map((s) => {
@@ -355,7 +384,7 @@ export function buildAiContext(data: AppData): string {
       ).join('\n'),
     );
   } else {
-    sections.push('## CORRELATIONS\n  (not enough paired data yet — keep logging habits + moods on the same days)');
+    sections.push('## CORRELATIONS\n  (untested — every correlation needs ≥6 days with BOTH habits and moods recorded on the same day. Log a mood on most active days to unlock this section.)');
   }
 
   sections.push(`## SKILLS & CAPACITIES\n${summarizeSkills(data)}`);
