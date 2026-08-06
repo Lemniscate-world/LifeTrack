@@ -38,6 +38,11 @@ import {
   compareWindows,
   buildLocalSummary,
 } from './summary';
+import {
+  buildWinsFeed,
+  nextMedals,
+  phraseOfDay,
+} from './wins';
 import type { Note } from './types';
 
 export default function AchievementsView() {
@@ -133,6 +138,12 @@ export default function AchievementsView() {
     }),
     [evolution, xpBreakdown.total, progress.level, medals, comparison, data],
   );
+  const wins = useMemo(
+    () => buildWinsFeed(data.habits, data.checkIns, data.notes, data.urges),
+    [data],
+  );
+  const upNext = useMemo(() => nextMedals(medals, 3), [medals]);
+  const dayPhrase = useMemo(() => phraseOfDay(new Date()), [tick]);
   const personas = useMemo(() => {
     void tick; // re-run whenever the store notifies
     return getPersonas();
@@ -256,6 +267,39 @@ export default function AchievementsView() {
               {xpBreakdown.challenges} challenge · {xpBreakdown.achievements} win XP
             </div>
           </div>
+        </div>
+
+        {/* Wins feed: don't forget what you've done */}
+        <div className="gamification-wins">
+          <div className="gamification-wins-head">
+            <h3>🎉 Vos victoires récentes</h3>
+            <span className="gamification-wins-phrase">{dayPhrase.emoji} {dayPhrase.text}</span>
+          </div>
+          {wins.length > 0 && (
+            <ul className="gamification-wins-list">
+              {wins.map((w) => (
+                <li key={w.id} className="gamification-win">
+                  <span className="gamification-win-emoji">{w.emoji}</span>
+                  <div className="gamification-win-body">
+                    <span className="gamification-win-title">{w.title}{w.date ? ` · ${w.date}` : ''}</span>
+                    <span className="gamification-win-sub">{w.subtitle}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {upNext.length > 0 && (
+            <div className="gamification-upnext">
+              <span className="gamification-upnext-label">À un pas :</span>
+              <div className="gamification-upnext-list">
+                {upNext.map((u) => (
+                  <span key={u.medal.id} className="gamification-upnext-item" title={u.medal.description}>
+                    {u.medal.emoji} {u.medal.name} · {u.medal.progress}%
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Comparison vs last week */}
