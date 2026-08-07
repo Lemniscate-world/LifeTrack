@@ -3,9 +3,10 @@
 // Personas: Coach (action), Sage (perspective), Psychologist (emotion),
 // Strategist (planning). Uses the configured AI provider (cloud/local/auto).
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { getJournalEntries, addJournalEntry, deleteJournalEntry, exportAllData, getPreferences, subscribe } from './store';
 import { buildAiContext } from './aiContext';
+import { buildJournalPrompts, type JournalPrompt } from './journalPrompts';
 import type { JournalPersonality } from './types';
 
 const PERSONALITIES: { id: JournalPersonality; name: string; emoji: string; tagline: string; color: string }[] = [
@@ -23,6 +24,12 @@ export default function JournalView() {
   const [draft, setDraft] = useState('');
   const [reflecting, setReflecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [promptRandom, setPromptRandom] = useState(0);
+  const [today] = useState(() => {
+    const d = new Date();
+    d.setHours(12, 0, 0, 0);
+    return d;
+  });
 
   useEffect(() => {
     const unsub = subscribe(() => setTick(t => t + 1));
@@ -30,6 +37,13 @@ export default function JournalView() {
   }, []);
 
   const entries = getJournalEntries();
+
+  const prompts = useMemo(() => {
+    try { return buildJournalPrompts(exportAllData(), today, promptRandom); }
+    catch { return { prompts: [], summary: '' }; }
+  }, [today, promptRandom]);
+
+  const applyPrompt = (p: JournalPrompt) => setDraft(p.text);
 
   const handleReflect = async () => {
     const content = draft.trim();
@@ -91,6 +105,38 @@ export default function JournalView() {
             <span className="journal-persona-tagline">{p.tagline}</span>
           </button>
         ))}
+      </div>
+
+      {/* Prompts — "rien à écrire" deepl first, so the journal starts from data */}
+      <div className="journal-prompts">
+        <div className="journal-prompts-header">
+          <h3 className="journal-prompts-title">🧭 Rien à écrire ? Commence par là</h3>
+          <button
+            className="btn btn-sm btn-ghost journal-prompts-refresh"
+            onClick={() => setPromptRandom((n) => n + 1)}
+            title="De nouvelles questions"
+          >
+            🔄
+          </button>
+        </div>
+        {prompts.prompts.length === 0 ? (
+          <p className="journal-prompts-empty">Donne-toi quelques jours de données, et le journal te posera des questions ancrées sur ta propre vie.</p>
+        ) : (
+          <>
+            <ul className="journal-prompt-list">
+              {prompts.prompts.map((p) => (
+                <li key={p.id} className="journal-prompt-chip-wrap">
+                  <button type="button" className="journal-prompt-chip" onClick={() => applyPrompt(p)}>
+                    <span className="journal-prompt-emoji">{p.emoji}</span>
+                    <span className="journal-prompt-text">{p.text}</span>
+                  </button>
+                  {p.context && <span className="journal-prompt-context">{p.context}</span>}
+                </li>
+              ))}
+            </ul>
+            <p className="journal-prompts-summary">{prompts.summary}</p>
+          </>
+        )}
       </div>
 
       {/* Composer */}

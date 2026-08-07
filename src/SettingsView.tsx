@@ -247,6 +247,43 @@ export default function SettingsView({
         </div>
       )}
 
+      <div className="settings-group">
+        <h3>💭 Rappel « Souviens-toi »</h3>
+        <p className="settings-hint">
+          Un rappel journalier qui te ressort tes accomplissements passés (wins, journal, records) à la
+          même date — pour t'ancrer dans le présent sans oublier ce que tu as déjà construit.
+        </p>
+        <div className="settings-row">
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={!!aiPrefs.memoryReminderEnabled}
+              onChange={(e) => {
+                const next = { ...aiPrefs, memoryReminderEnabled: e.target.checked };
+                setAiPrefs(next);
+                updatePreferences(next);
+              }}
+            />
+            <span>Activer le rappel quotidien</span>
+          </label>
+        </div>
+        <div className="settings-row">
+          <label className="settings-field">
+            <span>Heure du rappel</span>
+            <input
+              type="time"
+              className="settings-text-input"
+              value={aiPrefs.memoryReminderTime ?? '20:00'}
+              onChange={(e) => {
+                const next = { ...aiPrefs, memoryReminderTime: e.target.value };
+                setAiPrefs(next);
+                updatePreferences(next);
+              }}
+            />
+          </label>
+        </div>
+      </div>
+
       {/* MANTRAS */}
       {activeTab === 'mantras' && (
         <div className="settings-panel">

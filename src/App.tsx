@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import type { Habit, Note, CheckIn, Mantra, Lever } from './types';
+import type { Habit, Note, CheckIn, Mantra } from './types';
 import {
   getHabits,
   getMonthCheckIns,
@@ -46,9 +46,6 @@ import {
   getPreferences,
   updatePreferences,
   getActiveChallenges,
-  getLevers,
-  addLever,
-  deleteLever,
 } from './store';
 import { computeStreakStats, computeCompletionRate, computeWeightedScore, trackingStart } from './stats';
 import { Heatmap, Sparkline } from './Heatmap';
@@ -78,11 +75,13 @@ import { generateInsights, type Recommendation, type RecKind } from './recommend
 import { computeCorrelations } from './correlations';
 import { computeHabitTrends, moodTrend, WEEKDAY_LABELS } from './timeseries';
 import { computeUrgeInsights } from './urgeInsights';
-import { validateLevers, detectRelapses, suggestLevers } from './leverInsights';
+import { validateLevers, detectRelapses } from './leverInsights';
 import PsychoanalysisView from './PsychoanalysisView';
+import LeversView from './LeversView';
 import { computeXp, levelForXp, rankForLevel } from './gamification';
 import Confetti from './Confetti';
 import { getDailyEntryMantra, todayStr, shouldShowMantraNotification, markMantraNotificationShown, MANTRA_DOMAINS, sendSystemNotification } from './mantras';
+import { buildMemoryReminder, buildOnThisDay } from './memories';
 
 // Detected at module load (window is always present in browser and Tauri).
 // In test environments this is false. Module-level constant is acceptable
@@ -172,7 +171,7 @@ const DEFAULT_CATEGORIES = [
   const [editWhyText, setEditWhyText] = useState('');
   // v0.3.2: Toggle to display archived habits in the grid
   const [showArchived, setShowArchived] = useState(false);
-  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'experiments' | 'urges' | 'journal' | 'mantras' | 'achievements' | 'settings'>('grid');
+  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'experiments' | 'urges' | 'journal' | 'mantras' | 'achievements' | 'settings' | 'psycho'>('grid');
   const [savedMsg, setSavedMsg] = useState('');
   // Shortcuts help + toast
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -294,6 +293,29 @@ const DEFAULT_CATEGORIES = [
     checkNotifications();
     const interval = setInterval(checkNotifications, 30000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Daily "remember the past" system reminder (memoryReminder settings).
+  useEffect(() => {
+    const checkMemoryReminder = () => {
+      const prefs = getPreferences();
+      if (!prefs.memoryReminderEnabled) return;
+      const time = prefs.memoryReminderTime ?? '20:00';
+      const now = new Date();
+      const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const today = todayStr();
+      if (prefs.lastMemoryReminderDate === today || currentTime < time) return;
+      try {
+        const d = exportAllData();
+        const recol = buildOnThisDay(d.habits ?? [], d.checkIns ?? [], d.notes ?? [], d.journalEntries ?? [], now);
+        const msg = buildMemoryReminder(recol, now);
+        sendSystemNotification(msg.title, msg.body);
+      } catch { /* ignore */ }
+      updatePreferences({ lastMemoryReminderDate: today });
+    };
+    checkMemoryReminder();
+    const id = setInterval(checkMemoryReminder, 30000);
+    return () => clearInterval(id);
   }, []);
 
   // Periodically refresh the "last saved" display
@@ -467,7 +489,7 @@ const DEFAULT_CATEGORIES = [
       // Tab switching: Ctrl+1..9 + Ctrl+0
       if (ctrl && e.key >= '0' && e.key <= '9') {
         e.preventDefault();
-        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'mantras', 'experiments', 'journal', 'achievements'];
+        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'mantras', 'experiments', 'journal', 'achievements', 'urges', 'psycho'];
         const idx = e.key === '0' ? 0 : parseInt(e.key, 10);
         const viewKey = tabs[idx] as typeof view;
         if (viewKey) setView(viewKey);
@@ -1038,6 +1060,9 @@ const DEFAULT_CATEGORIES = [
           </button>
           <button role="tab" aria-selected={view === 'journal'} className={`view-tab ${view === 'journal' ? 'active' : ''}`} onClick={() => setView('journal')}>
             📓 Journal
+          </button>
+          <button role="tab" aria-selected={view === 'psycho'} className={`view-tab ${view === 'psycho' ? 'active' : ''}`} onClick={() => setView('psycho')}>
+            🧠 Psycho
           </button>
           <button role="tab" aria-selected={view === 'chaos'} className={`view-tab ${view === 'chaos' ? 'active' : ''}`} onClick={() => setView('chaos')}>Chaos</button>
           <button role="tab" aria-selected={view === 'mantras'} className={`view-tab ${view === 'mantras' ? 'active' : ''}`} onClick={() => setView('mantras')}>
@@ -1647,6 +1672,17 @@ const DEFAULT_CATEGORIES = [
         <UrgeSurfingView />
       ) : view === 'journal' ? (
         <JournalView />
+      ) : view === 'psycho' ? (
+        <div className="psycho-window">
+          <div className="psycho-window-header">
+            <h2>🧠 Psychoanalyse</h2>
+            <p className="journal-subtitle">
+              Vos mécanismes psychologiques vus à travers plusieurs écoles, et ce qui fonctionne pour vous.
+            </p>
+          </div>
+          <PsychoanalysisView />
+          <LeversView />
+        </div>
       ) : (
         <ChaosView />
       )}
@@ -2012,59 +2048,6 @@ function InsightsView({
   const [chatLoading, setChatLoading] = useState(false);
   const aiRanRef = useRef(false);
   const aiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // --- Levers (v0.5.0): "what works for me" + psychological evolution trend ---
-  const levers: Lever[] = useMemo(() => {
-    try { return getLevers(); } catch { return []; }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checkIns]);
-
-  // --- Auto-detected levers (v0.5.2): behaviours linked to a better mood ---
-  const suggestedLevers = useMemo(() => {
-    try { return suggestLevers(habits, checkIns, exportAllData().moods ?? {}); } catch { return []; }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checkIns]);
-  const [dismissedSuggestions, setDismissed] = useState<string[]>([]);
-  const acceptLeverSuggestion = (name: string, habitId: string, delta: number, p: number) => {
-    try {
-      addLever(name, `Humeur · +${delta.toFixed(1)} pts · p=${p.toFixed(3)}`);
-      setDismissed((prev) => [...prev, habitId]);
-    } catch { /* ignore */ }
-  };
-
-  const [leverContent, setLeverContent] = useState('');
-  const [leverEffect, setLeverEffect] = useState('');
-  const [leverNotes, setLeverNotes] = useState('');
-  const [leverAddedId, setLeverAddedId] = useState<string | null>(null);
-
-  const handleAddLever = (e: React.FormEvent) => {
-    e.preventDefault();
-    const content = leverContent.trim();
-    if (!content) return;
-    try {
-      const created = addLever(content, leverEffect.trim() || undefined, leverNotes.trim() || undefined);
-      setLeverAddedId(created.id);
-      setLeverContent('');
-      setLeverEffect('');
-      setLeverNotes('');
-      setTimeout(() => setLeverAddedId((cur) => (cur === created.id ? null : cur)), 2000);
-    } catch { /* ignore */ }
-  };
-
-  const handleConvertLever = (lever: Lever) => {
-    const why: string[] = [];
-    if (lever.content) why.push(`Le facteur : ${lever.content}`);
-    if (lever.effect) why.push(`Effet attendu : ${lever.effect}`);
-    const name = lever.content.length > 40 ? `${lever.content.slice(0, 40)}…` : lever.content;
-    try {
-      addHabit(name);
-      if (why.length > 0) {
-        const created = getHabits().find((h) => h.name === name);
-        if (created) updateHabit(created.id, { why });
-      }
-      deleteLever(lever.id);
-    } catch { /* ignore */ }
-  };
 
   const runDeepAnalysis = useCallback(async (force = false) => {
     // Debounce: don't re-run within 5 minutes unless forced
@@ -2631,115 +2614,6 @@ function InsightsView({
         </div>
       )}
 
-      <PsychoanalysisView />
-      {/* --- Levers (v0.5.0): "what works for me" --- */}
-      <div className="lever-section">
-        <div className="lever-header">
-          <h3>⚙️ What works for me</h3>
-          <span className="lever-subtitle">
-            Record interventions you noticed actually help — then turn them into habits.
-          </span>
-        </div>
-
-        <form className="lever-form" onSubmit={handleAddLever}>
-          <input
-            className="lever-input"
-            value={leverContent}
-            onChange={(e) => setLeverContent(e.target.value)}
-            placeholder="Le facteur qui a marché (ex : Magnésium B2 le matin)"
-            required
-          />
-          <input
-            className="lever-input lever-input-sm"
-            value={leverEffect}
-            onChange={(e) => setLeverEffect(e.target.value)}
-            placeholder="Effet observé (ex : +15 d'énergie)"
-          />
-          <input
-            className="lever-input lever-input-sm"
-            value={leverNotes}
-            onChange={(e) => setLeverNotes(e.target.value)}
-            placeholder="Notes / contexte"
-          />
-          <button className="btn btn-primary" type="submit">Ajouter</button>
-        </form>
-
-        {levers.length === 0 ? (
-          <p className="lever-none">
-            No levers saved yet. Whenever you notice something that works — a supplement,
-            a routine, a mindset shift — note it here so you don't forget.
-          </p>
-        ) : (
-          <div className="lever-list">
-            {levers.map((lever) => (
-              <div className="lever-card" key={lever.id}>
-                <div className="lever-card-main">
-                  <span className="lever-content">{lever.content}</span>
-                  {lever.effect && <span className="lever-effect">→ {lever.effect}</span>}
-                  {lever.notes && <span className="lever-notes">{lever.notes}</span>}
-                  <span className="lever-date">{new Date(lever.createdAt).toLocaleDateString()}</span>
-                  {leverAddedId === lever.id && <span className="lever-saved">✓ Ajouté</span>}
-                </div>
-                <div className="lever-actions">
-                  <button
-                    className="btn btn-sm btn-primary"
-                    onClick={() => handleConvertLever(lever)}
-                    title="Transforme ce levier en habitude suivie"
-                  >
-                    ➕ Habitude
-                  </button>
-                  <button
-                    className="btn btn-sm btn-ghost"
-                    onClick={() => deleteLever(lever.id)}
-                    title="Supprimer"
-                  >
-                    🗑️
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {suggestedLevers.filter((s) => !dismissedSuggestions.includes(s.habitId)).length > 0 && (
-          <div className="lever-suggestions">
-            <h4>🔎 Leviers détectés dans tes données</h4>
-            <p className="lever-suggestions-hint">
-              Des habitudes associées à une humeur nettement meilleure (test de Welch sur les jours
-              réalisés vs non réalisés). Clique pour les transformer en leviers documentés.
-            </p>
-            <div className="lever-suggestions-list">
-              {suggestedLevers
-                .filter((s) => !dismissedSuggestions.includes(s.habitId))
-                .map((s) => (
-                  <div className="lever-suggestion-card" key={s.habitId}>
-                    <span className="lever-suggestion-name">{s.emoji ? `${s.emoji} ` : ''}{s.name}</span>
-                    <span className="lever-suggestion-metric">
-                      humeur {s.meanWith.toFixed(1)} <span className="trend-p">vs</span> {s.meanWithout.toFixed(1)}
-                      <span className="trend-p"> · p={s.p.toFixed(3)} · d={s.d !== null ? s.d.toFixed(2) : '—'}</span>
-                    </span>
-                    <div className="lever-suggestion-actions">
-                      <button
-                        className="btn btn-sm btn-primary"
-                        onClick={() => acceptLeverSuggestion(s.name, s.habitId, s.delta, s.p)}
-                      >
-                        ✓ Accepter
-                      </button>
-                      <button
-                        className="btn btn-sm btn-ghost"
-                        onClick={() => setDismissed((prev) => [...prev, s.habitId])}
-                        title="Ignorer"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-                ))}
-            </div>
-          </div>
-        )}
       </div>
-
-    </div>
   );
 }

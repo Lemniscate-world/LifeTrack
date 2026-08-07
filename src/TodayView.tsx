@@ -3,6 +3,8 @@ import type { Habit, CheckIn, Mantra } from './types';
 import { computeStreakStats, computeCompletionRate } from './stats';
 import { MANTRA_DOMAINS } from './mantras';
 import { generateInsights } from './recommendations';
+import { buildOnThisDay } from './memories';
+import { exportAllData } from './store';
 
 const MILESTONES = new Set([7, 14, 21, 30, 60, 90, 100, 180, 365]);
 
@@ -49,6 +51,14 @@ export default function TodayView({ habits, checkIns, todayMantra }: TodayViewPr
 
   const mantraDomain = todayMantra ? MANTRA_DOMAINS.find(d => d.id === todayMantra.domain) : null;
 
+  // On-this-day memories + present progress tie-in (remember past, anchor now).
+  const memories = useMemo(() => {
+    try {
+      const d = exportAllData();
+      return buildOnThisDay(d.habits ?? [], d.checkIns ?? [], d.notes ?? [], d.journalEntries ?? [], now);
+    } catch { return []; }
+  }, [now]);
+
   return (
     <div className="today-view">
       {/* Mantra Banner */}
@@ -56,6 +66,24 @@ export default function TodayView({ habits, checkIns, todayMantra }: TodayViewPr
         <div className="today-mantra" style={{ borderLeftColor: mantraDomain.color }}>
           <span className="today-mantra-domain">{mantraDomain.icon} {mantraDomain.name}</span>
           <blockquote>"{todayMantra.text}"</blockquote>
+        </div>
+      )}
+
+      {/* On-this-day memory (remember past, anchor present) */}
+      {memories.length > 0 && (
+        <div className="today-memories">
+          <h3 className="today-memories-title">💭 Il y a un an, à cette époque…</h3>
+          <div className="today-memories-list">
+            {memories.map(m => (
+              <div key={m.id} className="today-memory">
+                <span className="today-memory-emoji">{m.emoji}</span>
+                <div className="today-memory-body">
+                  <span className="today-memory-title">{m.title}</span>
+                  <span className="today-memory-text">{m.body}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

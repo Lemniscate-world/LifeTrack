@@ -301,4 +301,8 @@ export interface UserPreferences {
   aiProvider?: 'auto' | 'openrouter' | 'ollama';
   aiModel?: string; // e.g. 'openai/gpt-4o-mini' on OpenRouter, '' = default
   aiApiKey?: string; // cloud API key (stored locally, never sent to any server except the chosen provider)
+  // v0.5.2: daily "remember the past" system reminder.
+  memoryReminderEnabled?: boolean;
+  memoryReminderTime?: string; // "HH:MM"
+  lastMemoryReminderDate?: string; // YYYY-MM-DD when it was last shown
 }

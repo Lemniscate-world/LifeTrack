@@ -703,6 +703,92 @@ body {
   min-height: 110px;
 }
 
+.journal-prompts {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.journal-prompts-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.journal-prompts-title {
+  font-size: 14px;
+  margin: 0;
+  flex: 1;
+  color: var(--text);
+}
+
+.journal-prompts-refresh {
+  flex: none;
+}
+
+.journal-prompt-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.journal-prompt-chip-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.journal-prompt-chip {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.4;
+  transition: border-color .15s, transform .1s;
+}
+
+.journal-prompt-chip:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.journal-prompt-emoji {
+  flex: none;
+  font-size: 16px;
+}
+
+.journal-prompt-context {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding-left: 36px;
+}
+
+.journal-prompts-summary {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.journal-prompts-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
 .journal-composer-actions {
   margin-top: 12px;
   display: flex;
@@ -4776,6 +4862,35 @@ body {
   max-width: 420px;
 }
 
+.settings-row.field {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.settings-field > span {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.settings-check input {
+  accent-color: var(--accent);
+}
+
 .ai-test-ok {
   color: var(--positive, #2e7d32);
 }
@@ -5043,6 +5158,60 @@ body {
   font-style: italic;
   color: var(--text);
   line-height: 1.5;
+}
+
+.today-memories {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent, #7c3aed);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  margin-bottom: 16px;
+}
+
+.today-memories-title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.today-memories-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.today-memory {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.today-memory-emoji {
+  flex: none;
+  font-size: 18px;
+}
+
+.today-memory-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.today-memory-title {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.today-memory-text {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.45;
+  font-style: italic;
 }
 
 .today-stats-row {
@@ -7741,6 +7910,27 @@ body {
 
 .psycho-section {
   margin-top: 28px;
+  padding: 16px;
+  background: var(--card-bg, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.psycho-window {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.psycho-window-header {
+  margin-bottom: 16px;
+}
+
+.psycho-window-header h2 {
+  margin: 0 0 4px;
+}
+
+.psycho-window .lever-section {
+  margin-top: 20px;
   padding: 16px;
   background: var(--card-bg, var(--bg));
   border: 1px solid var(--border);
