@@ -253,6 +253,153 @@ export const JUNGIAN_PATTERNS: NegativePattern[] = [
   },
 ];
 
+/**
+ * Schema therapy (Jeffrey Young) — early maladaptive schemas: deeply held
+ * core beliefs about self/other formed early, that get re-triggered in adult
+ * life. Each "schema" here is its own negative pattern with a coping counter.
+ */
+export const SCHEMA_PATTERNS: NegativePattern[] = [
+  {
+    id: 'abandonment_schema',
+    name: 'Schéma d\'abandon',
+    emoji: '🧍',
+    description:
+      'Crainte permanente que des personnes significatives vous quittent ou disparaissent, et comportements pour l\'anticiper.',
+    source: 'Thérapie des schémas (Jeffrey Young) — schéma « Abandon / Instabilité »',
+    counter:
+      'Listez les faits de stabilité réelle (qui est resté, depuis quand). Distinguez une peur d\'un événement : la peur d\'abandon n\'est pas un abandon.',
+    keywords: ['il va me quitter', 'elle va me quitter', 'je vais être abandonné', 'on va me laisser', 'je finirai seul', 'tout le monde part', 'personne ne reste', 'abandon', 'i will be left', 'everyone leaves'],
+  },
+  {
+    id: 'failure_schema',
+    name: 'Schéma d\'échec',
+    emoji: '🏷️',
+    description:
+      'La conviction installée de ne pas être appelé à réussir, quelle que soit la réalité des résultats.',
+    source: 'Thérapie des schémas (Jeffrey Young)',
+    counter:
+      'Recueillez 5 réussites objectives datées. Le schéma filtre les preuves ; compter les faits les rend visibles.',
+    keywords: ['je suis nulle', 'je ne suis pas à la hauteur', 'je ne sais pas faire', 'je vais échouer de toute façon', 'je n\'y arriverai pas', 'je suis une imposture', 'failure', 'i am not good enough', 'i will fail'],
+  },
+  {
+    id: 'defectiveness_schema',
+    name: 'Schéma de déficience',
+    emoji: '🪞',
+    description:
+      'Croire au fond qu\'on est défectueux, cassé, indigne d\'être aimé — et qu\'on serait rejeté si l\'on était vraiment connu.',
+    source: 'Thérapie des schémas (Jeffrey Young)',
+    counter:
+      'Notez ce que vous cachez de peur d\'être rejeté, puis demandez à une personne de confiance un retour neutre. Le schéma surévalue le jugement.',
+    keywords: ['je suis déféctueux', 'je suis anormal', 'je suis cassé', 'si il/elle savait', 'personne ne doit voir', 'je suis indigne', 'broken', 'defective', 'unworthy'],
+  },
+  {
+    id: 'unrelenting_standards_schema',
+    name: 'Standards inflexibles',
+    emoji: '📏',
+    description:
+      'Exiger de soi des niveaux impossibles de performance pour éviter la critique — au prix du repos, de la joie et de la santé.',
+    source: 'Thérapie des schémas (Jeffrey Young)',
+    counter:
+      'Fixez un seuil « assez bien » pour la semaine : un objectif réalisable où l\'imperfection est acceptée. Le standard inflexible exige la perfection à chaque fois.',
+    keywords: ['je dois être le meilleur', 'jamais assez bien', 'toujours plus', 'je me demande pas', 'les normes', 'perfect toujours', 'not good enough', 'higher and higher'],
+  },
+];
+
+/** Attachment theory (Bowlby, Ainsworth) — working models of closeness/security. */
+export const ATTACHMENT_PATTERNS: NegativePattern[] = [
+  {
+    id: 'protest_behaviors',
+    name: 'Comportements de protestation',
+    emoji: '📵',
+    description:
+      'Envoyer des signaux (distance, silence, menaces de rupture) pour tester si l\'autre va « partir », créant l\'éloignement qu\'on redoute.',
+    source: 'Théorie de l\'attachement (Bowlby, Ainsworth)',
+    counter:
+      'Remplacez le test par une demande directe : « je valide que tu sois là ». La protestation provoque l\'éloignement qu\'elle redoute.',
+    keywords: ['je le teste', 'je me ferme pour voir', 'je menace de partir', 'je fais le silencieux', 'je m\'éloigne pour voir sa réaction', 'je l\'ignore exprès', 'test him', 'make him jealous', 'i storm off'],
+  },
+  {
+    id: 'hypervigilance_attachment',
+    name: 'Hypervigilance relationnelle',
+    emoji: '🔍',
+    description:
+      'Scanner en permanence les signes de rejet ou d\'éloignement chez l\'autre (réponses, ton, disponibilité) pour anticiper un abandon.',
+    source: 'Théorie de l\'attachement — anxiété d\'abandon',
+    counter:
+      'Redescendez sur les faits : quand l\'autre répond-il réellement ? Focalisez-vous sur une preuve de présence, pas sur le signal manquant.',
+    keywords: ['il ne me répond pas', 'elle ne répond pas', 'il est distant', 'elle me délaisse', 'il ne m\'aime plus', 'je vérifie', 'tu m\'as abandonné', 'ignored', 'won\'t reply'],
+  },
+  {
+    id: 'deactivating_strategies',
+    name: 'Stratégies de déactivation',
+    emoji: '🧊',
+    description:
+      'Nier l\'importance d\'une relation ou d\'un besoin par peur de dépendance, pour éviter la douleur de l\'attachement.',
+    source: 'Théorie de l\'attachement — évitant',
+    counter:
+      'Reconnaître qu\'un besoin de proximité est légitime. « Je n\'ai besoin de personne » est souvent le prix d\'une peur ancienne, pas une force.',
+    keywords: ['je n\'ai besoin de personne', 'je préfère être seul', 'les relations ça complique tout', 'je ne m\'attache pas', 'je garde mes distances', 'i don\'t care', 'soûlé d\'affection', 'independent'],
+  },
+  {
+    id: 'contempt_relational',
+    name: 'Mépris et distance émotionnelle',
+    emoji: '🛡️',
+    description:
+      'Une distance défensive par mépris ou désengagement pour ne pas montrer la vulnérabilité — le mépris détruit la coopération.',
+    source: 'Théorie de l\'attachement / John Gottman — mépris',
+    counter:
+      'Décrivez l\'émotion (« je me sens vulnérable ») au lieu de le déguiser en critique froide. Le mépris protège mais isole.',
+    keywords: ['tu fais encore', 'quelle idée débile', 'j\'en ai par-dessus la tête de toi', 'je préfère rester seul', 'je me moque', 'contempt', 'ridicule'],
+  },
+];
+
+/** Transactional analysis (Eric Berne) — games, ego states, script. */
+export const TA_PATTERNS: NegativePattern[] = [
+  {
+    id: 'rescuer_script',
+    name: 'Scénario sauveur',
+    emoji: '🦸',
+    description:
+      'Se placer en sauveur des autres et finir en victime puis en persécuteur, dans le « triangle dramatique » qui épuise.',
+    source: 'Analyse transactionnelle (Éric Berne)',
+    counter:
+      'Repérer dans quel coin du triangle on est (sauveur/victime/persécuteur) et passer en état Adulte : aider sans prendre la responsabilité de l\'autre.',
+    keywords: ['je sauve', 'je dois le/la sauver', 'je me dévoue', 'je prends tout sur moi', 'personne ne le fera aussi bien', 'je me sacrifie', 'rescue', 'i have to fix'],
+  },
+  {
+    id: 'ta_yes_but',
+    name: 'Jeu « Oui, mais… »',
+    emoji: '🫨',
+    description:
+      'Demander conseil puis refuser chaque proposition — un jeu qui maintient le rôle de victime sans rien changer.',
+    source: 'Analyse transactionnelle (Eric Berne)',
+    counter:
+      'Repérer le jeu : pour chaque conseil, répondre en une question vraie au lieu d\'objecter. Arrêtez le « oui, mais » et testez UNE option.',
+    keywords: ['oui mais', 'ça ne marchera pas', 'j\'ai essayé et', 'tu comprends pas', 'mais on ne peut pas', 'seulement si', 'yes but', 'that won\'t work'],
+  },
+  {
+    id: 'critical_parent_voice',
+    name: 'Parent critique interne',
+    emoji: '🗣️',
+    description:
+      'Une voix interne injurieuse (parent critique) qui pilote la culpabilité et la honte, comme une copie des adultes du passé.',
+    source: 'Analyse transactionnelle (Eric Berne) — états du Moi',
+    keywords: ['je suis bon à rien', 'idiot', 'mais fais donc pas n\'importe quoi', 'salaud', 'crétin', 'je suis de trop', 'you are stupid', 'I am worthless'],
+    counter: 'Passez de l\'état Parent critique à l\'état Adulte : nommez la voix comme un legs parental et répondez avec des faits neutres.',
+  },
+  {
+    id: 'script_parental',
+    name: 'Script parental imposé',
+    emoji: '📜',
+    description:
+      'Des règles « tu dois » héritées de l\'enfance et qui pilotent les choix adultes sans être jamais examinées.',
+    source: 'Analyse transactionnelle (Eric Berne)',
+    counter:
+      'Identifiez un « tu dois » reçu dans l\'enfance et évaluez s\'il sert encore votre viseé. Le script est un héritage, pas une loi.',
+    keywords: ['je dois toujours', 'il faut toujours', 'on m\'a toujours dit que', 'je suis censé', 'je pense devoir', 'pas le droit de', 'must always', 'supposed to'],
+  },
+];
+
 /** Third-wave / ACT mechanisms (avoidance, fusion, values drift). */
 export const ACT_PATTERNS: NegativePattern[] = [
   {
@@ -290,10 +437,13 @@ const ALL_PATTERNS: { frame: string; patterns: NegativePattern[] }[] = [
   { frame: 'psychanalytic', patterns: DEFENSE_PATTERNS },
   { frame: 'jungian', patterns: JUNGIAN_PATTERNS },
   { frame: 'act', patterns: ACT_PATTERNS },
+  { frame: 'schema', patterns: SCHEMA_PATTERNS },
+  { frame: 'attachment', patterns: ATTACHMENT_PATTERNS },
+  { frame: 'ta', patterns: TA_PATTERNS },
 ];
 
 export interface PatternGroup {
-  source: 'cognitive' | 'psychanalytic' | 'jungian' | 'act';
+  source: 'cognitive' | 'psychanalytic' | 'jungian' | 'act' | 'schema' | 'attachment' | 'ta';
   hits: PatternHit[];
 }
 

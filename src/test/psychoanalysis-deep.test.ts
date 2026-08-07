@@ -82,4 +82,18 @@ describe('detectAllFrames (multi-lens)', () => {
   it('is deterministic and empty without any writing', () => {
     expect(detectAllFrames([], [], [])).toEqual([]);
   });
+
+  it('surfaces schema, attachment and TA mechanisms from the user words', () => {
+    const checkIns: CheckIn[] = [
+      note('2026-01-05', 'je dois être le meilleur, jamais assez bien, je suis de trop'),
+      note('2026-01-06', 'je n\'ai besoin de personne, je garde mes distances'),
+      note('2026-01-07', 'oui mais ça ne marchera pas, il faut toujours'),
+    ];
+    const groups = detectAllFrames(checkIns, [], []);
+    const frames = groups.map((g) => g.source);
+    expect(frames).toContain('schema');
+    expect(frames).toContain('attachment');
+    expect(frames).toContain('ta');
+    expect(groups.every((g) => g.hits.length > 0)).toBe(true);
+  });
 });

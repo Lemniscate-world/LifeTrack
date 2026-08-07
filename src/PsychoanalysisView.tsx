@@ -25,6 +25,9 @@ const AI_FRAMES: { id: string; emoji: string; name: string }[] = [
   { id: 'lac', emoji: '🎭', name: 'Freud–Lacan' },
   { id: 'jungian', emoji: '🌑', name: 'Jung' },
   { id: 'act', emoji: '🌀', name: 'ACT' },
+  { id: 'schema', emoji: '🏷️', name: 'Schémas (Young)' },
+  { id: 'attachment', emoji: '🫶', name: 'Attachement' },
+  { id: 'ta', emoji: '🫨', name: 'Analyse transactionnelle' },
 ];
 
 const FRAME_META: Record<PatternGroup['source'], { emoji: string; label: string }> = {
@@ -32,6 +35,9 @@ const FRAME_META: Record<PatternGroup['source'], { emoji: string; label: string 
   psychanalytic: { emoji: '🎭', label: 'Défenses (Freud–Lacan)' },
   jungian: { emoji: '🌑', label: 'Jung · ombre & complexes' },
   act: { emoji: '🌀', label: 'ACT · 3e vague' },
+  schema: { emoji: '🎫', label: 'Thérapie des schémas (Young)' },
+  attachment: { emoji: '🫶', label: 'Théorie de l\'attachement' },
+  ta: { emoji: '📠', label: 'Analyse transactionnelle (Berne)' },
 };
 
 export default function PsychoanalysisView() {
@@ -137,8 +143,8 @@ export default function PsychoanalysisView() {
         <div className="psycho-frames">
           <h3>🎭 Mécanismes par cadre théorique</h3>
           <span className="trends-sub">
-            Les mêmes écrits vus à travers plusieurs écoles (Beck, défenses Freud–Lacan, Jung, ACT) —
-            chacune nomme et désamorce différemment vos habitudes de pensée.
+            Les mêmes écrits vus à travers plusieurs écoles (Beck, défenses Freud–Lacan, Jung, ACT, schémas de Young,
+            attachement, analyse transactionnelle) — chacune nomme et désamorce différemment vos habitudes de pensée.
           </span>
           {frameGroups.map((group) => {
             const meta = FRAME_META[group.source];

@@ -797,6 +797,18 @@ fn psycho_frame(frame: &str) -> (&'static str, &'static str) {
             "Lacanian psychoanalysis",
             "Honourably but rigorously use Lacan's mapping of the unconscious as language: the Symbolic/Imaginary/Real, the Name-of-the-Father, desire as the desire of the Other, the symptom-as-signifier, jouissance and the phallus as signifier. Help the user name the symptom as a signifier they can reroute — a careful, non-clinical reframe, not a diagnosis.",
         ),
+        "schema" => (
+            "Schema therapy (Jeffrey Young)",
+            "Work with Young's early maladaptive schemas: abandonment/instability, failure, defectiveness/shame, unrelenting standards, emotional deprivation. Name the schema being triggered as an early core belief, then propose a healthy-adult coping alternative and a concrete re-parenting/mode rework — never diagnose a mental illness.",
+        ),
+        "attachment" => (
+            "Attachment theory (Bowlby, Ainsworth)",
+            "Work with attachment styles and the working model of relationships: protest behaviors, hypervigilance, deactivating strategies, the secure / anxious / avoidant styles. Reflect that the fears about closeness are an older survival model, then propose a concrete 'secure repair' (naming the need, direct request, safe vulnerability).",
+        ),
+        "ta" | "transactional" => (
+            "Transactional analysis (Eric Berne)",
+            "Use Berne's model: ego states (Parent / Adult / Child), the dramatic triangle (rescuer / victim / persecutor), strokes, script and the games ('Yes, but…'). Help the user locate the ego state and script driving the behavior, then move them to an Adult state with a concrete re-decision, never prescribe or diagnose.",
+        ),
         _ => (
             "cognitive (Beck/Burns, CBT) + evidence-based defenses",
             "Use Aaron Beck's cognitive distortions (catastrophizing, all-or-nothing, overgeneralization, personalization, mental filter, mind-reading, should-statements), David Burns' Feeling Good techniques, classical defense mechanisms (avoidance, rationalization, projection, denial, intellectualization), and impostor syndrome (Clance & Imes).",
