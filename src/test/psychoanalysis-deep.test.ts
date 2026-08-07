@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { patternMoodImpact, suggestedQuestions } from '../psychoanalysis';
+import { patternMoodImpact, suggestedQuestions, detectAllFrames } from '../psychoanalysis';
 import type { CheckIn } from '../types';
 
 function note(date: string, content: string): CheckIn {
@@ -53,7 +53,7 @@ describe('suggestedQuestions', () => {
     expect(qs[0].question.length).toBeGreaterThan(0);
   });
 
-  it('is deterministic and capped at 4', () => {
+it('is deterministic and capped at 4', () => {
     const checkIns: CheckIn[] = [];
     for (let d = 1; d <= 20; d++) {
       checkIns.push(note(`2026-02-${String(d).padStart(2, '0')}`, 'tout est foutu, je remets encore, je suis nul'));
@@ -62,5 +62,24 @@ describe('suggestedQuestions', () => {
     const b = suggestedQuestions(checkIns, [], []);
     expect(a).toEqual(b);
     expect(a.length).toBeLessThanOrEqual(4);
+  });
+});
+
+describe('detectAllFrames (multi-lens)', () => {
+  it('surfaces psychoanalytic defense and ACT mechanisms from the user words', () => {
+    const checkIns: CheckIn[] = [
+      note('2026-01-05', 'après réflexion c\'est plus raisonnable de rien faire, ça m\'arrange donc j\'évite'),
+      note('2026-01-06', 'je ne peux pas, c\'est un fait, je vais fuir donc éviter'),
+      note('2026-01-07', 'je déteste les gens qui réussissent au lieu de moi'),
+    ];
+    const groups = detectAllFrames(checkIns, [], []);
+    const frames = groups.map((g) => g.source);
+    expect(frames).toContain('psychanalytic');
+    expect(frames).toContain('jungian');
+    expect(groups.every((g) => g.hits.length > 0)).toBe(true);
+  });
+
+  it('is deterministic and empty without any writing', () => {
+    expect(detectAllFrames([], [], [])).toEqual([]);
   });
 });

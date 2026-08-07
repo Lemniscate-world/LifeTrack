@@ -174,6 +174,169 @@ function normalize(text: string): string {
     .replace(/[æ]/g, 'ae');
 }
 
+// ==========================================================================
+// MULTI-FRAMEWORK "mechanisms" — not just Beck/Burns distortions. Each frame
+// brings its own patterns/mechanisms. Detection is honest: it surfaces the
+// SIGNAL in the user's own words and lets the user (and the AI) work within a
+// chosen lens. Sources are named so nothing is attributed to a real theorist
+// in a way it doesn't stand for.
+// ==========================================================================
+
+/** Psychoanalytic defense mechanisms (repé the analysand's words). */
+export const DEFENSE_PATTERNS: NegativePattern[] = [
+  {
+    id: 'denial',
+    name: 'Déni',
+    emoji: '🙈',
+    description: 'Écarter une réalité inconfortable comme si elle n\'existait pas (« ce n\'est pas un problème »).',
+    source: 'Mécanisme de défense — psychanalyse (Freud)',
+    counter: 'Nommez un fait que vous préférez écarter et formulez-le à la 3e personne. Le déni s\'affaiblit dès qu\'on le nomme.',
+    keywords: ['ce n\'est pas un problème', 'je ne vois pas le souci', 'tout va bien aller', 'j\'arrête quand je veux', 'ce n\'est rien', 'pas grave du tout', 'denial', 'it\'s fine', 'no problem', 'no big deal'],
+  },
+  {
+    id: 'projection',
+    name: 'Projection',
+    emoji: '👤',
+    description: 'Attribuer aux autres des émotions ou défauts que l\'on n\'assume pas en soi.',
+    source: 'Mécanisme de défense — psychanalyse',
+    counter: 'Demandez-vous : « qu\'est-ce que je reproche, qui aurait pu être vrai de moi ? » Réintégrer le trait dénié le désamorce.',
+    keywords: ['c\'est lui qui', 'ce sont eux qui', 'tout le monde est', 'arrête de me', 'tu es toujours', 'ils me jugent', 'projection', 'you always', 'they are the ones'],
+  },
+  {
+    id: 'rationalization',
+    name: 'Rationalisation',
+    emoji: '🧾',
+    description: 'Justifier par des raisons « logiques » ce qui vient surtout d\'une émotion ou d\'un inconfort.',
+    source: 'Mécanisme de défense — psychanalyse',
+    counter: 'Cherchez l\'émotion sous la justification : « si je retire toutes les raisons, qu\'est-ce que je sens ? »',
+    keywords: ['pour des raisons logiques', 'c\'est plus raisonnable', 'après réflexion', 'parce que je dois', 'c\'est plus sage', 'expliquable', 'rational', 'logique'],
+  },
+  {
+    id: 'intellectualization',
+    name: 'Intellectualisation',
+    emoji: '🧑‍🔬',
+    description: 'Se couper de l\'émotion en la traduisant en concepts froids (obsession « météo », listes interminables, jargon).',
+    source: 'Mécanisme de défense — psychanalyse',
+    counter: 'Forcer une phrase émotionnelle : « en fait je me sens… » sans concept. Reconnectez au corps.',
+    keywords: ['je me sens', 'en fait c\'est parce que', 'théoriquement', 'd\'un point de vue', 'process', 'mechanisme', 'analyse', 'spiritualise'],
+  },
+];
+
+/** Jungian mechanisms (shadow work, complexes, symbolic paralysis). */
+export const JUNGIAN_PATTERNS: NegativePattern[] = [
+  {
+    id: 'shadow',
+    name: 'Ombre projetée',
+    emoji: '🌑',
+    description: 'Attribuer à un autre un trait détesté qui pourrait être une part réfudée de vous-même (votre ombre).',
+    source: 'C. G. Jung — psychologie analytique',
+    counter: 'Pour chaque trait qui vous révulse chez l\'autre, demandez : « où est-il chez moi, pris à mon insu ? » Intégrer limite la projection.',
+    keywords: ['je déteste les gens qui', 'les gens qui', 'je ne supporte pas ça', 'ha-ha', 'i hate people who', 'can\'t stand people who'],
+  },
+  {
+    id: 'complex',
+    name: 'Complexe bloquant',
+    emoji: '⚡',
+    description: 'Une « boucle » émotionnelle (sur) réactive autour d\'un sujet précis, avec charge disproportionnée.',
+    source: 'C. G. Jung — psychologie analytique',
+    counter: 'Repérez le déclencheur exact et la charge émotionnelle. Un complexe perd sa gare en le cartographiant.',
+    keywords: ['encore ce', 'chaque fois que', 'toujours pareil avec', 'je ne supporte pas que', 'ça me fait', 'trigger', 'reaction'],
+  },
+  {
+    id: 'new_integration',
+    name: 'Refus d\'intégration',
+    emoji: '🌓',
+    description: 'Cliver entre un « moi idéal » et le reste — sans permettre la synthèse entre ombre et lumière.',
+    source: 'C. G. Jung — psychologie analytique',
+    counter: 'Listez 2 lumières et 2 ombres acceptées aujourd\'hui : l\'intégration n\'est pas la perfection, c\'est la cohabitation.',
+    keywords: ['je devrais', 'je ne suis pas comme ça', 'ce n\'est pas moi', 'j\'aime mieux pas', 'either', 'split'],
+  },
+];
+
+/** Third-wave / ACT mechanisms (avoidance, fusion, values drift). */
+export const ACT_PATTERNS: NegativePattern[] = [
+  {
+    id: 'experiential_avoidance',
+    name: 'Évitement expérientiel',
+    emoji: '🎈',
+    description: 'Tenter d\'éliminer des émotions inconfortables plutôt que de les accueillir (éven direction, distraction, drogue).',
+    source: 'Acceptance & Commitment Therapy [ACT]',
+    counter: 'Pratiquez « je peux sentir… et agir pourtant » : l\'émotion est accueillie, pas éliminée.',
+    keywords: ['pour me changer les idées', 'parce que je ne veux pas penser', 'pour ne pas', 'je me suis distrait', 'je fuis', 'juste pour éviter', 'avoid', 'distraction'],
+  },
+  {
+    id: 'cognitive_fusion',
+    name: 'Fusion cognitive',
+    emoji: '🌀',
+    description: 'Aimer ses pensées comme des faits : « je suis », « je ne peux pas », pris comme vérité qu\'elle.',
+    source: 'ACT — defusion',
+    counter: 'Répétez la pensée en l\'observant : « j\'ai la pensée que… ». La distance fait baisser la fusion.',
+    keywords: ['je suis', 'je ne peux pas', 'je ne vais jamais', 'c\'est un fait', 'la pensée', 'i am', 'i can\'t'],
+  },
+  {
+    id: 'values_drift',
+    name: 'Dérive des valeurs',
+    emoji: '🧭',
+    description: 'S\'éloigner des directions qui comptent vraiment au profit des urgences et de l\'évitement.',
+    source: 'ACT — valeurs',
+    counter: 'Reconnectez à ce qui compte : « quelle ACTION, même minuscule, est fidèle à ma valeur malgré l\'inconfort ? »',
+    keywords: ['je n\'ai pas le temps', 'j\'oublie pourquoi', 'à quoi bon', 'je ne sais plus', 'je le fais pour audience', 'for nothing'],
+  },
+];
+
+/** Every pattern across every frame. */
+const ALL_PATTERNS: { frame: string; patterns: NegativePattern[] }[] = [
+  { frame: 'cognitive', patterns: NEGATIVE_PATTERNS },
+  { frame: 'psychanalytic', patterns: DEFENSE_PATTERNS },
+  { frame: 'jungian', patterns: JUNGIAN_PATTERNS },
+  { frame: 'act', patterns: ACT_PATTERNS },
+];
+
+export interface PatternGroup {
+  source: 'cognitive' | 'psychanalytic' | 'jungian' | 'act';
+  hits: PatternHit[];
+}
+
+/** Detect across all frameworks, grouped by frame (deep multi-lens view). */
+export function detectAllFrames(
+  checkIns: CheckIn[],
+  notes: Note[],
+  urges: UrgeEntry[],
+): PatternGroup[] {
+  const texts = collectUserTexts(checkIns, notes, urges);
+  if (texts.length === 0) return [];
+  const normalized = texts.map((t) => normalize(t));
+  const groups: PatternGroup[] = [];
+  for (const { frame, patterns } of ALL_PATTERNS) {
+    const hits: PatternHit[] = [];
+    for (const pattern of patterns) {
+      let count = 0;
+      let sample = '';
+      for (let i = 0; i < normalized.length; i++) {
+        let occurrences = 0;
+        for (const kw of pattern.keywords) {
+          const nk = normalize(kw);
+          let idx = normalized[i].indexOf(nk);
+          while (idx !== -1) {
+            occurrences++;
+            idx = normalized[i].indexOf(nk, idx + nk.length);
+          }
+        }
+        if (occurrences > 0) {
+          count += occurrences;
+          if (!sample) sample = texts[i];
+        }
+      }
+      if (count > 0) hits.push({ pattern, count, sample });
+    }
+    if (hits.length > 0) {
+      hits.sort((a, b) => b.count - a.count);
+      groups.push({ source: frame as PatternGroup['source'], hits });
+    }
+  }
+  return groups;
+}
+
 export interface PatternHit {
   pattern: NegativePattern;
   count: number;

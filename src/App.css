@@ -7913,6 +7913,61 @@ body {
   cursor: default;
 }
 
+.psycho-frames {
+  margin-top: 16px;
+}
+
+.psycho-frames > h3 {
+  margin: 0 0 4px;
+}
+
+.psycho-frame {
+  margin: 12px 0 0;
+}
+
+.psycho-frame h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.psycho-lens {
+  margin: 16px 0 4px;
+}
+
+.psycho-lens h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.psycho-lens-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.psycho-lens-chip {
+  border: 1px solid var(--border);
+  background: var(--card-bg, var(--bg));
+  color: var(--text);
+  border-radius: 14px;
+  padding: 5px 11px;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.psycho-lens-chip:hover {
+  background: var(--accent-soft, rgba(139, 92, 246, 0.12));
+}
+
+.psycho-lens-active {
+  border-color: var(--accent, #8b5cf6);
+  background: var(--accent-soft, rgba(139, 92, 246, 0.15));
+  font-weight: 600;
+}
+
 /* ============ v0.5.0 - ACHIEVEMENTS AI SUMMARY ============ */
 
 .achievements-ai {

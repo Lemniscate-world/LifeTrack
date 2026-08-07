@@ -9,14 +9,30 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   detectNegativePatterns,
+  detectAllFrames,
   patternTrend,
   patternMoodImpact,
   suggestedQuestions,
   type SuggestedQuestion,
+  type PatternGroup,
 } from './psychoanalysis';
 import { exportAllData, getPreferences, subscribe } from './store';
 import { buildAiContext } from './aiContext';
 import type { AiChatMessage } from './aiAnalysis';
+
+const AI_FRAMES: { id: string; emoji: string; name: string }[] = [
+  { id: 'cognitive', emoji: '🧠', name: 'Cognitif (Beck)' },
+  { id: 'lac', emoji: '🎭', name: 'Freud–Lacan' },
+  { id: 'jungian', emoji: '🌑', name: 'Jung' },
+  { id: 'act', emoji: '🌀', name: 'ACT' },
+];
+
+const FRAME_META: Record<PatternGroup['source'], { emoji: string; label: string }> = {
+  cognitive: { emoji: '🧠', label: 'Distorsions cognitives' },
+  psychanalytic: { emoji: '🎭', label: 'Défenses (Freud–Lacan)' },
+  jungian: { emoji: '🌑', label: 'Jung · ombre & complexes' },
+  act: { emoji: '🌀', label: 'ACT · 3e vague' },
+};
 
 export default function PsychoanalysisView() {
   const [, setTick] = useState(0);
@@ -26,7 +42,6 @@ export default function PsychoanalysisView() {
     return unsub;
   }, []);
 
-  // --- Local, deterministic analysis from ALL current data ---
   const { checkIns, notes, urges, moods } = (() => {
     try {
       const d = exportAllData();
@@ -35,11 +50,13 @@ export default function PsychoanalysisView() {
   })();
 
   const patternHits = detectNegativePatterns(checkIns, notes, urges);
+  const frameGroups = detectAllFrames(checkIns, notes, urges);
   const trend = patternTrend(checkIns, notes, urges);
   const impacts = patternMoodImpact(checkIns, notes, urges, moods);
   const questions = suggestedQuestions(checkIns, notes, urges);
 
   // --- AI chat state ---
+  const [frame, setFrame] = useState('cognitive');
   const [history, setHistory] = useState<AiChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -65,6 +82,7 @@ export default function PsychoanalysisView() {
         model: prefs.aiModel || null,
         provider: prefs.aiProvider || 'auto',
         apiKey: prefs.aiApiKey || '',
+        frame,
       });
       setHistory((h) => [...h, { role: 'coach', content: answer }]);
     } catch (e) {
@@ -72,7 +90,7 @@ export default function PsychoanalysisView() {
     } finally {
       setLoading(false);
     }
-  }, [loading]);
+  }, [loading, frame]);
 
   const askSuggestion = (q: SuggestedQuestion) => {
     if (loading) return;
@@ -113,6 +131,43 @@ export default function PsychoanalysisView() {
           Aucun schéma négatif repéré pour l’instant. En écrivant, LifeTrack repère les
           distorsions cognitives et les signaux d’auto-sabotage — tout reste sur l’appareil.
         </p>
+      )}
+
+      {frameGroups.length > 0 && (
+        <div className="psycho-frames">
+          <h3>🎭 Mécanismes par cadre théorique</h3>
+          <span className="trends-sub">
+            Les mêmes écrits vus à travers plusieurs écoles (Beck, défenses Freud–Lacan, Jung, ACT) —
+            chacune nomme et désamorce différemment vos habitudes de pensée.
+          </span>
+          {frameGroups.map((group) => {
+            const meta = FRAME_META[group.source];
+            return (
+              <div className="psycho-frame" key={group.source}>
+                <h4>{meta.emoji} {meta.label}</h4>
+                <div className="psycho-patterns">
+                  {group.hits.map((hit) => (
+                    <div key={hit.pattern.id} className={`psycho-card psycho-${hit.pattern.id}`}>
+                      <div className="psycho-card-head">
+                        <span className="psycho-card-icon">{hit.pattern.emoji}</span>
+                        <div className="psycho-card-title">
+                          {hit.pattern.name}
+                          <span className="psycho-card-count">×{hit.count}</span>
+                        </div>
+                      </div>
+                      <p className="psycho-card-desc">{hit.pattern.description}</p>
+                      {hit.sample && (
+                        <p className="psycho-card-sample">“{hit.sample.slice(0, 140)}{hit.sample.length > 140 ? '…' : ''}”</p>
+                      )}
+                      <p className="psycho-card-counter">💥 {hit.pattern.counter}</p>
+                      <span className="psycho-card-source">{hit.pattern.source}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
 
       {impacts.length > 0 && (
@@ -197,6 +252,22 @@ export default function PsychoanalysisView() {
             ))}
           </div>
         )}
+      </div>
+
+      <div className="psycho-lens">
+        <h4>🔬 Cadre de l'assistant</h4>
+        <div className="psycho-lens-list">
+          {AI_FRAMES.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              className={`psycho-lens-chip ${frame === f.id ? 'psycho-lens-active' : ''}`}
+              onClick={() => setFrame(f.id)}
+            >
+              {f.emoji} {f.name}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="psycho-chat">

@@ -741,17 +741,23 @@ async fn psychoanalysis_ask(
     model: Option<String>,
     provider: Option<String>,
     api_key: Option<String>,
+    frame: Option<String>,
 ) -> Result<String, String> {
-    let system_prompt = "You are a warm, rigorous psychoanalysis-informed guide (not a medical professional).\n\
+    let frame = frame.unwrap_or_default();
+    let (frame_name, frame_guide) = psycho_frame(&frame);
+    let system_prompt = format!(
+        "You are a warm, rigorous psychoanalysis-informed guide (not a medical professional).\n\
          The user's LifeTrack data (habits, notes, moods, urges, experiments) is below. Your job is to help the user DESTROY negative patterns.\n\
-         Use established psychology as your frame of reference: Aaron Beck's cognitive distortions (catastrophizing, all-or-nothing thinking, overgeneralization, personalization, mental filter, mind reading, should-statements), David Burns' techniques from Feeling Good, psychoanalytic defense mechanisms (avoidance, rationalization, projection), and impostor syndrome (Clance & Imes).\n\
-         In your answers:\n\
-         - Name the specific pattern at play with its evidence-based label.\n\
-         - Quote the user's OWN words as evidence (from the data below) so they see the pattern concretely.\n\
-         - Give ONE practical counter-technique to weaken or dissolve it (cognitive restructuring, naming the defense, small behavioral experiment, 2-minute action).\n\
-         - Be compassionate but direct. Never diagnose, never prescribe. If someone appears in serious distress, encourage speaking to a professional.\n\
-         Anti-fabrication (STRICT): base every claim on the data given in the report. Never invent a note, date, percentage, urge, habit or mood that is not present. Quote only the user's own words that actually appear. When a correlation or trend is marked \"n.s.\" or a section says data is insufficient, label it as tentative and suggest what to log.\n\
-         Reply in the same language the user wrote in. Keep it under 250 words.";
+         FRAME THE CONVERSATION IN THIS THEORETICAL FRAME ONLY — use its real vocabulary and method: {frame_name}.\n\
+         {frame_guide}\n\
+         In your answer:\n\
+         - Name the specific mechanism/pattern at play, in the vocabulary of the chosen frame.\n\
+         - Quote the user's OWN words as evidence (from the data below) so they see it concretely.\n\
+         - Give ONE practical counter-technique faithful to that frame to weaken or dissolve it.\n\
+         - Be compassionate but direct. Never diagnose, never prescribe, never invent a symptom. If there is serious distress, encourage a professional.\n\
+         Anti-fabrication (STRICT): base everything on the data given. Never invent a note, date, percentage, urge, habit or mood. Quote only the user's own existing words. Mark any \"n.s.\" or insufficient section as tentative.\n\
+         Reply in the same language the user wrote in. Keep it under 250 words."
+    );
 
     let user_prompt = format!(
         "USER QUESTION: {}\n\nDATA (on-device, anonymous):\n{}",
@@ -759,7 +765,7 @@ async fn psychoanalysis_ask(
     );
 
     let call = AiCall {
-        system_prompt: system_prompt.to_string(),
+        system_prompt,
         user_prompt,
         temperature: 0.6,
         max_tokens: 800,
@@ -773,6 +779,29 @@ async fn psychoanalysis_ask(
         &call,
     )
     .await
+}
+
+/// Returns (label, guide) for a chosen theoretical frame. `auto` balances the
+/// data-present signals; unknown frames default to a balanced cognitive+analytic.
+fn psycho_frame(frame: &str) -> (&'static str, &'static str) {
+    match frame {
+        "jungian" => (
+            "Jungian analytical psychology",
+            "Work with Jung's concepts: persona, shadow, anima/animus, complexes, individuation. Name the shadow being projected or the complex being triggered; suggest concrete integration (dialoguing with the shadow part, dream-image questions), never diagnose a mental illness.",
+        ),
+        "act" => (
+            "Acceptance & Commitment Therapy (ACT)",
+            "Use ACT's third-wave concepts: experiential avoidance, cognitive fusion, defusion, values, committed action. Frame the issue as avoidance/fusion, the ex with 'I notice I'm having the thought that…' and a tiny values-aligned action.",
+        ),
+        "lac" | "lacanian" => (
+            "Lacanian psychoanalysis",
+            "Honourably but rigorously use Lacan's mapping of the unconscious as language: the Symbolic/Imaginary/Real, the Name-of-the-Father, desire as the desire of the Other, the symptom-as-signifier, jouissance and the phallus as signifier. Help the user name the symptom as a signifier they can reroute — a careful, non-clinical reframe, not a diagnosis.",
+        ),
+        _ => (
+            "cognitive (Beck/Burns, CBT) + evidence-based defenses",
+            "Use Aaron Beck's cognitive distortions (catastrophizing, all-or-nothing, overgeneralization, personalization, mental filter, mind-reading, should-statements), David Burns' Feeling Good techniques, classical defense mechanisms (avoidance, rationalization, projection, denial, intellectualization), and impostor syndrome (Clance & Imes).",
+        ),
+    }
 }
 
 /// AI summary of the user's achievements (notes tagged with a category).
