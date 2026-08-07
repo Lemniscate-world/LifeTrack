@@ -1969,6 +1969,12 @@ function InsightsView({
   // eslint-disable-next-line no-unused-vars
   onView: (_v: 'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights' | 'mantras' | 'settings' | 'today' | 'year' | 'challenge' | 'experiments' | 'skills' | 'urges' | 'journal') => void;
 }) {
+// Data change tick: urges/moods/levers/capacities are read via exportAllData()
+  // inside the memos below, so the deps alone (habits, checkIns) never recompute
+  // when those change. Subscribing to the store refreshes everything.
+  const [storeTick, setStoreTick] = useState(0);
+  useEffect(() => subscribe(() => setStoreTick((t) => t + 1)), []);
+
   const { recommendations, generatedAt } = useMemo(
     () => {
       try {
@@ -1982,7 +1988,8 @@ function InsightsView({
         });
       } catch { return generateInsights(habits, checkIns); }
     },
-    [habits, checkIns],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [habits, checkIns, storeTick],
   );
 
   // Compute correlations from available data
@@ -1992,7 +1999,8 @@ function InsightsView({
       const caps = (allData.capacities ?? []).map(c => ({ id: c.id, name: c.name }));
       return computeCorrelations(habits, checkIns, allData.moods ?? {}, caps, allData.capacityRatings ?? []);
     } catch { return []; }
-  }, [habits, checkIns]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [habits, checkIns, storeTick]);
 
   // Time-series trends (Mann-Kendall + Theil-Sen + changepoints + seasonality)
   const habitTrends = useMemo(() => {
@@ -2006,7 +2014,7 @@ function InsightsView({
       return moodTrend(allData.moods ?? {});
     } catch { return null; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [habits, checkIns]);
+  }, [habits, checkIns, storeTick]);
 
   // Urge & mood analysis (Wilson CI, lag correlations, emotional volatility)
   const urgeInsights = useMemo(() => {
@@ -2014,7 +2022,8 @@ function InsightsView({
       const allData = exportAllData();
       return computeUrgeInsights(allData.urges ?? [], allData.moods ?? {}, habits, checkIns);
     } catch { return null; }
-  }, [habits, checkIns]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [habits, checkIns, storeTick]);
 
   // Lever before/after validation + statistical relapse detection
   const leverValidations = useMemo(() => {
@@ -2022,7 +2031,8 @@ function InsightsView({
       const allData = exportAllData();
       return validateLevers(allData.levers ?? [], habits, checkIns, allData.moods ?? {});
     } catch { return []; }
-  }, [habits, checkIns]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [habits, checkIns, storeTick]);
   const relapses = useMemo(() => {
     try {
       return detectRelapses(habits, checkIns);

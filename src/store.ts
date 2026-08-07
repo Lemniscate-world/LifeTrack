@@ -2986,10 +2986,12 @@ export function getChaosPercentageForDimension(dimId: string): number {
 export interface ChaosHabitStatus {
   habitId: string;
   habitName: string;
-  impact: number;        // chaosImpact %
+  impact: number;        // chaos Impact %
   thresholdDays: number; // consecutive missed days needed to trigger
   missedStreak: number;  // current consecutive missed days (from yesterday)
   triggered: boolean;    // missedStreak >= thresholdDays
+  /** 0..1 how close the habit is to triggering (missedStreak/thresholdDays). */
+  progress: number;
 }
 
 export interface ChaosDimensionReport {
@@ -3023,6 +3025,7 @@ export function computeChaosReport(asOf?: Date): ChaosReport {
       thresholdDays: habit.chaosThresholdDays,
       missedStreak,
       triggered: missedStreak >= habit.chaosThresholdDays,
+      progress: habit.chaosThresholdDays > 0 ? Math.min(1, missedStreak / habit.chaosThresholdDays) : 0,
     };
     if (!linkedByDim.has(habit.chaosDimension)) linkedByDim.set(habit.chaosDimension, []);
     linkedByDim.get(habit.chaosDimension)!.push(status);
@@ -3041,6 +3044,53 @@ export function computeChaosReport(asOf?: Date): ChaosReport {
     : 0;
 
   return { dimensions, linkedHabitCount, overallPct };
+}
+
+// --- Chaos history: evolution of overall pressure over the last N days ---
+// Returns an array ordered oldest → newest, one entry per day. The pressure for
+// a past day is the average of triggered impacts across dimensions that had
+// linked habits on that day (habits that don't yet exist are skipped).
+export interface ChaosDayPoint {
+  date: string;   // YYYY-MM-DD
+  pct: number;    // overall pressure 0..100
+}
+
+export function computeChaosHistory(days: number, asOf?: Date): ChaosDayPoint[] {
+  const now = asOf ?? new Date();
+  const dims = getChaosDimensions();
+  const points: ChaosDayPoint[] = [];
+
+  for (let i = days - 1; i >= 0; i--) {
+    const day = new Date(now);
+    day.setDate(day.getDate() - i);
+    const dateKey = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+
+    let totalImpact = 0;
+    let dimsWithHabits = 0;
+    for (const dim of dims) {
+      let dimPct = 0;
+      let hasHabit = false;
+      // Scan habits forward from this day only (they must have started by then).
+      for (const habit of data.habits) {
+        if (habit.archived) continue;
+        if (!habit.chaosDimension || habit.chaosDimension !== dim.id) continue;
+        if (!habit.chaosImpact || !habit.chaosThresholdDays) continue;
+        const startBoundary = trackingStart(habit);
+        const dayOf = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+        if (startBoundary && dayOf < startBoundary) continue;
+        hasHabit = true;
+        // Recompute missed streak ending the day AFTER `day` (i.e. viewed on `day`'s evening).
+        const then = new Date(day);
+        then.setDate(then.getDate() + 1);
+        const missed = computeMissedStreak(habit, then);
+        if (missed >= habit.chaosThresholdDays) dimPct += habit.chaosImpact;
+      }
+      if (hasHabit) { dimsWithHabits++; totalImpact += Math.min(100, dimPct); }
+    }
+    const pct = dimsWithHabits > 0 ? Math.round(totalImpact / dimsWithHabits) : 0;
+    points.push({ date: dateKey, pct });
+  }
+  return points;
 }
 
 // --- Skills & Capacities Progression math and CRUD ---

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { computeChaosReport, subscribe } from './store';
+import { computeChaosReport, computeChaosHistory, subscribe } from './store';
 
 export default function ChaosView() {
   // Bumped by the store subscription to force a re-render after mutations.
@@ -14,7 +14,18 @@ export default function ChaosView() {
   // habit's check-ins, which gets expensive past a few hundred checks.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const report = useMemo(() => computeChaosReport(), [tick]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const history = useMemo(() => computeChaosHistory(30), [tick]);
   const { dimensions, overallPct, linkedHabitCount } = report;
+
+  // Trend of the last week vs the previous week.
+  const recent = history.slice(-7);
+  const prior = history.slice(-14, -7);
+  const recentAvg = recent.length ? recent.reduce((s, p) => s + p.pct, 0) / recent.length : 0;
+  const priorAvg = prior.length ? prior.reduce((s, p) => s + p.pct, 0) / prior.length : 0;
+  const maxHistory = Math.max(...history.map((p) => p.pct), 1);
+  const rising = recentAvg > priorAvg + 1;
+  const falling = recentAvg < priorAvg - 1;
 
   return (
     <div className="chaos-container" aria-label="Chaos pressure dashboard">
@@ -46,6 +57,29 @@ export default function ChaosView() {
           </p>
         </div>
       </div>
+
+      {history.length > 1 && (
+        <div className="chaos-history">
+          <div className="chaos-history-head">
+            <span className="chaos-history-title">30 derniers jours</span>
+            <span className={`chaos-trend ${rising ? 'rise' : falling ? 'fall' : 'flat'}`}>
+              {rising ? '↗ en hausse' : falling ? '↘ en baisse' : '→ stable'}
+            </span>
+          </div>
+          <div className="chaos-sparkline" role="img" aria-label="Évolution de la pression chaos sur 30 jours">
+            {history.map((p) => (
+              <div
+                key={p.date}
+                className="chaos-spark-col"
+                style={{ height: `${Math.max(2, (p.pct / maxHistory) * 46)}px` }}
+                title={`${p.date} · ${p.pct}%`}
+              >
+                <span className="chaos-spark-bar" data-hot={p.pct >= 50} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {linkedHabitCount === 0 && (
         <p className="chaos-hint">
@@ -88,6 +122,12 @@ export default function ChaosView() {
                               ? `missed ${h.missedStreak}/${h.thresholdDays}d`
                               : 'on track'}
                         </span>
+                        <div className="chaos-habit-progress" title={`${h.missedStreak}/${h.thresholdDays} jours manqués`}>
+                          <div
+                            className={`chaos-habit-progress-fill ${h.triggered ? 'hot' : ''}`}
+                            style={{ width: `${h.progress * 100}%` }}
+                          />
+                        </div>
                       </div>
                     ))}
                   </div>

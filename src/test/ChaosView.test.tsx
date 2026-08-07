@@ -9,6 +9,7 @@ import {
   getChaosTriggersForDimension,
   getChaosPercentageForDimension,
   computeChaosReport,
+  computeChaosHistory,
   resetChaos,
   getHabits,
   getDefaultChaosDimensions,
@@ -66,6 +67,27 @@ describe('Chaos linkage', () => {
     expect(report.overallPct).toBeGreaterThanOrEqual(0);
     expect(report.overallPct).toBeLessThanOrEqual(100);
     expect(report.linkedHabitCount).toBe(0);
+  });
+
+  it('computes a per-habit progress ratio toward triggering', () => {
+    addHabit('Procrast', { chaosDimension: 'physical', chaosImpact: 50, chaosThresholdDays: 4 });
+    const report = computeChaosReport(new Date(2026, 5, 26));
+    const dim = report.dimensions.find((d) => d.id === 'physical')!;
+    expect(dim.habits).toHaveLength(1);
+    expect(dim.habits[0].progress).toBeGreaterThanOrEqual(0);
+    expect(dim.habits[0].progress).toBeLessThanOrEqual(1);
+  });
+
+  it('computeChaosHistory returns the requested number of daily points', () => {
+    const history = computeChaosHistory(14, new Date(2026, 5, 26));
+    expect(history).toHaveLength(14);
+    for (const p of history) {
+      expect(p.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(p.pct).toBeGreaterThanOrEqual(0);
+      expect(p.pct).toBeLessThanOrEqual(100);
+    }
+    // Oldest first.
+    expect(history[0].date < history[history.length - 1].date).toBe(true);
   });
 
   it('resetChaos clears all triggers', () => {
