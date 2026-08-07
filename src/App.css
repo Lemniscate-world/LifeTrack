@@ -789,6 +789,91 @@ body {
   color: var(--text-muted);
 }
 
+.journal-tracks {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.journal-tracks-header {
+  margin-bottom: 10px;
+}
+
+.journal-tracks-title {
+  font-size: 14px;
+  margin: 0;
+  color: var(--text);
+}
+
+.journal-tracks-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.journal-track-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.journal-track {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.journal-track-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.journal-track-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.journal-track-step {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.journal-track-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+  margin: 8px 0;
+}
+
+.journal-track-bar-fill {
+  height: 100%;
+  background: var(--accent, #4f46e5);
+  border-radius: 999px;
+  transition: width .3s ease;
+}
+
+.journal-track-question {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.journal-track-apply {
+  display: inline-flex;
+}
+
 .journal-composer-actions {
   margin-top: 12px;
   display: flex;
@@ -8064,6 +8149,77 @@ body {
 
 .psycho-questions {
   margin: 16px 0 4px;
+}
+
+.psycho-tracks {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.psycho-tracks-header h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.psycho-tracks-sub {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 4px 0 10px;
+}
+
+.psycho-tracks-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.psycho-track-chip {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.psycho-track-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.psycho-track-row {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+
+.psycho-track-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.psycho-track-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.psycho-track-step {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.psycho-tracks .journal-track-bar {
+  margin: 8px 0 0;
 }
 
 .psycho-questions h4 {

@@ -4,9 +4,11 @@
 // Strategist (planning). Uses the configured AI provider (cloud/local/auto).
 
 import { useState, useEffect, useMemo } from 'react';
-import { getJournalEntries, addJournalEntry, deleteJournalEntry, exportAllData, getPreferences, subscribe } from './store';
+import { getJournalEntries, addJournalEntry, deleteJournalEntry, exportAllData, getPreferences, subscribe, getPatternTracks, replacePatternTracks } from './store';
 import { buildAiContext } from './aiContext';
 import { buildJournalPrompts, type JournalPrompt } from './journalPrompts';
+import { detectNegativePatterns, allPatternsById } from './psychoanalysis';
+import { advanceTracks, questionForStep, STEPS, MAX_STEP } from './patternProgress';
 import type { JournalPersonality } from './types';
 
 const PERSONALITIES: { id: JournalPersonality; name: string; emoji: string; tagline: string; color: string }[] = [
@@ -45,6 +47,15 @@ export default function JournalView() {
 
   const applyPrompt = (p: JournalPrompt) => setDraft(p.text);
 
+  const tracks = useMemo(() => {
+    try { return getPatternTracks(); } catch { return []; }
+  }, []);
+
+  const allFrames = useMemo(() => {
+    try { return allPatternsById(); } catch { return new Map<string, import('./psychoanalysis').NegativePattern>(); }
+  }, []);
+  const patternsById = allFrames;
+
   const handleReflect = async () => {
     const content = draft.trim();
     if (!content || reflecting) return;
@@ -69,7 +80,16 @@ export default function JournalView() {
         apiKey: prefs.aiApiKey || '',
       });
       addJournalEntry(content, personality, response);
+      // Progressive psychological work: detect the patterns in what was just
+      // written, advance their tracks, and persist so growth continues later.
+      try {
+        const tracks = getPatternTracks();
+        const hitList = detectNegativePatterns([], [{ id: 'tmp', habitId: 'tmp', content, createdAt: new Date().toISOString() }], []);
+        const next = advanceTracks(tracks, hitList, new Date());
+        replacePatternTracks(next);
+      } catch { /* pattern tracking is best-effort */ }
       setDraft('');
+      setPromptRandom((n) => n + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong while reflecting.');
     } finally {
@@ -138,6 +158,39 @@ export default function JournalView() {
           </>
         )}
       </div>
+
+      {/* Progressive work on detected patterns — "continue où tu en étais" */}
+      {tracks.length > 0 && (
+        <div className="journal-tracks">
+          <div className="journal-tracks-header">
+            <h3 className="journal-tracks-title">🧬 Les failles en travail</h3>
+            <span className="journal-tracks-hint">Chaque jour où tu en reparles, tu passes à l'étape suivante.</span>
+          </div>
+          <ul className="journal-track-list">
+            {tracks.slice(0, 5).map((t) => {
+              const pat = patternsById.get(t.patternId);
+              if (!pat) return null;
+              const stepClamped = Math.max(0, Math.min(t.step, MAX_STEP));
+              const pct = Math.round((t.step / MAX_STEP) * 100);
+              return (
+                <li key={t.patternId} className="journal-track">
+                  <div className="journal-track-top">
+                    <span className="journal-track-name">{pat.emoji} {pat.name}</span>
+                    <span className="journal-track-step">{STEPS[stepClamped].emoji} {STEPS[stepClamped].label} · {pct}%</span>
+                  </div>
+                  <div className="journal-track-bar">
+                    <div className="journal-track-bar-fill" style={{ width: `${pct}%` }} />
+                  </div>
+                  <p className="journal-track-question">{questionForStep(pat, t.step)}</p>
+                  <button type="button" className="btn btn-sm btn-ghost journal-track-apply" onClick={() => applyPrompt({ id: `track-${t.patternId}`, emoji: pat.emoji, text: questionForStep(pat, t.step) })}>
+                    Répondre à cette étape
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {/* Composer */}
       <div className="journal-composer">

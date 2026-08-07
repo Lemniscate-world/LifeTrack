@@ -222,6 +222,18 @@ export interface JournalEntry {
   createdAt: string;          // ISO timestamp
 }
 
+/** Progressive healing state of a single psychoanalysis pattern (persisted). */
+export interface PatternTrack {
+  patternId: string;
+  /** Station of healing, 0..MAX_STEP (see patternProgress.STEPS). */
+  step: number;
+  /** Total number of distinct days re-written about. */
+  seenCount: number;
+  /** Local day (YYYY-MM-DD) it was last written about. */
+  lastSeen: string;
+  createdAt: string;
+}
+
 // --- Challenges (v0.5.0) ---
 // A persistent, adaptive challenge attached to a habit. Unlike the old static
 // 30-day view, challenges are stored, can be customized (duration + daily goal)
@@ -289,6 +301,7 @@ export interface AppData {
   challenges: Challenge[];
   personas: Persona[];
   levers: Lever[];
+  patternTracks?: PatternTrack[];
   preferences: UserPreferences;
 }
 

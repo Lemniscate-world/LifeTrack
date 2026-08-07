@@ -13,12 +13,14 @@ import {
   patternTrend,
   patternMoodImpact,
   suggestedQuestions,
+  allPatternsById,
   type SuggestedQuestion,
   type PatternGroup,
 } from './psychoanalysis';
-import { exportAllData, getPreferences, subscribe } from './store';
+import { exportAllData, getPreferences, subscribe, getPatternTracks } from './store';
 import { buildAiContext } from './aiContext';
 import type { AiChatMessage } from './aiAnalysis';
+import { STEPS, MAX_STEP, averageProgress, bucketTracks } from './patternProgress';
 
 const AI_FRAMES: { id: string; emoji: string; name: string }[] = [
   { id: 'cognitive', emoji: '🧠', name: 'Cognitif (Beck)' },
@@ -60,6 +62,11 @@ export default function PsychoanalysisView() {
   const trend = patternTrend(checkIns, notes, urges);
   const impacts = patternMoodImpact(checkIns, notes, urges, moods);
   const questions = suggestedQuestions(checkIns, notes, urges);
+
+  const tracks = (() => { try { return getPatternTracks(); } catch { return []; } })();
+  const patternsById = (() => { try { return allPatternsById(); } catch { return new Map(); } })();
+  const buckets = bucketTracks(tracks);
+  const overall = averageProgress(tracks);
 
   // --- AI chat state ---
   const [frame, setFrame] = useState('cognitive');
@@ -235,6 +242,43 @@ export default function PsychoanalysisView() {
               if (last > first) return '⚠️ Tes schémas négatifs augmentent récemment. Demande à la psychoanalyse.';
               return '↔️ Tes schémas sont stables. Des contre-pas réguliers peuvent les faire descendre.';
             })()}
+          </div>
+        </div>
+      )}
+
+      {tracks.length > 0 && (
+        <div className="psycho-tracks">
+          <div className="psycho-tracks-header">
+            <h3>🧬 Failles en travail</h3>
+            <span className="psycho-tracks-sub">
+              Chaque jour où tu en reparles dans le journal, le schéma avance d'une étape
+              (Identifier → Comprendre → Contre-action → Intégrer → Transcender).
+            </span>
+            <div className="psycho-tracks-summary">
+              <span className="psycho-track-chip">🔍 {buckets.fresh} en découverte</span>
+              <span className="psycho-track-chip">⚔️ {buckets.working} en travail</span>
+              <span className="psycho-track-chip">🎓 {buckets.mastered} transformées</span>
+              <span className="psycho-track-chip">global {Math.round(overall * 100)}%</span>
+            </div>
+          </div>
+          <div className="psycho-track-list">
+            {tracks.slice(0, 6).map((t) => {
+              const pat = patternsById.get(t.patternId);
+              if (!pat) return null;
+              const step = Math.max(0, Math.min(t.step, MAX_STEP));
+              const pct = Math.round((t.step / MAX_STEP) * 100);
+              return (
+                <div key={t.patternId} className="psycho-track-row">
+                  <div className="psycho-track-top">
+                    <span className="psycho-track-name">{pat.emoji} {pat.name}</span>
+                    <span className="psycho-track-step">{STEPS[step].emoji} {STEPS[step].label} · {t.seenCount} mention(s)</span>
+                  </div>
+                  <div className="journal-track-bar">
+                    <div className="journal-track-bar-fill" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

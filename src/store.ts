@@ -1,4 +1,4 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalPersonality, Challenge, Persona, Lever } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalPersonality, Challenge, Persona, Lever, PatternTrack } from './types';
 import { computeStreakStats } from './stats';
 import { computeChallengeProgress } from './challenges';
 import {
@@ -194,6 +194,7 @@ function sanitizeData(raw: unknown): AppData {
     challenges: [],
     personas: [],
     levers: [],
+    patternTracks: [],
     preferences: { darkMode: false, theme: '' },
   };
   if (!raw || typeof raw !== 'object') return empty;
@@ -345,6 +346,7 @@ function sanitizeData(raw: unknown): AppData {
     challenges: Array.isArray(obj.challenges) ? obj.challenges.filter(isValidChallenge) as Challenge[] : [],
     personas: validPersonas,
     levers: Array.isArray(obj.levers) ? obj.levers.filter(isValidLever) as Lever[] : [],
+    patternTracks: Array.isArray(obj.patternTracks) ? obj.patternTracks.filter((e: unknown) => e && typeof e === 'object' && 'patternId' in (e as object)) as PatternTrack[] : [],
     preferences: sanitizePreferences(obj.preferences),
   };
 }
@@ -719,6 +721,7 @@ function freshData(): AppData {
     challenges: [],
     personas: [],
     levers: [],
+    patternTracks: [],
     preferences: { darkMode: false, theme: '' },
   };
 }
@@ -1912,6 +1915,16 @@ export function addLever(content: string, effect?: string, notes?: string): Leve
 
 export function deleteLever(id: string): void {
   data.levers = data.levers.filter((l) => l.id !== id);
+  notify();
+}
+
+// --- Pattern progress (v0.5.2): progressive healing of psychoanalysis patterns ---
+export function getPatternTracks(): PatternTrack[] {
+  return [...(data.patternTracks ?? [])];
+}
+
+export function replacePatternTracks(tracks: PatternTrack[]): void {
+  data.patternTracks = tracks;
   notify();
 }
 

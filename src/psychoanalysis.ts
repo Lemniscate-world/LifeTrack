@@ -432,7 +432,7 @@ export const ACT_PATTERNS: NegativePattern[] = [
 ];
 
 /** Every pattern across every frame. */
-const ALL_PATTERNS: { frame: string; patterns: NegativePattern[] }[] = [
+export const ALL_PATTERNS: { frame: string; patterns: NegativePattern[] }[] = [
   { frame: 'cognitive', patterns: NEGATIVE_PATTERNS },
   { frame: 'psychanalytic', patterns: DEFENSE_PATTERNS },
   { frame: 'jungian', patterns: JUNGIAN_PATTERNS },
@@ -445,6 +445,13 @@ const ALL_PATTERNS: { frame: string; patterns: NegativePattern[] }[] = [
 export interface PatternGroup {
   source: 'cognitive' | 'psychanalytic' | 'jungian' | 'act' | 'schema' | 'attachment' | 'ta';
   hits: PatternHit[];
+}
+
+/** Map every known pattern id to its definition, across all frames. */
+export function allPatternsById(): Map<string, NegativePattern> {
+  const map = new Map<string, NegativePattern>();
+  for (const { patterns } of ALL_PATTERNS) for (const p of patterns) map.set(p.id, p);
+  return map;
 }
 
 /** Detect across all frameworks, grouped by frame (deep multi-lens view). */
