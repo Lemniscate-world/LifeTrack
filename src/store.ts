@@ -1,4 +1,4 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalThread, JournalPersonality, Challenge, Persona, Lever, PatternTrack } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalThread, JournalPersonality, Challenge, Persona, Lever, PatternTrack, ReflectionEntry, ReflectionKind } from './types';
 import { computeStreakStats } from './stats';
 import { computeChallengeProgress } from './challenges';
 import {
@@ -196,6 +196,7 @@ function sanitizeData(raw: unknown): AppData {
     personas: [],
     levers: [],
     patternTracks: [],
+    reflections: [],
     preferences: { darkMode: false, theme: '' },
   };
   if (!raw || typeof raw !== 'object') return empty;
@@ -349,6 +350,7 @@ function sanitizeData(raw: unknown): AppData {
     personas: validPersonas,
     levers: Array.isArray(obj.levers) ? obj.levers.filter(isValidLever) as Lever[] : [],
     patternTracks: Array.isArray(obj.patternTracks) ? obj.patternTracks.filter((e: unknown) => e && typeof e === 'object' && 'patternId' in (e as object)) as PatternTrack[] : [],
+    reflections: Array.isArray(obj.reflections) ? obj.reflections.filter((r: unknown) => r && typeof r === 'object' && 'kind' in (r as object) && 'question' in (r as object) && 'dedupeKey' in (r as object)) as ReflectionEntry[] : [],
     preferences: sanitizePreferences(obj.preferences),
   };
 }
@@ -725,6 +727,7 @@ function freshData(): AppData {
     personas: [],
     levers: [],
     patternTracks: [],
+    reflections: [],
     preferences: { darkMode: false, theme: '' },
   };
 }
@@ -1814,6 +1817,50 @@ export function tagJournalEntryThread(entryId: string, threadId: string | undefi
     const thread = data.journalThreads.find((t) => t.id === threadId);
     if (thread) thread.updatedAt = new Date().toISOString();
   }
+  notify();
+}
+
+// --- Reflections (v0.5.2): the self-improvement loop ---
+// LifeTrack detects observations in the user's own data, poses them as open
+// questions, and persists the answers. Persisting is what makes the loop real:
+// the same insight is not re-asked (filterNewReflections), and the answer
+// becomes part of the data the AI reasons over.
+
+export function getReflections(): ReflectionEntry[] {
+  return [...(data.reflections ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export function getOpenReflections(): ReflectionEntry[] {
+  return getReflections().filter((r) => r.status === 'open');
+}
+
+export function addReflection(d: { kind: ReflectionKind; title: string; question: string; context: string; habitIds: string[]; dedupeKey: string }): ReflectionEntry {
+  const entry: ReflectionEntry = { ...d, id: crypto.randomUUID(), createdAt: new Date().toISOString(), status: 'open' };
+  if (!data.reflections) data.reflections = [];
+  data.reflections.push(entry);
+  notify();
+  return entry;
+}
+
+export function answerReflection(id: string, answer: string): void {
+  const r = (data.reflections ?? []).find((x) => x.id === id);
+  if (!r) return;
+  r.status = 'answered';
+  r.answer = answer;
+  notify();
+}
+
+export function reopenReflection(id: string): void {
+  const r = (data.reflections ?? []).find((x) => x.id === id);
+  if (!r) return;
+  r.status = 'open';
+  r.answer = undefined;
+  notify();
+}
+
+export function deleteReflection(id: string): void {
+  if (!data.reflections) return;
+  data.reflections = data.reflections.filter((x) => x.id !== id);
   notify();
 }
 

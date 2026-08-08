@@ -251,6 +251,39 @@ export interface PatternTrack {
   createdAt: string;
 }
 
+// --- Reflections (v0.5.2) ---
+// The self-improvement loop. LifeTrack derives observations from the user's
+// own data, poses a sharp open question, and stores the answer. Unless the
+// answer is persisted, LifeTrack can't learn; everything here is persisted.
+export type ReflectionKind =
+  | 'stale-win'         // a past victory is fading
+  | 'recurring-leak'    // a habit keeps being missed repeatedly
+  | 'neglect'           // a habit is quietly ignored
+  | 'pattern-progress'  // a psycho pattern is improving → keep going
+  | 'repetition'        // the same temptation keeps repeating
+  | 'recovery'          // a stack/dependency dropped and never resumed
+  | 'momentum'          // several things moving → find the keystone
+  | 'confidence';       // also doubtful: a newly strong habit can be deepened
+
+/** A candidate open question produced by the engine (not yet persisted). */
+export interface DetectedReflection {
+  kind: ReflectionKind;
+  title: string;          // the observation — what the data says
+  question: string;       // the penetrating question posed to the user
+  context: string;        // data grounding (short, human)
+  habitIds: string[];
+  /** Stable dedupe handle so the same observation isn't re-asked daily. */
+  dedupeKey: string;
+}
+
+/** A persisted reflection: the question + the user's answer (the learning). */
+export interface ReflectionEntry extends DetectedReflection {
+  id: string;
+  createdAt: string;
+  status: 'open' | 'answered';
+  answer?: string;
+}
+
 // --- Challenges (v0.5.0) ---
 // A persistent, adaptive challenge attached to a habit. Unlike the old static
 // 30-day view, challenges are stored, can be customized (duration + daily goal)
@@ -320,6 +353,7 @@ export interface AppData {
   personas: Persona[];
   levers: Lever[];
   patternTracks?: PatternTrack[];
+  reflections?: ReflectionEntry[];
   preferences: UserPreferences;
 }
 

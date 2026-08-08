@@ -4,11 +4,12 @@
 // Strategist (planning). Uses the configured AI provider (cloud/local/auto).
 
 import { useState, useEffect, useMemo } from 'react';
-import { getJournalEntries, addJournalEntry, deleteJournalEntry, getJournalThreads, startJournalThread, deleteJournalThread, tagJournalEntryThread, exportAllData, getPreferences, subscribe, getPatternTracks, replacePatternTracks } from './store';
+import { getJournalEntries, addJournalEntry, deleteJournalEntry, getJournalThreads, startJournalThread, deleteJournalThread, tagJournalEntryThread, exportAllData, getPreferences, subscribe, getPatternTracks, replacePatternTracks, getReflections, addReflection, answerReflection } from './store';
 import { buildAiContext } from './aiContext';
 import { buildJournalPrompts, type JournalPrompt } from './journalPrompts';
 import { detectNegativePatterns, allPatternsById } from './psychoanalysis';
 import { advanceTracks, questionForStep, STEPS, MAX_STEP } from './patternProgress';
+import { detectReflections, filterNewReflections, reflectionEmoji, type DetectedReflection } from './reflection';
 import type { JournalPersonality } from './types';
 
 const PERSONALITIES: { id: JournalPersonality; name: string; emoji: string; tagline: string; color: string }[] = [
@@ -29,6 +30,8 @@ export default function JournalView() {
   const [promptRandom, setPromptRandom] = useState(0);
   // Active discussion thread: when non-null, the next reflection is tagged to it.
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  // Reflection answers being drafted (id → draft text).
+  const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
   const [today] = useState(() => {
     const d = new Date();
     d.setHours(12, 0, 0, 0);
@@ -74,6 +77,43 @@ export default function JournalView() {
     try { return getPatternTracks(); } catch { return []; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick]);
+
+  // Self-improvement loop: current data → open questions, minus any already
+  // asked/persisted recently under the same dedupeKey.
+  const reflections = useMemo(() => {
+    try {
+      const all = exportAllData();
+      const detected = detectReflections({
+        habits: all.habits,
+        checkIns: all.checkIns,
+        notes: all.notes,
+        urges: all.urges,
+        challenges: all.challenges,
+        journalEntries: all.journalEntries,
+        tracks: all.patternTracks,
+      });
+      const fresh = filterNewReflections(detected, getReflections(), 7);
+      return fresh
+        .sort((a, b) => (b.habitIds.length - a.habitIds.length))
+        .slice(0, 4);
+    } catch { return []; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick, entries.length]);
+
+  const handleAnswerReflection = (r: DetectedReflection) => {
+    const answer = (answerDrafts[r.dedupeKey] ?? '').trim();
+    if (!answer) return;
+    const entry = addReflection({
+      kind: r.kind,
+      title: r.title,
+      question: r.question,
+      context: r.context,
+      habitIds: r.habitIds,
+      dedupeKey: r.dedupeKey,
+    });
+    answerReflection(entry.id, answer);
+    setAnswerDrafts((d) => ({ ...d, [r.dedupeKey]: '' }));
+  };
 
   const allFrames = useMemo(() => {
     try { return allPatternsById(); } catch { return new Map<string, import('./psychoanalysis').NegativePattern>(); }
@@ -237,6 +277,48 @@ export default function JournalView() {
         </div>
         {error && <p className="journal-error">{error}</p>}
       </div>
+
+      {/* Réflexions — les questions que LifeTrack se pose sur TES données */}
+      {reflections.length > 0 && (
+        <div className="journal-reflections">
+          <div className="journal-reflections-header">
+            <h3>🔮 Le regard de LifeTrack</h3>
+            <span className="journal-reflections-hint">
+              Il observe tes données et se pose des questions. Réponds-les :
+              la leçon est enregistrée et nourrit l'analyse future.
+            </span>
+          </div>
+          <ul className="journal-reflection-list">
+            {reflections.map((r) => (
+              <li key={r.dedupeKey} className="journal-reflection">
+                <div className="journal-reflection-top">
+                  <span className="journal-reflection-emoji">{reflectionEmoji(r.kind)}</span>
+                  <span className="journal-reflection-title">{r.title}</span>
+                </div>
+                <p className="journal-reflection-question">{r.question}</p>
+                <span className="journal-reflection-context">{r.context}</span>
+                <div className="journal-reflection-answer">
+                  <textarea
+                    className="form-textarea journal-reflection-textarea"
+                    rows={2}
+                    placeholder="Ta leçon, en une phrase ou deux… (sera enregistrée comme donnée)"
+                    value={answerDrafts[r.dedupeKey] ?? ''}
+                    onChange={(e) => setAnswerDrafts((d) => ({ ...d, [r.dedupeKey]: e.target.value }))}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-primary"
+                    onClick={() => handleAnswerReflection(r)}
+                    disabled={!(answerDrafts[r.dedupeKey] ?? '').trim()}
+                  >
+                    Enregistrer la leçon
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Fils de discussion — questions persistées qui ouvrent une conversation */}
       {threads.length > 0 && (
