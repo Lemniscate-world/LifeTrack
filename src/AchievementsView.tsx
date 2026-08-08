@@ -17,8 +17,13 @@ import {
   addPersona,
   updatePersona,
   deletePersona,
+  addChallenge,
 } from './store';
 import { buildAiContext } from './aiContext';
+import {
+  detectFadedWins,
+  type FadedWin,
+} from './boost';
 import {
   computeXp,
   levelProgress,
@@ -143,7 +148,14 @@ export default function AchievementsView() {
     [data],
   );
   const upNext = useMemo(() => nextMedals(medals, 3), [medals]);
-  const dayPhrase = useMemo(() => phraseOfDay(new Date()), [tick]);
+  const fadedWins = useMemo(
+    () => detectFadedWins(data.habits, data.checkIns),
+    [data],
+  );
+  const dayPhrase = useMemo(() => {
+    void tick; // re-run whenever the store notifies
+    return phraseOfDay(new Date());
+  }, [tick]);
   const personas = useMemo(() => {
     void tick; // re-run whenever the store notifies
     return getPersonas();
@@ -178,6 +190,12 @@ export default function AchievementsView() {
 
   const handleDismissSuggestion = (name: string) => {
     setDismissedSuggestions((prev) => [...prev, name]);
+  };
+
+  const handleReviveWin = (w: FadedWin) => {
+    const { days, dailyGoal, adaptive } = w.revive;
+    const name = `Relance record : ${w.habit.name} (${w.bestStreak} j)`;
+    addChallenge(w.habit.id, name, days, dailyGoal, adaptive);
   };
 
   const handleSummarize = async () => {
@@ -305,6 +323,40 @@ export default function AchievementsView() {
             </div>
           )}
         </div>
+
+        {/* Relance of old wins: don't let your proven records fade silently */}
+        {fadedWins.length > 0 && (
+          <div className="gamification-relive">
+            <h3>🏛️ Anciennes victoires à relancer</h3>
+            <span className="gamification-relive-hint">
+              Tu as déjà prouvé ces séries record. Elles se sont tues — veux-tu les re-chaîner en un
+              challenge adaptatif ?
+            </span>
+            <ul className="gamification-relive-list">
+              {fadedWins.slice(0, 4).map((w) => (
+                <li key={w.habit.id} className="gamification-relive-item">
+                  <div className="gamification-relive-body">
+                    <span className="gamification-relive-name">{w.habit.name}</span>
+                    <span className="gamification-relive-meta">
+                      record {w.bestStreak} j il y a {w.daysSinceBest} j · {w.currentStreak} j en cours
+                      {w.faded ? ' · en sourdine' : ''}
+                    </span>
+                  </div>
+                  <div className="gamification-relive-actions">
+                    <span className="gamification-relive-reason">{w.suggestion.reason}</span>
+                    <button
+                      className="btn btn-sm btn-primary"
+                      onClick={() => handleReviveWin(w)}
+                      title="Crée un challenge pour remonter ce record"
+                    >
+                      🔥 Relancer ({w.revive.days} j)
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Comparison vs last week */}
         <div className="gamification-compare">
