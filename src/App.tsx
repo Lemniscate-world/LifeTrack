@@ -1621,7 +1621,14 @@ const DEFAULT_CATEGORIES = [
       ) : view === 'challenge' ? (
         <ChallengeView habits={habits} checkIns={allCheckIns} />
       ) : view === 'stacks' ? (
-        <StacksView checkIns={allCheckIns} habits={habits} />
+        <StacksView
+          checkIns={allCheckIns}
+          habits={habits}
+          onSetParent={(childId, parentId, when) => {
+            if (parentId) linkHabitToParentStore(childId, parentId, when ?? 'after');
+            else unlinkHabitFromParentStore(childId);
+          }}
+        />
       ) : view === 'insights' ? (
         <InsightsView habits={habits} checkIns={allCheckIns} onLink={(childId, parentId) => {
           if (parentId) linkHabitToParentStore(childId, parentId);

@@ -2850,6 +2850,7 @@ body {
 
 .stack-step {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   padding: 5px 8px;
@@ -2930,6 +2931,29 @@ body {
   font-size: 11px;
   color: var(--text-muted);
   font-style: italic;
+}
+
+.stack-step-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stack-step-edit-btn {
+  opacity: .6;
+  font-size: 13px;
+}
+
+.stack-step:hover .stack-step-edit-btn {
+  opacity: 1;
+}
+
+.stack-edit-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .stack-complete-msg {
@@ -3722,6 +3746,7 @@ body {
 
 .chaos-habit {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   font-size: 12px;
@@ -3769,6 +3794,83 @@ body {
 .chaos-habit.triggered .chaos-habit-status {
   color: #ef4444;
   font-weight: 600;
+}
+
+.chaos-habit-progress {
+  grid-column: 1 / -1;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.chaos-habit-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width .3s ease;
+}
+
+.chaos-habit-progress-fill.hot {
+  background: #ef4444;
+}
+
+.chaos-history {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin: 16px 0;
+}
+
+.chaos-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.chaos-history-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chaos-trend {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chaos-trend.rise { color: #ef4444; }
+.chaos-trend.fall { color: #16a34a; }
+.chaos-trend.flat { color: var(--text-muted); }
+
+.chaos-sparkline {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 46px;
+}
+
+.chaos-spark-col {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.chaos-spark-bar {
+  width: 100%;
+  border-radius: 2px 2px 0 0;
+  background: var(--primary);
+  opacity: .75;
+  height: 100%;
+}
+
+.chaos-spark-bar[data-hot="true"] {
+  background: #ef4444;
+  opacity: 1;
 }
 
 /* ============ ACHIEVEMENTS ============ */

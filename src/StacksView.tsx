@@ -1,8 +1,10 @@
 // src/StacksView.tsx
 // Stacks view: shows today's status for every active stack (a habit with at
 // least one direct non-archived child). Uses store.getStacks() to read.
+// Now also lets the user relink children to a different parent (or detach them)
+// and change the timing directly in the stack, right where they see it.
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { Habit, CheckIn } from './types';
 import { computeStacks, getNextStackSuggestion } from './stacks';
 import type { StackStatus, StackStepState } from './stacks';
@@ -10,6 +12,9 @@ import type { StackStatus, StackStepState } from './stacks';
 interface Props {
   habits: Habit[];
   checkIns: CheckIn[];
+  /** Visual relink: set/clear a child's parent anchor + timing. */
+  // eslint-disable-next-line no-unused-vars
+  onSetParent?: (childId: string, parentId: string | null, when?: 'before' | 'after' | 'with') => void;
 }
 
 function stateLabel(state: StackStepState): { glyph: string; label: string; className: string } {
@@ -21,7 +26,7 @@ function stateLabel(state: StackStepState): { glyph: string; label: string; clas
   }
 }
 
-export function StacksView({ habits, checkIns }: Props) {
+export function StacksView({ habits, checkIns, onSetParent }: Props) {
   const stacks: StackStatus[] = useMemo(
     () => computeStacks(habits, checkIns),
     [habits, checkIns],
@@ -32,14 +37,30 @@ export function StacksView({ habits, checkIns }: Props) {
     [habits, checkIns],
   );
 
+  // Which step is being relinked (by habitId), if any.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftParent, setDraftParent] = useState('');
+  const [draftWhen, setDraftWhen] = useState<'before' | 'after' | 'with'>('after');
+
+  const startEdit = (habitId: string, parentId: string | undefined, when: StackStatus['steps'][number]['stackWhen']) => {
+    setEditingId(habitId);
+    setDraftParent(parentId ?? '');
+    setDraftWhen((when ?? 'after') as 'before' | 'after' | 'with');
+  };
+
+  const commitEdit = (childId: string) => {
+    if (onSetParent) onSetParent(childId, draftParent === '' ? null : draftParent, draftWhen);
+    setEditingId(null);
+  };
+
   if (stacks.length === 0) {
     return (
       <div className="stacks-container" role="region" aria-label="Habit stacks">
 
         <h2 className="stacks-title">Habit Stacks</h2>
         <p className="stacks-empty">
-          No stacks yet. Click the link icon on any habit row to anchor it to another
-          habit — for example, <em>after coffee → meditate</em>.
+          No stacks yet. In the Grid view, click the link icon on any habit row to anchor it
+          after another — for example, <em>after coffee → meditate</em>.
         </p>
       </div>
     );
@@ -49,8 +70,8 @@ export function StacksView({ habits, checkIns }: Props) {
     <div className="stacks-container" role="region" aria-label="Habit stacks">
       <h2 className="stacks-title">Habit Stacks</h2>
       <p className="stacks-hint">
-        Children are <em>blocked</em> until their parent is checked for today. Use the
-        link icon on each row to manage anchors.
+        Children are <em>blocked</em> until their parent is checked for today. Click a
+        step's ✎ to relink or detach it, then Save.
       </p>
 
       {nextSuggestion && (
@@ -88,6 +109,7 @@ export function StacksView({ habits, checkIns }: Props) {
             <ol className="stack-steps">
               {stack.steps.map((step) => {
                 const sl = stateLabel(step.state);
+                const isEditing = editingId === step.habitId;
                 return (
                   <li
                     key={step.habitId}
@@ -119,6 +141,54 @@ export function StacksView({ habits, checkIns }: Props) {
                         </span>
                       );
                     })()}
+                    {onSetParent && (
+                      <span className="stack-step-actions">
+                        {isEditing ? (
+                          <span className="stack-edit-inline">
+                            <select
+                              className="stack-select-sm"
+                              value={draftParent}
+                              onChange={(e) => setDraftParent(e.target.value)}
+                              aria-label="Parent habit"
+                            >
+                              <option value="">— none (detach) —</option>
+                              {habits
+                                .filter((h) => h.id !== step.habitId && !h.archived)
+                                .sort((a, b) => a.name.localeCompare(b.name))
+                                .map((h) => (
+                                  <option key={h.id} value={h.id}>{h.name}</option>
+                                ))}
+                            </select>
+                            <select
+                              className="stack-select-sm"
+                              value={draftWhen}
+                              onChange={(e) => setDraftWhen(e.target.value as 'before' | 'after' | 'with')}
+                              aria-label="Timing"
+                            >
+                              <option value="before">↑ before</option>
+                              <option value="after">↓ after</option>
+                              <option value="with">↔ with</option>
+                            </select>
+                            <button type="button" className="btn btn-sm btn-primary" onClick={() => commitEdit(step.habitId)}>
+                              Save
+                            </button>
+                            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEditingId(null)}>
+                              ✕
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn-icon stack-step-edit-btn"
+                            title="Edit link / timing"
+                            aria-label={`Edit link for ${step.habitName}`}
+                            onClick={() => startEdit(step.habitId, step.parentId, step.stackWhen)}
+                          >
+                            ✎
+                          </button>
+                        )}
+                      </span>
+                    )}
                   </li>
                 );
               })}
