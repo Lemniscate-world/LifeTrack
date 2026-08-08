@@ -2115,6 +2115,47 @@ body {
   box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.3);
 }
 
+/* ============ WEEK STRIPE (current ISO week in the habits column) ============ */
+.week-stripe {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.week-stripe-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.4px;
+  margin-right: 2px;
+}
+
+.week-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--border);
+  border: 1px solid color-mix(in srgb, var(--primary, #4f46e5) 25%, transparent);
+  transition: background 0.15s ease;
+}
+
+.week-dot.done {
+  background: var(--primary);
+}
+
+.week-dot.today {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.week-stripe-count {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-left: 2px;
+}
+
 /* ============ NOTE POPUP ============ */
 .note-popup-overlay {
   position: fixed;

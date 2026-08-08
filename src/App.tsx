@@ -82,6 +82,7 @@ import { computeXp, levelForXp, rankForLevel } from './gamification';
 import Confetti from './Confetti';
 import { getDailyEntryMantra, todayStr, shouldShowMantraNotification, markMantraNotificationShown, MANTRA_DOMAINS, sendSystemNotification } from './mantras';
 import { buildMemoryReminder, buildOnThisDay } from './memories';
+import { currentWeekCells, countWeekDone } from './gridWeek';
 
 // Detected at module load (window is always present in browser and Tauri).
 // In test environments this is false. Module-level constant is acceptable
@@ -1268,6 +1269,26 @@ const DEFAULT_CATEGORIES = [
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9.66 2.97a10 10 0 104.68 0"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
                           </button>
                         </div>
+                        {(() => {
+                          if (!isCurrentMonth) return null;
+                          const weekCells = currentWeekCells(today);
+                          const doneKeys = new Set<string>();
+                          weekCells.forEach((c) => { if (getCheckInCount(habit.id, c.dateKey) > 0) doneKeys.add(c.dateKey); });
+                          const doneInWeek = countWeekDone(weekCells, doneKeys);
+                          return (
+                            <div className="week-stripe" title={`This week: ${doneInWeek}/7 days done`}>
+                              <span className="week-stripe-label">Wk</span>
+                              {weekCells.map((c) => (
+                                <span
+                                  key={c.dateKey}
+                                  className={`week-dot ${getCheckInCount(habit.id, c.dateKey) > 0 ? 'done' : ''} ${c.isToday ? 'today' : ''}`}
+                                  title={`${c.dateKey}${getCheckInCount(habit.id, c.dateKey) > 0 ? ' · done' : ''}`}
+                                />
+                              ))}
+                              <span className="week-stripe-count">{doneInWeek}/7</span>
+                            </div>
+                          );
+                        })()}
                         {editingWhyHabitId === habit.id && (
                           <div className="habit-why-edit">
                             <div className="why-header">Why do you do "{habit.name}"?</div>
