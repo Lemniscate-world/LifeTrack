@@ -162,9 +162,17 @@ export default function AchievementsView() {
   }, [tick]);
   const personaStats = useMemo(
     () =>
-      personas
-        .map((p) => personaProgress(p, data.habits, data.checkIns))
-        .filter((p): p is NonNullable<typeof p> => !!p),
+      personas.map((p) => {
+        const progress = personaProgress(p, data.habits, data.checkIns);
+        // Reflective personas (accepted suggestions with no habits) still show;
+        // they just have no completion bar.
+        return {
+          persona: p,
+          progress,
+          pct: progress?.pct ?? null,
+          habits: progress?.habits ?? [],
+        };
+      }),
     [personas, data],
   );
   const activeHabits = data.habits.filter((h) => !h.archived);
@@ -549,10 +557,16 @@ export default function AchievementsView() {
                   </button>
                 </div>
                 <div className="gamification-persona-progress">
-                  <div className="gamification-persona-bar">
-                    <div style={{ width: `${pp.pct}%` }} />
-                  </div>
-                  <span className="gamification-persona-pct">{pp.pct}%</span>
+                  {pp.pct !== null ? (
+                    <>
+                      <div className="gamification-persona-bar">
+                        <div style={{ width: `${pp.pct}%` }} />
+                      </div>
+                      <span className="gamification-persona-pct">{pp.pct}%</span>
+                    </>
+                  ) : (
+                    <span className="gamification-persona-reflective">🔭 persona d'auto-observation — vis à vis du journal</span>
+                  )}
                 </div>
                 <div className="gamification-persona-habit-chips">
                   {pp.habits.map((h) => (
