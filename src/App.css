@@ -7560,20 +7560,37 @@ body {
 /* ============ DRAG HANDLE v0.3.2 ============ */
 
 .col-drag-handle {
-  width: 24px !important;
-  min-width: 24px !important;
-  padding: 2px !important;
+  width: 30px !important;
+  min-width: 30px !important;
+  padding: 4px 0 !important;
   text-align: center !important;
   cursor: grab;
   color: var(--text-muted);
-  opacity: 0;
-  transition: opacity 0.1s;
+  opacity: 0.35;
+  transition: opacity 0.12s, background 0.12s;
   user-select: none;
   vertical-align: middle !important;
+  border-radius: 4px;
+}
+
+.drag-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: transparent;
+  transition: background 0.12s, color 0.12s;
+}
+
+.drag-grip:hover {
+  background: var(--accent-soft, rgba(139, 92, 246, 0.15));
+  color: var(--text);
 }
 
 .habit-grid tbody tr:hover .col-drag-handle {
-  opacity: 0.5;
+  opacity: 0.85;
 }
 
 .col-drag-handle:active {
@@ -7595,8 +7612,17 @@ body {
   z-index: 10;
 }
 
+.habit-row-dragging .col-drag-handle,
+.habit-row-dragging .drag-grip {
+  opacity: 1;
+}
+
 .habit-row-dragging td {
   border-color: transparent !important;
+}
+
+.habit-row-dropping {
+  transition: none;
 }
 
 /* ============ MULTI-NOTE POPUP v0.3.2 ============ */
