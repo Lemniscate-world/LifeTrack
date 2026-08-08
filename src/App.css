@@ -8413,6 +8413,26 @@ body {
   opacity: 0.85;
 }
 
+.psycho-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.psycho-card-track {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.psycho-card-track-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
 .psycho-none {
   font-size: 13px;
   color: var(--text-muted);

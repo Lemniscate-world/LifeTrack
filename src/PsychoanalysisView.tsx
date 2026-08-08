@@ -16,11 +16,12 @@ import {
   allPatternsById,
   type SuggestedQuestion,
   type PatternGroup,
+  type NegativePattern,
 } from './psychoanalysis';
-import { exportAllData, getPreferences, subscribe, getPatternTracks } from './store';
+import { exportAllData, getPreferences, subscribe, getPatternTracks, replacePatternTracks } from './store';
 import { buildAiContext } from './aiContext';
 import type { AiChatMessage } from './aiAnalysis';
-import { STEPS, MAX_STEP, averageProgress, bucketTracks } from './patternProgress';
+import { STEPS, MAX_STEP, averageProgress, bucketTracks, advanceTracks, questionForStep } from './patternProgress';
 
 const AI_FRAMES: { id: string; emoji: string; name: string }[] = [
   { id: 'cognitive', emoji: '🧠', name: 'Cognitif (Beck)' },
@@ -110,6 +111,26 @@ export default function PsychoanalysisView() {
     ask(q.question);
   };
 
+  const trackFor = (patternId: string) => tracks.find((t) => t.patternId === patternId);
+
+  // "Travailler cette faille": advance the persistent track one step (or open
+  // it) and load the step's question into the chat so the user can answer it.
+  const workOnPattern = (pattern: NegativePattern) => {
+    const now = new Date();
+    const next = advanceTracks(tracks, [{ pattern, count: 1, sample: '' }], now);
+    replacePatternTracks(next);
+    const t = next.find((x) => x.patternId === pattern.id);
+    const question = questionForStep(pattern, t ? t.step : 0);
+    ask(question);
+  };
+
+  // "Contre-moteur": ask the AI to design an exact counter for this pattern,
+  // grounded in the pattern's own anti-dote from the literature.
+  const counterPattern = (pattern: NegativePattern) => {
+    if (loading) return;
+    ask(`Le schéma « ${pattern.emoji} ${pattern.name} » apparaît dans mes écrits. ${pattern.description}\n\nConcentre-toi sur le contre-maté que tu proposes : ${pattern.counter}. Conçois-moi 1 à 3 plans d'action précis et minuscules à appliquer dès aujourd'hui pour le neutraliser.`);
+  };
+
   return (
     <div className="psycho-section">
       <div className="psycho-header">
@@ -136,6 +157,24 @@ export default function PsychoanalysisView() {
               )}
               <p className="psycho-card-counter">💥 {hit.pattern.counter}</p>
               <span className="psycho-card-source">{hit.pattern.source}</span>
+              {trackFor(hit.pattern.id) && (
+                <div className="psycho-card-track">
+                  <span className="psycho-card-track-label">
+                    🧬 en travail · {STEPS[Math.min(trackFor(hit.pattern.id)!.step, MAX_STEP)].emoji} {STEPS[Math.min(trackFor(hit.pattern.id)!.step, MAX_STEP)].label}
+                  </span>
+                  <div className="journal-track-bar">
+                    <div className="journal-track-bar-fill" style={{ width: `${Math.min(100, Math.round((Math.min(trackFor(hit.pattern.id)!.step, MAX_STEP) / MAX_STEP) * 100))}%` }} />
+                  </div>
+                </div>
+              )}
+              <div className="psycho-card-actions">
+                <button type="button" className="btn btn-sm btn-ghost" disabled={loading} onClick={() => workOnPattern(hit.pattern)}>
+                  ⚔️ Travailler cette faille
+                </button>
+                <button type="button" className="btn btn-sm btn-ghost" disabled={loading} onClick={() => counterPattern(hit.pattern)}>
+                  🛡️ Contre-moteur
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -174,6 +213,14 @@ export default function PsychoanalysisView() {
                       )}
                       <p className="psycho-card-counter">💥 {hit.pattern.counter}</p>
                       <span className="psycho-card-source">{hit.pattern.source}</span>
+                      <div className="psycho-card-actions">
+                        <button type="button" className="btn btn-sm btn-ghost" disabled={loading} onClick={() => workOnPattern(hit.pattern)}>
+                          ⚔️ Travailler cette faille
+                        </button>
+                        <button type="button" className="btn btn-sm btn-ghost" disabled={loading} onClick={() => counterPattern(hit.pattern)}>
+                          🛡️ Contre-moteur
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
