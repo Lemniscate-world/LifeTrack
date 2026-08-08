@@ -6196,6 +6196,97 @@ body {
   color: var(--text-secondary);
 }
 
+/* --- Deep challenges: phase arc + synthesis (v0.5.2) --- */
+.challenge-phases {
+  margin: 14px 0 4px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+
+.challenge-phases-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.challenge-phases-title {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.challenge-phases-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.challenge-phases-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.challenge-phase {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.challenge-phase.met {
+  border-color: #22c55e;
+}
+
+.challenge-phase-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.challenge-phase-label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.challenge-phase-verdict {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.challenge-phase-bar {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.challenge-phase-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.challenge-phase-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.challenge-synthesis {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--accent, #4f46e5) 8%, var(--bg-alt));
+  padding: 8px 10px;
+  border-radius: var(--radius);
+}
+
 .challenge-grid {
   display: grid;
   grid-template-columns: repeat(10, 1fr);
