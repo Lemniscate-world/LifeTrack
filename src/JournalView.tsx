@@ -21,7 +21,7 @@ const PERSONALITIES: { id: JournalPersonality; name: string; emoji: string; tagl
 ];
 
 export default function JournalView() {
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
   const [personality, setPersonality] = useState<JournalPersonality>('coach');
   const [draft, setDraft] = useState('');
   const [reflecting, setReflecting] = useState(false);
@@ -64,14 +64,16 @@ export default function JournalView() {
 
   const threads = useMemo(() => {
     try { return getJournalThreads(); } catch { return []; }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick, entries.length]);
 
   const threadCount = (threadId: string) =>
     entries.filter((e) => e.threadId === threadId).length;
 
   const tracks = useMemo(() => {
     try { return getPatternTracks(); } catch { return []; }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick]);
 
   const allFrames = useMemo(() => {
     try { return allPatternsById(); } catch { return new Map<string, import('./psychoanalysis').NegativePattern>(); }
