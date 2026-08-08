@@ -12,6 +12,10 @@ export interface JournalPrompt {
   emoji: string;
   text: string;
   context?: string;
+  /** Optional source psycho pattern (for progressive work threads). */
+  patternId?: string;
+  /** Optional track step when originating from a pattern-track question. */
+  patternStep?: number;
 }
 
 export interface PromptSet {

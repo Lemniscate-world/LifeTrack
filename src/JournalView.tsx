@@ -4,7 +4,7 @@
 // Strategist (planning). Uses the configured AI provider (cloud/local/auto).
 
 import { useState, useEffect, useMemo } from 'react';
-import { getJournalEntries, addJournalEntry, deleteJournalEntry, exportAllData, getPreferences, subscribe, getPatternTracks, replacePatternTracks } from './store';
+import { getJournalEntries, addJournalEntry, deleteJournalEntry, getJournalThreads, startJournalThread, deleteJournalThread, tagJournalEntryThread, exportAllData, getPreferences, subscribe, getPatternTracks, replacePatternTracks } from './store';
 import { buildAiContext } from './aiContext';
 import { buildJournalPrompts, type JournalPrompt } from './journalPrompts';
 import { detectNegativePatterns, allPatternsById } from './psychoanalysis';
@@ -27,6 +27,8 @@ export default function JournalView() {
   const [reflecting, setReflecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [promptRandom, setPromptRandom] = useState(0);
+  // Active discussion thread: when non-null, the next reflection is tagged to it.
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [today] = useState(() => {
     const d = new Date();
     d.setHours(12, 0, 0, 0);
@@ -45,7 +47,27 @@ export default function JournalView() {
     catch { return { prompts: [], summary: '' }; }
   }, [today, promptRandom]);
 
-  const applyPrompt = (p: JournalPrompt) => setDraft(p.text);
+  const applyPrompt = (p: JournalPrompt) => {
+    setDraft(p.text);
+    // Starting a fresh thread only when a new question is picked; re-applying
+    // the same question keeps the existing thread so the discussion continues.
+    const existing = getJournalThreads().find(
+      (t) => t.question === p.text && (!p.patternId || t.patternId === p.patternId),
+    );
+    setActiveThreadId(existing ? existing.id : startJournalThread({
+      question: p.text,
+      patternId: p.patternId,
+      step: p.patternStep,
+      emoji: p.emoji,
+    }).id);
+  };
+
+  const threads = useMemo(() => {
+    try { return getJournalThreads(); } catch { return []; }
+  }, []);
+
+  const threadCount = (threadId: string) =>
+    entries.filter((e) => e.threadId === threadId).length;
 
   const tracks = useMemo(() => {
     try { return getPatternTracks(); } catch { return []; }
@@ -79,7 +101,8 @@ export default function JournalView() {
         provider: prefs.aiProvider || 'auto',
         apiKey: prefs.aiApiKey || '',
       });
-      addJournalEntry(content, personality, response);
+      const entry = addJournalEntry(content, personality, response);
+      if (activeThreadId) tagJournalEntryThread(entry.id, activeThreadId);
       // Progressive psychological work: detect the patterns in what was just
       // written, advance their tracks, and persist so growth continues later.
       try {
@@ -182,7 +205,7 @@ export default function JournalView() {
                     <div className="journal-track-bar-fill" style={{ width: `${pct}%` }} />
                   </div>
                   <p className="journal-track-question">{questionForStep(pat, t.step)}</p>
-                  <button type="button" className="btn btn-sm btn-ghost journal-track-apply" onClick={() => applyPrompt({ id: `track-${t.patternId}`, emoji: pat.emoji, text: questionForStep(pat, t.step) })}>
+                  <button type="button" className="btn btn-sm btn-ghost journal-track-apply" onClick={() => applyPrompt({ id: `track-${t.patternId}`, emoji: pat.emoji, text: questionForStep(pat, t.step), patternId: t.patternId, patternStep: t.step })}>
                     Répondre à cette étape
                   </button>
                 </li>
@@ -212,6 +235,51 @@ export default function JournalView() {
         </div>
         {error && <p className="journal-error">{error}</p>}
       </div>
+
+      {/* Fils de discussion — questions persistées qui ouvrent une conversation */}
+      {threads.length > 0 && (
+        <div className="journal-threads">
+          <h3>💬 Fils de discussion</h3>
+          <p className="journal-threads-hint">
+            Chaque question cliquée ouvre un fil enregistré : tes réponses successives y restent
+            rangées, même des jours plus tard.
+          </p>
+          {activeThreadId && (
+            <span className="journal-thread-active">
+              Fil actif : continuez à écrire — la prochaine réflexion y sera rattachée.
+            </span>
+          )}
+          <ul className="journal-thread-list">
+            {threads.map((thread) => {
+              const count = threadCount(thread.id);
+              return (
+                <li key={thread.id} className={`journal-thread ${activeThreadId === thread.id ? 'active' : ''}`}>
+                  <button
+                    type="button"
+                    className="journal-thread-open"
+                    onClick={() => {
+                      setActiveThreadId(thread.id);
+                      setDraft(thread.question);
+                    }}
+                  >
+                    <span className="journal-thread-emoji">{thread.emoji ?? '💬'}</span>
+                    <span className="journal-thread-question">{thread.question}</span>
+                    <span className="journal-thread-count">{count} réponse{count > 1 ? 's' : ''}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost journal-thread-delete"
+                    title="Supprimer ce fil (les entrées restent dans l'historique)"
+                    onClick={() => deleteJournalThread(thread.id)}
+                  >
+                    ✕
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {/* History */}
       {entries.length > 0 && (

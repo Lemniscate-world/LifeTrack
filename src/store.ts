@@ -1,4 +1,4 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalPersonality, Challenge, Persona, Lever, PatternTrack } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalThread, JournalPersonality, Challenge, Persona, Lever, PatternTrack } from './types';
 import { computeStreakStats } from './stats';
 import { computeChallengeProgress } from './challenges';
 import {
@@ -191,6 +191,7 @@ function sanitizeData(raw: unknown): AppData {
     urges: [],
     customUrgeTypes: [],
     journalEntries: [],
+    journalThreads: [],
     challenges: [],
     personas: [],
     levers: [],
@@ -343,6 +344,7 @@ function sanitizeData(raw: unknown): AppData {
     urges: Array.isArray(obj.urges) ? obj.urges.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'type' in (e as object)) as UrgeEntry[] : [],
     customUrgeTypes: Array.isArray(obj.customUrgeTypes) ? obj.customUrgeTypes.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'name' in (e as object)) as CustomUrgeType[] : [],
     journalEntries: Array.isArray(obj.journalEntries) ? obj.journalEntries.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'content' in (e as object) && 'personality' in (e as object)) as JournalEntry[] : [],
+    journalThreads: Array.isArray(obj.journalThreads) ? obj.journalThreads.filter((t: unknown) => t && typeof t === 'object' && 'id' in (t as object) && 'question' in (t as object)) as JournalThread[] : [],
     challenges: Array.isArray(obj.challenges) ? obj.challenges.filter(isValidChallenge) as Challenge[] : [],
     personas: validPersonas,
     levers: Array.isArray(obj.levers) ? obj.levers.filter(isValidLever) as Lever[] : [],
@@ -718,6 +720,7 @@ function freshData(): AppData {
     urges: [],
     customUrgeTypes: [],
     journalEntries: [],
+    journalThreads: [],
     challenges: [],
     personas: [],
     levers: [],
@@ -1764,6 +1767,53 @@ export function addJournalEntry(
 
 export function deleteJournalEntry(id: string): void {
   data.journalEntries = data.journalEntries.filter((e) => e.id !== id);
+  notify();
+}
+
+// --- Journal threads (v0.5.2): a question opens a persistent discussion ---
+// Clicking a "rien à écrire" prompt (or a psycho track question) starts a
+// thread. Every subsequent journal entry made from that thread is tagged with
+// its threadId, so the conversation is stored as data and can be reopened.
+export function getJournalThreads(): JournalThread[] {
+  return [...(data.journalThreads ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export function getJournalThread(id: string): JournalThread | undefined {
+  return (data.journalThreads ?? []).find((t) => t.id === id);
+}
+
+export function startJournalThread(opts: { question: string; patternId?: string; step?: number; emoji?: string }): JournalThread {
+  const thread: JournalThread = {
+    id: crypto.randomUUID(),
+    question: opts.question,
+    patternId: opts.patternId,
+    step: opts.step,
+    emoji: opts.emoji,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  if (!data.journalThreads) data.journalThreads = [];
+  data.journalThreads.push(thread);
+  notify();
+  return thread;
+}
+
+export function deleteJournalThread(id: string): void {
+  if (!data.journalThreads) return;
+  data.journalThreads = data.journalThreads.filter((t) => t.id !== id);
+  // Keep the journal entries themselves; just remove the grouping.
+  notify();
+}
+
+/** Tag a journal entry with its source thread (and bump the thread's recency). */
+export function tagJournalEntryThread(entryId: string, threadId: string | undefined): void {
+  const entry = data.journalEntries.find((e) => e.id === entryId);
+  if (!entry) return;
+  entry.threadId = threadId;
+  if (threadId && data.journalThreads) {
+    const thread = data.journalThreads.find((t) => t.id === threadId);
+    if (thread) thread.updatedAt = new Date().toISOString();
+  }
   notify();
 }
 

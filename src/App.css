@@ -886,6 +886,98 @@ body {
   font-size: 13px;
 }
 
+/* --- Journal threads (v0.5.2): questions open persistent discussions --- */
+.journal-threads {
+  margin: 12px 0;
+  padding: 14px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.journal-threads h3 {
+  font-size: 14px;
+  margin: 0 0 4px;
+}
+
+.journal-threads-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.journal-active-thread {
+  display: inline-block;
+  margin-bottom: 10px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent, #4f46e5) 12%, var(--bg));
+  font-size: 12px;
+  color: var(--text);
+}
+
+.journal-thread-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.journal-thread {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 6px 4px 4px;
+}
+
+.journal-thread.active {
+  border-color: var(--accent, #4f46e5);
+}
+
+.journal-thread-open {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  padding: 8px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+}
+
+.journal-thread-emoji {
+  flex-shrink: 0;
+}
+
+.journal-thread-question {
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.journal-thread-count {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.journal-thread-delete {
+  opacity: .6;
+}
+
+.journal-thread:hover .journal-thread-delete {
+  opacity: 1;
+}
+
 .journal-history h3 {
   font-size: 14px;
   margin: 0 0 12px;

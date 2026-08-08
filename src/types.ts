@@ -220,6 +220,23 @@ export interface JournalEntry {
   personality: JournalPersonality; // which persona replied
   response: string;           // the persona's reflection (plain text / markdown)
   createdAt: string;          // ISO timestamp
+  /** Optional id of the thread this entry belongs to (see JournalThread). */
+  threadId?: string;
+}
+
+/** A persistent discussion thread started from a prompt / question. */
+export interface JournalThread {
+  id: string;
+  /** The question that opened the thread (the first prompt used). */
+  question: string;
+  /** Optional pattern id when the thread came from a pattern-track question. */
+  patternId?: string;
+  /** Optional pattern track step when started from a track question. */
+  step?: number;
+  /** Optional emoji/kind marker (e.g. the source prompt emoji). */
+  emoji?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** Progressive healing state of a single psychoanalysis pattern (persisted). */
@@ -298,6 +315,7 @@ export interface AppData {
   urges: UrgeEntry[];
   customUrgeTypes: CustomUrgeType[];
   journalEntries: JournalEntry[];
+  journalThreads?: JournalThread[];
   challenges: Challenge[];
   personas: Persona[];
   levers: Lever[];
