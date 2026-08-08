@@ -5,6 +5,9 @@ import {
   suggestAdaptiveTarget,
   pickSuggestion,
   buildChallengeName,
+  challengePhases,
+  computePhaseProgress,
+  phaseVerdict,
 } from '../challenges';
 import {
   resetStore,
@@ -138,5 +141,63 @@ describe('store challenge lifecycle', () => {
     resolveChallengeStatuses(beyond);
     expect(getChallenges()[0].status).toBe('completed');
     expect(getChallenges()[0].completedAt).toBeTruthy();
+  });
+});
+
+describe('challengePhases', () => {
+  it('splits a 30-day challenge into 3 ordered phases covering all days', () => {
+    const phases = challengePhases(30);
+    expect(phases).toHaveLength(3);
+    expect(phases[0].startDay).toBe(1);
+    expect(phases[2].endDay).toBe(30);
+    // Contiguous, non-overlapping: each phase's start === previous end + 1.
+    expect(phases[1].startDay).toBe(phases[0].endDay + 1);
+    expect(phases[2].startDay).toBe(phases[1].endDay + 1);
+    // Grep multipliers ramp up: gentle → peak.
+    expect(phases[0].multiplier).toBeLessThan(phases[1].multiplier);
+    expect(phases[1].multiplier).toBeLessThan(phases[2].multiplier);
+  });
+
+  it('handles tiny challenges without error', () => {
+    const phases = challengePhases(1);
+    expect(phases).toHaveLength(3);
+    expect(phases[0].endDay).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('computePhaseProgress', () => {
+  const start = '2026-06-01';
+
+  it('marks a fully-met phase when every non-future day qualifies', () => {
+    const checks = [
+      ci('h', '2026-06-01'), ci('h', '2026-06-02'), ci('h', '2026-06-03'),
+    ];
+    const phases = computePhaseProgress('h', start, 9, 1, checks, '2026-06-03');
+    expect(phases[0].met).toBe(true);
+    expect(phases[0].completedDays).toBe(3);
+  });
+
+  it('judges future window days as not-yet-counted', () => {
+    const checks = [ci('h', '2026-06-01')];
+    const phases = computePhaseProgress('h', start, 9, 1, checks, '2026-06-01');
+    expect(phases[0].completedDays).toBe(1);
+    expect(phases[1].completedDays).toBe(0);
+  });
+
+  it('applies the phase multiplier to the daily goal', () => {
+    const checks = [ci('h', '2026-06-01', true, 1)]; // 1× on a 1× goal day qualifies
+    const phases = computePhaseProgress('h', start, 9, 1, checks, '2026-06-01');
+    expect(phases[0].completedDays).toBe(1); // gentle 0.75× → 1× qualifies
+  });
+});
+
+describe('phaseVerdict', () => {
+  it('Recognizes a peak reached', () => {
+    const p = { phase: { multiplier: 1.25 }, met: true };
+    expect(phaseVerdict(p as Parameters<typeof phaseVerdict>[0])).toContain('🏔️');
+  });
+  it('flags a missed threshold', () => {
+    const p = { phase: { multiplier: 0.75 }, met: false };
+    expect(phaseVerdict(p as Parameters<typeof phaseVerdict>[0])).toContain('manqué');
   });
 });

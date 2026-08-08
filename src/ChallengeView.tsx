@@ -13,6 +13,8 @@ import {
   pickSuggestion,
   buildChallengeName,
   todayKey,
+  computePhaseProgress,
+  phaseVerdict,
 } from './challenges';
 
 interface ChallengeViewProps {
@@ -70,6 +72,10 @@ export default function ChallengeView({ habits, checkIns }: ChallengeViewProps) 
 
   const progressOf = (c: Challenge) => {
     return computeChallengeProgress(c.habitId, c.startDate, c.days, c.dailyGoal, checkIns, today);
+  };
+
+  const phasesOf = (c: Challenge) => {
+    return computePhaseProgress(c.habitId, c.startDate, c.days, c.dailyGoal, checkIns, today);
   };
 
   return (
@@ -237,6 +243,46 @@ export default function ChallengeView({ habits, checkIns }: ChallengeViewProps) 
                     : <div className="challenge-failed">Challenge missed — {progress.completedDays}/{progress.totalDays} days hit. Start again, or pick a gentler target.</div>}
                 </div>
               )}
+
+              {/* Phase-by-phase arc: the challenge opens gentle and peaks at the end */}
+              {(() => {
+                const phases = phasesOf(challenge);
+                if (phases.length === 0) return null;
+                const metCount = phases.filter((p) => p.met).length;
+                const peak = phases[2];
+                return (
+                  <div className="challenge-phases">
+                    {challenge.status !== 'active' && (
+                      <p className="challenge-synthesis">
+                        {challenge.status === 'completed'
+                          ? `🎓 Synthèse : ${metCount}/3 temps tenus, pic ${peak.completedDays}/${peak.totalDays}. La cible ×${peak.phase.multiplier} est à ta portée.`
+                          : `🪶 Bilan : ${metCount}/3 temps tenus — le ${peak.phase.multiplier > 1 ? 'pic' : 'seuil'} était la vraie difficulté. Relance un parcours en réglant la cible, ou change de technique.`}
+                      </p>
+                    )}
+                    <div className="challenge-phases-head">
+                      <span className="challenge-phases-title">🧭 Parcours en 3 temps</span>
+                      <span className="challenge-phases-hint">le plus dur vient à la fin — c'est là que ça compte</span>
+                    </div>
+                    <div className="challenge-phases-grid">
+                      {phases.map((pp) => (
+                        <div key={pp.phase.index} className={`challenge-phase ${pp.met ? 'met' : ''}`}>
+                          <div className="challenge-phase-top">
+                            <span className="challenge-phase-label">{pp.phase.emoji} {pp.phase.label}</span>
+                            <span className="challenge-phase-verdict">{phaseVerdict(pp)}</span>
+                          </div>
+                          <div className="challenge-phase-bar">
+                            <div
+                              className="challenge-phase-bar-fill"
+                              style={{ width: `${pp.pct}%`, background: pp.met ? '#22c55e' : pp.pct >= 50 ? '#f59e0b' : '#ef4444' }}
+                            />
+                          </div>
+                          <span className="challenge-phase-meta">j {pp.phase.startDay}→{pp.phase.endDay} · {pp.completedDays}/{pp.totalDays} · cible ×{pp.phase.multiplier}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           );
         })}

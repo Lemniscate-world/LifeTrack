@@ -226,3 +226,91 @@ export function buildChallengeName(habitName: string, days: number, dailyGoal: n
   if (dailyGoal > 1) return `${days}-day challenge: ${habitName} (${dailyGoal}×/day)`;
   return `${days}-day streak: ${habitName}`;
 }
+
+// --- Deep challenges (v0.5.2): phases + adaptive difficulty + synthesis ---
+// A challenge is now a small ARC, not a flat run: it opens gently (allowing a
+// shaky start), consolidates (the goal leans up when the user is consistent)
+// and finishes with a meaningful peak. Progress is computed per phase, so the
+// user always knows where the difficulty lives.
+
+export interface PhaseSpec {
+  index: 0 | 1 | 2;
+  label: string;
+  emoji: string;
+  /** 1-based inclusive day index inside the challenge window. */
+  startDay: number;
+  endDay: number;
+  /** Goal multiplier for this phase: early gentle, finale peak. */
+  multiplier: number;
+}
+
+/**
+ * Split `days` into 3 phases. Multipliers ramp: early = gentle (0.75×),
+ * middle = 1×, finale = 1.25× — so the challenge opens forgiving and hard at
+ * the end, which is when streaks actually die.
+ */
+export function challengePhases(days: number): PhaseSpec[] {
+  const n = Math.max(1, Math.floor(days));
+  const a = Math.max(1, Math.round(n / 3));
+  const b = Math.max(1, Math.round((n * 2) / 3) - a + 1);
+  return [
+    { index: 0, label: 'Seuil', emoji: '🚪', startDay: 1, endDay: Math.min(a, n), multiplier: 0.75 },
+    { index: 1, label: 'Élan', emoji: '🚀', startDay: Math.min(a + 1, n), endDay: Math.min(a + b, n), multiplier: 1.0 },
+    { index: 2, label: 'Pic', emoji: '🏔️', startDay: Math.min(a + b + 1, n), endDay: n, multiplier: 1.25 },
+  ];
+}
+
+export interface PhaseProgress {
+  phase: PhaseSpec;
+  completedDays: number;
+  totalDays: number;       // phase length
+  pct: number;
+  met: boolean;            // phase fully met (all days inside it achieved its goal)
+}
+
+/**
+ * Per-phase assessment of a challenge. Each phase is judged against its own
+ * goal multiplier, so an early gentle phase that "almost" made it isn't
+ * suddenly branded as a failure by the final spike.
+ */
+export function computePhaseProgress(
+  habitId: string,
+  startDate: string,
+  days: number,
+  dailyGoal: number,
+  checkIns: CheckIn[],
+  now: string,
+): PhaseProgress[] {
+  const [y, m, d] = startDate.split('-').map(Number);
+  const start = new Date(y, m - 1, d);
+  const phases = challengePhases(days);
+  const out: PhaseProgress[] = [];
+  for (const phase of phases) {
+    let completed = 0;
+    const totalDays = Math.max(1, phase.endDay - phase.startDay + 1);
+    for (let dayI = phase.startDay; dayI <= phase.endDay && dayI <= days; dayI++) {
+      const dt = new Date(start);
+      dt.setDate(start.getDate() + dayI - 1);
+      const key = toLocalDateKey(dt);
+      if (key > now) continue; // future days inside the window don't count yet
+      const completions = completionsOnDate(habitId, key, checkIns);
+      const goal = Math.max(1, Math.round(dailyGoal * phase.multiplier));
+      if (completions >= goal) completed++;
+    }
+    out.push({
+      phase,
+      completedDays: completed,
+      totalDays,
+      pct: Math.round((completed / totalDays) * 100),
+      met: completed === totalDays,
+    });
+  }
+  return out;
+}
+
+/** A synthesized verdict line for one phase. */
+export function phaseVerdict(p: PhaseProgress): string {
+  if (p.phase.multiplier >= 1.25) return p.met ? 'Pic atteint 🏔️' : 'Pic dur à tenir';
+  if (p.phase.multiplier <= 0.75) return p.met ? 'Seuil franchi 🚪' : 'Seuil doux mais manqué';
+  return p.met ? 'Élan tenu 🚀' : 'Élan sur sa lancée';
+}
