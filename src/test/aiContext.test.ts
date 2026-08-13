@@ -19,6 +19,7 @@ import {
   addNote,
 } from '../store';
 import { addUrgeEntry, addCustomUrgeType } from '../urgeSurfing';
+import { addJournalEntry, addReflection, answerReflection } from '../store';
 
 beforeEach(() => {
   localStorage.clear();
@@ -107,6 +108,28 @@ describe('buildAiContext — coverage of all data domains', () => {
     expect(report).toContain('Course de 10km bouclée');
     expect(report).toContain('Psychological (1)');
     expect(report).toContain('(achievement:psychological)');
+  });
+
+  it('includes journal memory (recent entries + learnings)', () => {
+    addJournalEntry('Première entrée du journal', 'coach', 'Réflexion du coach');
+    addJournalEntry('Deuxième entrée, la discipline revient', 'sage', 'Réflexion du sage');
+    const r = addReflection({
+      kind: 'neglect',
+      title: 'Une habitude négligée',
+      question: 'Pourquoi ?',
+      context: 'context',
+      habitIds: [],
+      dedupeKey: 'k1',
+    });
+    answerReflection(r.id, 'La leçon apprise');
+
+    const report = buildAiContext(exportAllData());
+    expect(report).toContain('JOURNAL MEMORY');
+    expect(report).toContain('Deuxième entrée');
+    expect(report).toContain('(sage)');
+    expect(report).toContain('JOURNAL LEARNINGS');
+    expect(report).toContain('Une habitude négligée');
+    expect(report).toContain('La leçon apprise');
   });
 
   it('includes overview counts', () => {

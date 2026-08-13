@@ -186,6 +186,31 @@ function summarizeMantras(data: AppData): string {
   return userMantras.map((m) => `  “${m.text}”`).join('\n');
 }
 
+function summarizeJournalMemory(data: AppData): string {
+  const entries = Array.isArray(data.journalEntries) ? data.journalEntries : [];
+  if (entries.length === 0) return '  (no journal entries yet)';
+  const recent = [...entries]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, 20);
+  const lines = recent.map((e) => {
+    const date = e.createdAt.slice(0, 10);
+    const content = e.content.length > 160 ? e.content.slice(0, 160) + '…' : e.content;
+    const resp = e.response && e.response.length > 120 ? e.response.slice(0, 120) + '…' : (e.response ?? '');
+    return `  [${date}] (${e.personality}) ${content}${resp ? `\n      → ${resp.replace(/\s+/g, ' ')}` : ''}`;
+  });
+  return `  ${entries.length} total entries; last ${recent.length}:\n${lines.join('\n')}`;
+}
+
+function summarizeJournalLearnings(data: AppData): string {
+  const reflections = (data.reflections ?? []).filter((r) => r.status === 'answered' && r.answer);
+  if (reflections.length === 0) return '  (no answered reflections yet)';
+  return reflections
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, 15)
+    .map((r) => `  - ${r.title}: ${(r.answer ?? '').slice(0, 160)}`)
+    .join('\n');
+}
+
 function summarizeAchievements(data: AppData): string {
   const tagged = (data.notes ?? []).filter((n) => n.achievementCategory);
   if (tagged.length === 0) return '  (no achievements yet)';
@@ -403,6 +428,9 @@ export function buildAiContext(data: AppData): string {
     return `  [${n.createdAt.slice(0, 10)}] ${n.content}${tag}`;
   }).join('\n');
   sections.push(`## ALL STANDALONE NOTES\n${standaloneNotes || '  (none)'}`);
+
+  sections.push(`## JOURNAL MEMORY (past journal entries, newest first)\n${summarizeJournalMemory(data)}`);
+  sections.push(`## JOURNAL LEARNINGS (answered self-questions)\n${summarizeJournalLearnings(data)}`);
 
   const totalCheckIns = Array.isArray(data.checkIns) ? data.checkIns.length : 0;
   const allCheckIns = Array.isArray(data.checkIns) ? data.checkIns : [];
