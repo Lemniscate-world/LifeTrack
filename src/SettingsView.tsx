@@ -139,6 +139,25 @@ export default function SettingsView({
               </label>
             </div>
           </div>
+
+          <div className="settings-group">
+            <h3>Audio Feedback</h3>
+            <div className="settings-row">
+              <span>Effets sonores (chime au check-in / passage de niveau)</span>
+              <label className="mantra-toggle">
+                <input
+                  type="checkbox"
+                  checked={aiPrefs.soundEnabled !== false}
+                  onChange={(e) => {
+                    const next = { ...aiPrefs, soundEnabled: e.target.checked };
+                    setAiPrefs(next);
+                    updatePreferences(next);
+                  }}
+                />
+                <span className="mantra-toggle-slider" />
+              </label>
+            </div>
+          </div>
         </div>
       )}
 
@@ -172,7 +191,8 @@ export default function SettingsView({
               <input
                 type="text"
                 className="settings-text-input"
-                placeholder="openai/gpt-4o-mini (OpenRouter) — or a local Ollama model"
+                placeholder="deepseek/deepseek-v4-flash (OpenRouter) — ou un modèle Ollama local"
+                list="lifetrack-models"
                 value={aiPrefs.aiModel ?? ''}
                 onChange={(e) => {
                   const next = { ...aiPrefs, aiModel: e.target.value };
@@ -180,7 +200,18 @@ export default function SettingsView({
                   updatePreferences(next);
                 }}
               />
+              <datalist id="lifetrack-models">
+                <option value="deepseek/deepseek-v4-flash">DeepSeek V4 Flash (défaut cloud)</option>
+                <option value="deepseek/deepseek-chat">DeepSeek Chat</option>
+                <option value="openai/gpt-4o-mini">GPT-4o mini</option>
+                <option value="anthropic/claude-3.7-sonnet">Claude Sonnet</option>
+                <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</option>
+              </datalist>
             </div>
+            <p className="settings-hint">
+              ✨ Modèle cloud par défaut : <strong>DeepSeek V4 Flash</strong> (laisse le champ vide pour l'utiliser).
+              Tu peux aussi typer n'importe quel id OpenRouter / Ollama.
+            </p>
             <div className="settings-row">
               <span>API key</span>
               <input
@@ -402,15 +433,41 @@ export default function SettingsView({
           </div>
 
           <div className="settings-group">
-            <h3>Storage Health</h3>
-            <div className="settings-row">
-              <span>Status</span>
-              <span className={`storage-badge storage-${storageStatus}`}>{storageStatus}</span>
-            </div>
-            <div className="settings-row">
-              <span>Last saved</span>
-              <span className="settings-mono">{lastSaved}</span>
-            </div>
+            <h3>🔬 Data Health Monitor</h3>
+            <p className="settings-hint">État en temps réel de toutes vos données locales.</p>
+            {(() => {
+              try {
+                const data = exportAllData() as unknown as Record<string, unknown>;
+                const storeSizeKB = Math.round(JSON.stringify(data).length / 1024);
+                const rows: { label: string; value: string | number }[] = [
+                  { label: 'Habitudes', value: ((data.habits as unknown[]) ?? []).length },
+                  { label: 'Check-ins', value: ((data.checkIns as unknown[]) ?? []).length },
+                  { label: 'Notes', value: ((data.notes as unknown[]) ?? []).length },
+                  { label: 'Humeurs', value: Object.keys((data.moods as Record<string, unknown>) ?? {}).length },
+                  { label: 'Expériences', value: ((data.experiments as unknown[]) ?? []).length },
+                  { label: 'Urges', value: ((data.urges as unknown[]) ?? []).length },
+                  { label: 'Journal', value: ((data.journalEntries as unknown[]) ?? []).length },
+                  { label: 'Protocoles', value: ((data.protocols as unknown[]) ?? []).length },
+                  { label: 'Taille totale', value: `${storeSizeKB} KB` },
+                  { label: 'Statut stockage', value: storageStatus },
+                  { label: 'Dernier enregistrement', value: lastSaved },
+                ];
+                return (
+                  <div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem 1rem', marginBottom: '1rem' }}>
+                      {rows.map(r => (
+                        <div key={r.label} className="settings-row" style={{ padding: '0.4rem 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{r.label}</span>
+                          <span className={`settings-mono ${r.label === 'Statut stockage' ? `storage-badge storage-${r.value}` : ''}`} style={{ fontSize: '0.85rem' }}>{r.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              } catch {
+                return <p className="settings-hint">Impossible de lire les données.</p>;
+              }
+            })()}
           </div>
 
           <div className="settings-group settings-danger">

@@ -1,4 +1,4 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalThread, JournalPersonality, Challenge, Persona, Lever, PatternTrack, ReflectionEntry, ReflectionKind } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalThread, JournalPersonality, Challenge, Persona, Lever, PatternTrack, ReflectionEntry, ReflectionKind, Project, Protocol, IngestedSource, Task, FeedConfig } from './types';
 import { computeStreakStats } from './stats';
 import { computeChallengeProgress } from './challenges';
 import {
@@ -11,6 +11,10 @@ import {
 } from './stacks';
 import { createDefaultMantras, DEFAULT_MANTRA_SETTINGS } from './mantras';
 import { bindUrgeStore } from './urgeSurfing';
+import { SEED_PROTOCOLS } from './protocols';
+import { mergeProtocols } from './ingest';
+import { DEFAULT_FEEDS } from './autoIngest';
+import type { FeedCycleOutcome } from './autoIngest';
 
 export function createDefaultSkills(): Skill[] {
   return [
@@ -197,6 +201,10 @@ function sanitizeData(raw: unknown): AppData {
     levers: [],
     patternTracks: [],
     reflections: [],
+    projects: [],
+    protocols: [],
+    ingestedSources: [],
+    feeds: [],
     preferences: { darkMode: false, theme: '' },
   };
   if (!raw || typeof raw !== 'object') return empty;
@@ -351,8 +359,63 @@ function sanitizeData(raw: unknown): AppData {
     levers: Array.isArray(obj.levers) ? obj.levers.filter(isValidLever) as Lever[] : [],
     patternTracks: Array.isArray(obj.patternTracks) ? obj.patternTracks.filter((e: unknown) => e && typeof e === 'object' && 'patternId' in (e as object)) as PatternTrack[] : [],
     reflections: Array.isArray(obj.reflections) ? obj.reflections.filter((r: unknown) => r && typeof r === 'object' && 'kind' in (r as object) && 'question' in (r as object) && 'dedupeKey' in (r as object)) as ReflectionEntry[] : [],
+    dismissedRecs: Array.isArray(obj.dismissedRecs) ? obj.dismissedRecs.filter((x: unknown): x is string => typeof x === 'string') : [],
+    projects: sanitizeProjects(obj.projects),
+    protocols: sanitizeProtocols(obj.protocols),
+    ingestedSources: Array.isArray(obj.ingestedSources) ? obj.ingestedSources.filter((s: unknown) => s && typeof s === 'object' && 'id' in (s as object) && 'rawText' in (s as object)) as IngestedSource[] : [],
+    feeds: sanitizeFeeds(obj.feeds),
     preferences: sanitizePreferences(obj.preferences),
   };
+}
+
+/** Sanitize projects (v0.6.0) — keep well-formed entries, repair the rest. */
+function sanitizeProjects(raw: unknown): Project[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((x): x is Project => {
+    if (!x || typeof x !== 'object') return false;
+    const p = x as Record<string, unknown>;
+    if (typeof p.id !== 'string' || typeof p.name !== 'string') return false;
+    if (typeof p.createdAt !== 'string') return false;
+    if (typeof p.status !== 'string') return false;
+    if (!Array.isArray(p.habitIds)) return false;
+    if (!Array.isArray(p.tasks)) return false;
+    return true;
+  });
+}
+
+/** Sanitize protocols (v0.6.0). */
+function sanitizeProtocols(raw: unknown): Protocol[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((x): x is Protocol => {
+    if (!x || typeof x !== 'object') return false;
+    const p = x as Record<string, unknown>;
+    return typeof p.id === 'string'
+      && typeof p.title === 'string'
+      && typeof p.claim === 'string'
+      && typeof p.source === 'string'
+      && typeof p.domain === 'string';
+  });
+}
+
+/** Sanitize feed configs (v0.6.1). */
+function sanitizeFeeds(raw: unknown): FeedConfig[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((x): x is FeedConfig => {
+      if (!x || typeof x !== 'object') return false;
+      const f = x as Record<string, unknown>;
+      return typeof f.id === 'string'
+        && typeof f.url === 'string'
+        && typeof f.title === 'string'
+        && typeof f.createdAt === 'string'
+        && typeof f.enabled === 'boolean';
+    })
+    .map((f) => ({
+      ...f,
+      lastGuids: Array.isArray(f.lastGuids)
+        ? f.lastGuids.filter((g: unknown): g is string => typeof g === 'string').slice(-120)
+        : [],
+    }));
 }
 
 /** Sanitize user preferences from stored data. */
@@ -365,9 +428,210 @@ function sanitizePreferences(raw: unknown): UserPreferences {
     darkMode: p.darkMode === true,
     theme: typeof p.theme === 'string' ? p.theme : '',
     aiProvider: provider,
-    aiModel: typeof p.aiModel === 'string' ? p.aiModel : '',
+    aiModel: typeof p.aiModel === 'string' ? p.aiModel : 'deepseek/deepseek-v4-flash',
     aiApiKey: typeof p.aiApiKey === 'string' ? p.aiApiKey : '',
+    knowledgeAutoSuggest: p.knowledgeAutoSuggest === false ? false : true,
+    stickyMax: typeof p.stickyMax === 'number' && p.stickyMax >= 1 && p.stickyMax <= 8 ? p.stickyMax : 3,
+    ingestAiEnabled: p.ingestAiEnabled === true,
+    autoIngestEnabled: p.autoIngestEnabled === false ? false : true,
+    autoIngestIntervalHours: typeof p.autoIngestIntervalHours === 'number' && p.autoIngestIntervalHours >= 1 && p.autoIngestIntervalHours <= 72 ? p.autoIngestIntervalHours : 6,
+    autostartEnabled: p.autostartEnabled === true,
   };
+}
+
+// --- Projects (v0.6.0) CRUD ---
+export function getProjects(): Project[] {
+  return [...(data.projects ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export function addProject(input: { name: string; emoji?: string; description?: string; deadline?: string; habitIds?: string[] }): Project {
+  const project: Project = {
+    id: crypto.randomUUID(),
+    name: input.name,
+    emoji: input.emoji,
+    description: input.description,
+    deadline: input.deadline,
+    status: 'active',
+    habitIds: input.habitIds ?? [],
+    tasks: [],
+    createdAt: new Date().toISOString(),
+  };
+  data.projects = [...(data.projects ?? []), project];
+  notify();
+  return project;
+}
+
+export function updateProject(id: string, updates: Partial<Omit<Project, 'id' | 'createdAt'>>): void {
+  const p = (data.projects ?? []).find((x) => x.id === id);
+  if (!p) return;
+  Object.assign(p, updates);
+  notify();
+}
+
+export function deleteProject(id: string): void {
+  data.projects = (data.projects ?? []).filter((x) => x.id !== id);
+  // Detach orphaned check-in links.
+  for (const ci of data.checkIns) {
+    if (ci.projectId === id) { delete ci.projectId; delete ci.taskId; }
+  }
+  notify();
+}
+
+export function addProjectTask(projectId: string, title: string): Task | null {
+  const idx = (data.projects ?? []).findIndex((x) => x.id === projectId);
+  if (idx < 0) return null;
+  const task: Task = {
+    id: crypto.randomUUID(),
+    title,
+    done: false,
+    createdAt: new Date().toISOString(),
+  };
+  const projects = [...(data.projects ?? [])];
+  projects[idx] = { ...projects[idx], tasks: [...(projects[idx].tasks ?? []), task] };
+  data.projects = projects;
+  notify();
+  return task;
+}
+
+export function toggleProjectTask(projectId: string, taskId: string, done: boolean): void {
+  const p = (data.projects ?? []).find((x) => x.id === projectId);
+  if (!p) return;
+  p.tasks = (p.tasks ?? []).map((t) => (t.id === taskId ? { ...t, done, completedAt: done ? new Date().toISOString() : undefined } : t));
+  notify();
+}
+
+export function linkHabitToProject(projectId: string, habitId: string): void {
+  const p = (data.projects ?? []).find((x) => x.id === projectId);
+  if (!p || (p.habitIds ?? []).includes(habitId)) return;
+  p.habitIds = [...(p.habitIds ?? []), habitId];
+  notify();
+}
+
+export function unlinkHabitFromProject(projectId: string, habitId: string): void {
+  const p = (data.projects ?? []).find((x) => x.id === projectId);
+  if (!p) return;
+  p.habitIds = (p.habitIds ?? []).filter((h) => h !== habitId);
+  notify();
+}
+
+/** Attach a project/task to an existing check-in (evidence of a deliverable). */
+export function setCheckInProject(habitId: string, date: string, projectId?: string, taskId?: string): void {
+  const ci = getCheckIn(habitId, date);
+  if (ci) {
+    if (projectId === undefined) { delete ci.projectId; delete ci.taskId; }
+    else {
+      ci.projectId = projectId;
+      if (taskId) ci.taskId = taskId; else delete ci.taskId;
+    }
+    notify();
+  }
+}
+
+// --- Protocols & ingestion (v0.6.0) ---
+export function getProtocols(): Protocol[] {
+  return data.protocols ?? [];
+}
+
+export function setProtocols(protocols: Protocol[]): void {
+  data.protocols = protocols;
+  notify();
+}
+
+export function addIngestedSource(title: string, rawText: string): IngestedSource {
+  const src: IngestedSource = {
+    id: crypto.randomUUID(),
+    title,
+    rawText,
+    createdAt: new Date().toISOString(),
+    ingested: false,
+  };
+  data.ingestedSources = [...(data.ingestedSources ?? []), src];
+  notify();
+  return src;
+}
+
+export function getIngestedSources(): IngestedSource[] {
+  return [...(data.ingestedSources ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/** Marks an ingested source as processed. */
+export function markIngestedSource(id: string): void {
+  const s = (data.ingestedSources ?? []).find((x) => x.id === id);
+  if (s) { s.ingested = true; notify(); }
+}
+
+// --- Recommendation dismissal (v0.6.1) ---
+/** Recommendation keys the user set aside (persisted, survives restarts). */
+export function getDismissedRecs(): string[] {
+  return data.dismissedRecs ?? [];
+}
+
+export function dismissRec(key: string): void {
+  const arr = data.dismissedRecs ?? [];
+  if (!arr.includes(key)) {
+    data.dismissedRecs = [...arr, key];
+    notify();
+  }
+}
+
+export function resetDismissedRecs(): void {
+  if ((data.dismissedRecs ?? []).length > 0) {
+    data.dismissedRecs = [];
+    notify();
+  }
+}
+
+export function deleteIngestedSource(id: string): void {
+  data.ingestedSources = (data.ingestedSources ?? []).filter((x) => x.id !== id);
+  notify();
+}
+
+// --- Permanent automated feeds (v0.6.1) ---
+export function getFeeds(): FeedConfig[] {
+  return data.feeds ?? [];
+}
+
+export function addFeed(url: string, title?: string): FeedConfig {
+  const feed: FeedConfig = {
+    id: crypto.randomUUID(),
+    url: url.trim(),
+    title: title?.trim() || url.trim(),
+    enabled: true,
+    createdAt: new Date().toISOString(),
+    lastGuids: [],
+  };
+  data.feeds = [...(data.feeds ?? []), feed];
+  notify();
+  return feed;
+}
+
+export function updateFeed(id: string, updates: Partial<Omit<FeedConfig, 'id' | 'createdAt'>>): void {
+  const f = (data.feeds ?? []).find((x) => x.id === id);
+  if (!f) return;
+  Object.assign(f, updates);
+  notify();
+}
+
+export function deleteFeed(id: string): void {
+  data.feeds = (data.feeds ?? []).filter((x) => x.id !== id);
+  notify();
+}
+
+/** Persist the new feed state after a cycle (guids + lastFetchAt). */
+export function saveFeeds(feeds: FeedConfig[]): void {
+  data.feeds = feeds;
+  notify();
+}
+
+/**
+ * Apply one full auto-ingest cycle in a single save: feeds (updated dedupe
+ * state), merged protocol library, and the newly recorded source entries.
+ */
+export function applyFeedIngest(outcome: FeedCycleOutcome): void {
+  data.feeds = outcome.feeds;
+  data.protocols = outcome.protocols;
+  data.ingestedSources = [...(data.ingestedSources ?? []), ...outcome.sources];
+  notify();
 }
 
 /** Experiment CRUD */
@@ -1227,6 +1491,17 @@ function backfillHabitRecords(): void {
 
 // Run once at startup so legacy data shows records immediately.
 backfillHabitRecords();
+
+// Seed the knowledge library on first load so the preference engine always has
+// curated, evidence-graded protocols to recommend (idempotent, local-only).
+if (Array.isArray(data.protocols) && data.protocols.length === 0) {
+  data.protocols = mergeProtocols([], SEED_PROTOCOLS);
+}
+
+// Seed the permanent auto-ingest feeds on first load (idempotent).
+if (Array.isArray(data.feeds) && data.feeds.length === 0) {
+  data.feeds = DEFAULT_FEEDS.map((f) => ({ ...f, lastGuids: [] }));
+}
 
 // Note: diagnoseStorage() and restoreFromBackupIfNewer() are called by
 // the App component at mount time (not here) to avoid side-effects in tests.

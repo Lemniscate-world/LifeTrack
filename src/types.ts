@@ -40,6 +40,10 @@ export interface CheckIn {
   completed: boolean;
   notes?: string[]; // optional notes for this check-in (multiple per day)
   count?: number; // number of completions today (1 by default, up to goal)
+  // Projects: optional link to a project/task this check-in contributed to,
+  // so a habit click becomes evidence of a real deliverable (v0.6.0).
+  projectId?: string;
+  taskId?: string;
 }
 
 export interface Note {
@@ -332,6 +336,80 @@ export interface Lever {
   createdAt: string;
 }
 
+// --- Projects (v0.6.0) ---
+// A Project is a structured container of work attached to habits. Linking a
+// habit (e.g. "coding") to one or many projects turns a generic click count
+// into evidence of REAL deliverables — so skills stop being "detected from a
+// large database" and become measured by your own outputs.
+export interface Task {
+  id: string;
+  title: string;
+  done: boolean;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  emoji?: string;
+  description?: string;
+  status: 'active' | 'done' | 'paused' | 'archived';
+  deadline?: string;                  // YYYY-MM-DD
+  habitIds: string[];                 // linked habits that push this project forward
+  tasks: Task[];
+  createdAt: string;
+}
+
+// --- Knowledge base & automated ingestion (v0.6.0) ---
+// The knowledge library: curated behavioral / biohacking / research protocols
+// (Huberman Lab, Modern Wisdom / Chris Williamson, PubMed…). Evidence levels
+// are honest (RULE 81): an anecdote must never be presented as a fact.
+export type EvidenceLevel = 'A' | 'B' | 'C';   // A=causal/peer-reviewed, B=protocol/expert, C=correlational/anecdote
+export type ProtocolDomain =
+  | 'sleep' | 'focus' | 'energy' | 'mood' | 'training'
+  | 'nutrition' | 'stress' | 'social' | 'cognitive';
+
+export interface Protocol {
+  id: string;
+  title: string;
+  source: string;          // "Huberman Lab #42" | "Modern Wisdom #710" | "DOI 10.…"
+  host?: string;           // 'Huberman' | 'Chris Williamson' | 'PubMed' | …
+  claim: string;           // the actionable claim, in one sentence
+  evidenceLevel: EvidenceLevel;
+  mechanism?: string;      // dopamine, circadian, microbiota…
+  domain: ProtocolDomain;
+  protocol: string;        // exact dosage: "3×11 min de froid / semaine"
+  metric?: string;         // what to measure: "énergie matinale 1-10"
+  habitSuggestions?: string[]; // habit names to create
+  keywords: string[];      // used to match the user's notes/habits
+  citation?: string;       // verifiable reference
+  risky?: boolean;         // mark for caution in UI
+}
+
+/** Raw material deposited by the user for automated ingestion. */
+export interface IngestedSource {
+  id: string;
+  title: string;
+  rawText: string;
+  createdAt: string;
+  ingested: boolean;
+}
+
+// --- Automated feeds (v0.6.1) ---
+// Permanent, self-running ingestion: RSS/Atom feeds are fetched periodically,
+// new items are extracted into structured protocols and merged into the local
+// library — no pasting, no manual step, ever.
+export interface FeedConfig {
+  id: string;
+  url: string;
+  title: string;              // display label
+  enabled: boolean;
+  createdAt: string;
+  lastFetchAt?: string;       // ISO timestamp of the last successful fetch
+  lastGuids: string[];        // dedupe: guids already seen (capped)
+}
+
 export interface AppData {
   habits: Habit[];
   checkIns: CheckIn[];
@@ -354,6 +432,11 @@ export interface AppData {
   levers: Lever[];
   patternTracks?: PatternTrack[];
   reflections?: ReflectionEntry[];
+  dismissedRecs?: string[];      // recommendation keys the user set aside
+  projects?: Project[];
+  protocols?: Protocol[];
+  ingestedSources?: IngestedSource[];
+  feeds?: FeedConfig[];
   preferences: UserPreferences;
 }
 
@@ -370,4 +453,14 @@ export interface UserPreferences {
   memoryReminderEnabled?: boolean;
   memoryReminderTime?: string; // "HH:MM"
   lastMemoryReminderDate?: string; // YYYY-MM-DD when it was last shown
+  // v0.6.0: knowledge pipeline preferences.
+  knowledgeAutoSuggest?: boolean;  // auto-surface protocols matched to your data
+  stickyMax?: number;              // max protocols pushed at once (anti-overwhelm, default 3)
+  ingestAiEnabled?: boolean;       // allow the local AI to structure ingested sources
+  // v0.6.1: permanent automated ingestion.
+  autoIngestEnabled?: boolean;     // default true — feeds refresh by themselves
+  autoIngestIntervalHours?: number; // default 6
+  autostartEnabled?: boolean;      // launch LifeTrack at Windows logon
+  // v0.7.0: audio feedback
+  soundEnabled?: boolean;          // web audio chime feedback on check-in
 }

@@ -48,6 +48,7 @@ import {
   nextMedals,
   phraseOfDay,
 } from './wins';
+import { computeAutoAchievements } from './autoAchievements';
 import type { Note } from './types';
 
 export default function AchievementsView() {
@@ -87,6 +88,21 @@ export default function AchievementsView() {
   }
 
   const totalCount = achievements.length;
+
+  // --- Auto achievements (v0.6.1): milestones derived from real data ---
+  const autoAchievements = useMemo(
+    () => computeAutoAchievements({
+      habits: data.habits,
+      checkIns: data.checkIns,
+      notes: data.notes,
+      challenges: data.challenges,
+      experiments: data.experiments,
+      urges: data.urges,
+      journalEntries: data.journalEntries,
+      projects: data.projects ?? [],
+    }),
+    [data],
+  );
 
   // --- Gamification (all derived, never stored) ---
   const xpBreakdown = useMemo(
@@ -751,6 +767,25 @@ export default function AchievementsView() {
           accomplished (a psychological win, an energy milestone, …) and pick a category before
           saving. It will appear here on your timeline.
         </p>
+      )}
+
+      {/* ============ Auto achievements (derived from data, never stored) ============ */}
+      {autoAchievements.length > 0 && (
+        <div className="achievements-auto">
+          <h3>⚡ Succès automatiques — dérivés de tes données</h3>
+          <div className="achievements-auto-list">
+            {autoAchievements.map((a) => (
+              <div className="achievement-auto-item" key={a.id}>
+                <span className="achievement-auto-emoji">{a.emoji}</span>
+                <div className="achievement-auto-main">
+                  <div className="achievement-auto-title">{a.title}</div>
+                  <div className="achievement-auto-detail">{a.detail}</div>
+                </div>
+                <span className="achievement-auto-date">{a.date}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* ============ Timeline ============ */}

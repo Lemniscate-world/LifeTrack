@@ -1,10 +1,12 @@
-import { useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import type { Habit, CheckIn, Mantra } from './types';
 import { computeStreakStats, computeCompletionRate } from './stats';
 import { MANTRA_DOMAINS } from './mantras';
 import { generateInsights } from './recommendations';
 import { buildOnThisDay } from './memories';
-import { exportAllData } from './store';
+import { exportAllData, MOODS, setMood, getMood, subscribe } from './store';
+import { weeklySummary } from './weeklySummary';
+import { buildPreferenceReport } from './preferences';
 
 const MILESTONES = new Set([7, 14, 21, 30, 60, 90, 100, 180, 365]);
 
@@ -24,6 +26,43 @@ interface TodayViewProps {
 export default function TodayView({ habits, checkIns, todayMantra }: TodayViewProps) {
   const now = useMemo(() => new Date(), []);
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  // Re-render when the store changes (mood set, check-ins…).
+  const [, setTick] = useState(0);
+  useEffect(() => subscribe(() => setTick((t) => t + 1)), []);
+
+  const [mood, setMoodLocal] = useState<string | undefined>(() => {
+    try { return getMood(todayStr); } catch { return undefined; }
+  });
+
+  // Trailing-7-days digest (local, derived).
+  const week = useMemo(() => weeklySummary(habits, checkIns, now), [habits, checkIns, now]);
+
+  // One focused thing worth trying today, from the preference engine.
+  const tryToday = useMemo(() => {
+    try {
+      const d = exportAllData();
+      const report = buildPreferenceReport({
+        habits: d.habits ?? [],
+        checkIns: d.checkIns ?? [],
+        notes: d.notes ?? [],
+        moods: d.moods ?? {},
+        capacities: (d.capacities ?? []).map((c) => ({ id: c.id, name: c.name })),
+        capacityRatings: d.capacityRatings ?? [],
+        projects: d.projects ?? [],
+        protocols: d.protocols ?? [],
+        experiments: (d.experiments ?? []).map((e) => ({ id: e.id, title: e.title })),
+        challenges: (d.challenges ?? []).map((c) => ({ id: c.id, name: c.name })),
+      });
+      const proto = report.protocols.find((p) => !p.alreadyPursued);
+      return proto ?? null;
+    } catch { return null; }
+  }, []);
+
+  const setMoodForToday = (id: string) => {
+    setMoodLocal(id);
+    try { setMood(todayStr, id); } catch { /* ignore */ }
+  };
 
   const todayStats = useMemo(() => {
     const active = habits.filter(h => !h.archived);
@@ -61,6 +100,53 @@ export default function TodayView({ habits, checkIns, todayMantra }: TodayViewPr
 
   return (
     <div className="today-view">
+      {/* Today progress + quick mood */}
+      <div className="today-progress-card">
+        <div className="today-progress-top">
+          <span className="today-progress-label">Aujourd'hui</span>
+          <span className="today-progress-value">{todayStats.donePct}%</span>
+        </div>
+        <div className="skill-progress-track large">
+          <div
+            className="skill-progress-fill"
+            style={{ width: `${todayStats.donePct}%`, background: 'var(--accent,#8b5cf6)' }}
+          />
+        </div>
+        <div className="today-mood-row">
+          {MOODS.map((m) => (
+            <button
+              key={m.id}
+              className={`today-mood-btn ${mood === m.id ? 'active' : ''}`}
+              onClick={() => setMoodForToday(m.id)}
+              title={m.label}
+            >
+              {m.emoji}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* This week */}
+      <div className="today-section">
+        <h3>📅 Cette semaine</h3>
+        <div className="today-week">
+          {week.days.map((d) => (
+            <div
+              key={d.date}
+              className={`today-week-day ${d.pct >= 100 ? 'full' : d.pct > 0 ? 'partial' : 'empty'}`}
+              title={`${d.date} · ${d.pct}%`}
+            >
+              <span className="today-week-pct">{d.pct}%</span>
+              <span className="today-week-date">{d.date.slice(8)}</span>
+            </div>
+          ))}
+        </div>
+        <div className="skill-progress-bar-labels">
+          <span>Moyenne : {week.avgPct}% · {week.totalDone} réalisation(s)</span>
+          <span>{week.activeHabits} habitude(s) actives</span>
+        </div>
+      </div>
+
       {/* Mantra Banner */}
       {todayMantra && mantraDomain && (
         <div className="today-mantra" style={{ borderLeftColor: mantraDomain.color }}>
@@ -177,6 +263,21 @@ export default function TodayView({ habits, checkIns, todayMantra }: TodayViewPr
           </div>
         );
       })()}
+
+      {/* One thing worth trying today (from the preference engine) */}
+      {tryToday && (
+        <div className="today-try">
+          <div className="today-try-head">
+            <span className="today-try-icon">🧪</span>
+            <span className="today-try-title">Aujourd'hui, essaie</span>
+          </div>
+          <div className="today-try-name">{tryToday.protocol.title}</div>
+          <div className="today-try-protocol">{tryToday.protocol.protocol}</div>
+          <div className="today-try-source">
+            {tryToday.protocol.source} · preuve {tryToday.protocol.evidenceLevel}
+          </div>
+        </div>
+      )}
 
       {/* All done? */}
       {todayStats.donePct === 100 && todayStats.active.length > 0 && (

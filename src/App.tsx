@@ -46,6 +46,13 @@ import {
   getPreferences,
   updatePreferences,
   getActiveChallenges,
+  getFeeds,
+  getProtocols,
+  getIngestedSources,
+  applyFeedIngest,
+  getDismissedRecs,
+  dismissRec,
+  resetDismissedRecs,
 } from './store';
 import { computeStreakStats, computeCompletionRate, computeWeightedScore, trackingStart } from './stats';
 import { Heatmap, Sparkline } from './Heatmap';
@@ -67,6 +74,10 @@ import ChallengeView from './ChallengeView';
 import ExperimentsView from './ExperimentsView';
 import JournalView from './JournalView';
 import UrgeSurfingView from './UrgeSurfingView';
+import ProjectsView from './ProjectsView';
+import KnowledgeView from './KnowledgeView';
+import CorrelationsView from './CorrelationsView';
+import { playCompletionSound, playLevelUpSound } from './audio';
 import OnboardingHelp from './OnboardingHelp';
 import { buildAiContext } from './aiContext';
 import { parseAiAnalysis, type AiAnalysis, type AiChatMessage } from './aiAnalysis';
@@ -82,7 +93,8 @@ import { computeXp, levelForXp, rankForLevel } from './gamification';
 import Confetti from './Confetti';
 import { getDailyEntryMantra, todayStr, shouldShowMantraNotification, markMantraNotificationShown, MANTRA_DOMAINS, sendSystemNotification } from './mantras';
 import { buildMemoryReminder, buildOnThisDay } from './memories';
-import { currentWeekCells, countWeekDone } from './gridWeek';
+import { runFeedCycle, pickFetcher } from './autoIngest';
+import { rotateRecommendations, recKey } from './recRotation';
 
 // Detected at module load (window is always present in browser and Tauri).
 // In test environments this is false. Module-level constant is acceptable
@@ -172,7 +184,7 @@ const DEFAULT_CATEGORIES = [
   const [editWhyText, setEditWhyText] = useState('');
   // v0.3.2: Toggle to display archived habits in the grid
   const [showArchived, setShowArchived] = useState(false);
-  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'experiments' | 'urges' | 'journal' | 'mantras' | 'achievements' | 'settings' | 'psycho'>('grid');
+  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'correlations' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'experiments' | 'urges' | 'journal' | 'mantras' | 'achievements' | 'settings' | 'psycho' | 'projects' | 'knowledge'>('grid');
   const [savedMsg, setSavedMsg] = useState('');
   // Shortcuts help + toast
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -490,7 +502,7 @@ const DEFAULT_CATEGORIES = [
       // Tab switching: Ctrl+1..9 + Ctrl+0
       if (ctrl && e.key >= '0' && e.key <= '9') {
         e.preventDefault();
-        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'mantras', 'experiments', 'journal', 'achievements', 'urges', 'psycho'];
+        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'mantras', 'experiments', 'journal', 'achievements', 'urges', 'psycho', 'projects', 'knowledge'];
         const idx = e.key === '0' ? 0 : parseInt(e.key, 10);
         const viewKey = tabs[idx] as typeof view;
         if (viewKey) setView(viewKey);
@@ -554,6 +566,41 @@ const DEFAULT_CATEGORIES = [
     return subscribe(update);
   }, [year, month]);
 
+  // --- Permanent automated ingestion loop (v0.6.1) ---
+  // While LifeTrack runs, its curated feeds refresh by themselves on a schedule
+  // and enrich the local knowledge library. Skipped in the test runner so the
+  // suite never touches the network.
+  useEffect(() => {
+    if (import.meta.env?.MODE === 'test') return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const run = async () => {
+      try {
+        if (cancelled) return;
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+        const prefs = getPreferences();
+        if (prefs.autoIngestEnabled === false) return;
+        const feeds = getFeeds().filter((f) => f.enabled);
+        if (feeds.length === 0) return;
+        const fetcher = await pickFetcher();
+        const outcome = await runFeedCycle(feeds, getProtocols(), getIngestedSources(), fetcher, new Date());
+        if (!cancelled) applyFeedIngest(outcome);
+      } catch {
+        // Best-effort: a failed feed must never break the app.
+      }
+    };
+
+    run();
+    const hours = Math.max(1, getPreferences().autoIngestIntervalHours ?? 6);
+    timer = setInterval(run, hours * 60 * 60 * 1000);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, []);
+
   // Gamification: detect level-ups on every store change and celebrate.
   useEffect(() => {
     const checkLevelUp = () => {
@@ -570,6 +617,7 @@ const DEFAULT_CATEGORIES = [
         setLevelUpLabel(`${rank.rankEmoji} Level ${level} — ${rank.rankName}`);
         setShowLevelUp(true);
         showToast(`🎉 Level up! You reached level ${level}`);
+        playLevelUpSound(getPreferences().soundEnabled !== false);
         if (levelUpTimerRef.current) clearTimeout(levelUpTimerRef.current);
         levelUpTimerRef.current = setTimeout(() => setShowLevelUp(false), 3600);
       } else {
@@ -600,9 +648,11 @@ const DEFAULT_CATEGORIES = [
 
   function handleCellClick(habitId: string, day: number, isMultiClick: boolean = true, ctrlKey: boolean = false, shiftKey: boolean = false) {
     const dateStr = parseDateStr(year, month, day);
+    const soundOn = getPreferences().soundEnabled !== false;
     if (!isMultiClick) {
       // Simple toggle mode: just on/off, no count
       toggleCheckIn(habitId, dateStr);
+      playCompletionSound(soundOn);
       return;
     }
     if (ctrlKey) {
@@ -611,6 +661,7 @@ const DEFAULT_CATEGORIES = [
       decrementCheckInCount(habitId, dateStr);
     } else {
       incrementCheckInCount(habitId, dateStr);
+      playCompletionSound(soundOn);
     }
   }
 
@@ -1039,6 +1090,9 @@ const DEFAULT_CATEGORIES = [
           </button>
           <button role="tab" aria-selected={view === 'grid'} className={`view-tab ${view === 'grid' ? 'active' : ''}`} onClick={() => setView('grid')}>Grid</button>
           <button role="tab" aria-selected={view === 'stats'} className={`view-tab ${view === 'stats' ? 'active' : ''}`} onClick={() => setView('stats')}>Statistics</button>
+          <button role="tab" aria-selected={view === 'correlations'} className={`view-tab ${view === 'correlations' ? 'active' : ''}`} onClick={() => setView('correlations')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg> Corr.
+          </button>
           <button role="tab" aria-selected={view === 'history'} className={`view-tab ${view === 'history' ? 'active' : ''}`} onClick={() => setView('history')}>History</button>
           <button role="tab" aria-selected={view === 'year'} className={`view-tab ${view === 'year' ? 'active' : ''}`} onClick={() => setView('year')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Year
@@ -1064,6 +1118,12 @@ const DEFAULT_CATEGORIES = [
           </button>
           <button role="tab" aria-selected={view === 'psycho'} className={`view-tab ${view === 'psycho' ? 'active' : ''}`} onClick={() => setView('psycho')}>
             🧠 Psycho
+          </button>
+          <button role="tab" aria-selected={view === 'projects'} className={`view-tab ${view === 'projects' ? 'active' : ''}`} onClick={() => setView('projects')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7v11a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg> Projets
+          </button>
+          <button role="tab" aria-selected={view === 'knowledge'} className={`view-tab ${view === 'knowledge' ? 'active' : ''}`} onClick={() => setView('knowledge')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg> Savoir
           </button>
           <button role="tab" aria-selected={view === 'chaos'} className={`view-tab ${view === 'chaos' ? 'active' : ''}`} onClick={() => setView('chaos')}>Chaos</button>
           <button role="tab" aria-selected={view === 'mantras'} className={`view-tab ${view === 'mantras' ? 'active' : ''}`} onClick={() => setView('mantras')}>
@@ -1269,26 +1329,6 @@ const DEFAULT_CATEGORIES = [
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9.66 2.97a10 10 0 104.68 0"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
                           </button>
                         </div>
-                        {(() => {
-                          if (!isCurrentMonth) return null;
-                          const weekCells = currentWeekCells(today);
-                          const doneKeys = new Set<string>();
-                          weekCells.forEach((c) => { if (getCheckInCount(habit.id, c.dateKey) > 0) doneKeys.add(c.dateKey); });
-                          const doneInWeek = countWeekDone(weekCells, doneKeys);
-                          return (
-                            <div className="week-stripe" title={`This week: ${doneInWeek}/7 days done`}>
-                              <span className="week-stripe-label">Wk</span>
-                              {weekCells.map((c) => (
-                                <span
-                                  key={c.dateKey}
-                                  className={`week-dot ${getCheckInCount(habit.id, c.dateKey) > 0 ? 'done' : ''} ${c.isToday ? 'today' : ''}`}
-                                  title={`${c.dateKey}${getCheckInCount(habit.id, c.dateKey) > 0 ? ' · done' : ''}`}
-                                />
-                              ))}
-                              <span className="week-stripe-count">{doneInWeek}/7</span>
-                            </div>
-                          );
-                        })()}
                         {editingWhyHabitId === habit.id && (
                           <div className="habit-why-edit">
                             <div className="why-header">Why do you do "{habit.name}"?</div>
@@ -1711,6 +1751,12 @@ const DEFAULT_CATEGORIES = [
           <PsychoanalysisView />
           <LeversView />
         </div>
+      ) : view === 'projects' ? (
+        <ProjectsView />
+      ) : view === 'knowledge' ? (
+        <KnowledgeView />
+      ) : view === 'correlations' ? (
+        <CorrelationsView />
       ) : (
         <ChaosView />
       )}
@@ -1992,9 +2038,7 @@ function InsightsView({
 }: {
   habits: Habit[];
   checkIns: CheckIn[];
-  // eslint-disable-next-line no-unused-vars
   onLink: (childId: string, parentId: string | null) => void;
-  // eslint-disable-next-line no-unused-vars
   onView: (_v: 'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights' | 'mantras' | 'settings' | 'today' | 'year' | 'challenge' | 'experiments' | 'skills' | 'urges' | 'journal') => void;
 }) {
 // Data change tick: urges/moods/levers/capacities are read via exportAllData()
@@ -2019,6 +2063,18 @@ function InsightsView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [habits, checkIns, storeTick],
   );
+
+  // Recommendation freshness: drop set-aside recs, rotate by day, cap the burst
+  // so the same headline doesn't loop forever (v0.6.1).
+  const dismissed = useMemo(() => {
+    try { return getDismissedRecs(); } catch { return []; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeTick]);
+  const visibleRecs = useMemo(
+    () => rotateRecommendations(recommendations, dismissed, new Date(), 10),
+    [recommendations, dismissed],
+  );
+  const dismissAll = recommendations.length > 0 && visibleRecs.length === 0;
 
   // Compute correlations from available data
   const correlations = useMemo(() => {
@@ -2210,7 +2266,6 @@ function InsightsView({
     STREAK_SAVER: '🛟',
   };
 
-  // eslint-disable-next-line no-unused-vars
   const kindAction: Record<RecKind, (r: Recommendation) => void> = {
     MISS_PATTERN: () => onView('history'),
     STACK_SUGGESTION: (rec) => {
@@ -2436,7 +2491,7 @@ function InsightsView({
       <div className="insights-header">
         <h2><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:6}}><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>Insights</h2>
         <span className="insights-subtitle">
-          {recommendations.length} recommendation{recommendations.length > 1 ? 's' : ''} — 100% local
+          {visibleRecs.length} recommendation{visibleRecs.length > 1 ? 's' : ''} — 100% local
           <span className="insights-generated" title="Recomputed when your data changes">
             · {new Date(generatedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
           </span>
@@ -2444,7 +2499,19 @@ function InsightsView({
       </div>
 
       <div className="insights-list">
-        {recommendations.map((rec, i) => {
+        {dismissAll ? (
+          <div className="insights-empty">
+            <span style={{ fontSize: 40, display: 'block', marginBottom: 12 }}>✅</span>
+            <h3>Recommandations mises de côté</h3>
+            <p>
+              Tu as écarté toutes les suggestions actuelles — elles ne réapparaîtront pas en boucle.
+              Réaffiche-les à tout moment, ou laisse la rotation quotidienne te présenter d'autres reco.
+            </p>
+            <button className="btn btn-primary" onClick={resetDismissedRecs}>
+              ↺ Réafficher les recommandations
+            </button>
+          </div>
+        ) : visibleRecs.map((rec, i) => {
           const habitNames = rec.habitIds
             .map((id) => habitById.get(id)?.name ?? id)
             .join(' → ');
@@ -2462,6 +2529,14 @@ function InsightsView({
                     Relevance {rec.strength}%
                   </span>
                   <span className="insight-habits">{habitNames}</span>
+                  <button
+                    className="btn btn-sm btn-ghost insight-dismiss"
+                    onClick={() => dismissRec(recKey(rec))}
+                    title="Ne plus me montrer celle-ci"
+                    aria-label="Mettre de côté"
+                  >
+                    ✕ Pas maintenant
+                  </button>
                 </div>
               </div>
               {rec.actionLabel && (

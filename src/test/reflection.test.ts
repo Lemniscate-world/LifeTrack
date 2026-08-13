@@ -33,6 +33,8 @@ function slice(overrides: Partial<DataSlice> = {}): DataSlice {
   };
 }
 
+const NOW = new Date('2026-08-08T12:00:00');
+
 describe('detectReflections', () => {
   it('returns empty on empty data', () => {
     expect(detectReflections(slice())).toEqual([]);
@@ -43,30 +45,38 @@ describe('detectReflections', () => {
     const checkIns = [
       check('gym', 10, true), check('gym', 12, true), check('gym', 14, true), check('gym', 16, true),
     ];
-    const out = detectReflections(slice({ habits: [h], checkIns }));
+    const out = detectReflections(slice({ habits: [h], checkIns }), NOW);
     expect(out.some((r) => r.kind === 'stale-win' && r.habitIds.includes('gym'))).toBe(true);
   });
 
   it('does not flag stale-win when the habit completed this week', () => {
-    const checkIns = [check('gym', 3, true), check('gym', 10, true), check('gym', 12, true)];
-    const out = detectReflections(slice({ habits: [habit('gym')], checkIns }));
+    const h = habit('gym', 'Gym');
+    const checkIns = [
+      check('gym', 2, true), check('gym', 10, true), check('gym', 12, true), check('gym', 14, true),
+    ];
+    const out = detectReflections(slice({ habits: [h], checkIns }), NOW);
     expect(out.some((r) => r.kind === 'stale-win')).toBe(false);
   });
 
-  it('detects recurring-leak: often opened but often missed', () => {
-    const checkIns = [check('med', 1, true), check('med', 2, false), check('med', 3, false), check('med', 4, false)];
-    const out = detectReflections(slice({ habits: [habit('med')], checkIns }));
-    expect(out.some((r) => r.kind === 'recurring-leak' && r.habitIds.includes('med'))).toBe(true);
+  it('detects recurring-leak: often opened but often missed recently', () => {
+    const h = habit('meds', 'Meds');
+    const checkIns = [
+      check('meds', 1, true), check('meds', 2, false), check('meds', 3, false), check('meds', 4, false),
+    ];
+    const out = detectReflections(slice({ habits: [h], checkIns }), NOW);
+    expect(out.some((r) => r.kind === 'recurring-leak' && r.habitIds.includes('meds'))).toBe(true);
   });
 
   it('detects quiet neglect: had history, silent 14 days', () => {
-    const checkIns = [check('read', 60, true), check('read', 40, false), check('read', 20, true)];
-    const out = detectReflections(slice({ habits: [habit('read')], checkIns }));
+    const h = habit('read', 'Read');
+    const checkIns = [check('read', 20, true), check('read', 25, true)];
+    const out = detectReflections(slice({ habits: [h], checkIns }), NOW);
     expect(out.some((r) => r.kind === 'neglect' && r.habitIds.includes('read'))).toBe(true);
   });
 
   it('excludes habits with no history from neglect', () => {
-    const out = detectReflections(slice({ habits: [habit('newbie')] }));
+    const h = habit('newbie', 'Newbie');
+    const out = detectReflections(slice({ habits: [h] }), NOW);
     expect(out.some((r) => r.kind === 'neglect')).toBe(false);
   });
 
@@ -75,13 +85,13 @@ describe('detectReflections', () => {
     const checkIns = [
       check('a', 1, true), check('b', 2, true), check('c', 3, true),
     ];
-    const out = detectReflections(slice({ habits, checkIns }));
+    const out = detectReflections(slice({ habits, checkIns }), NOW);
     expect(out.some((r) => r.kind === 'momentum')).toBe(true);
   });
 
   it('detects confidence at >=5/7 days completed', () => {
     const checkIns = Array.from({ length: 6 }, (_, i) => check('streak', i, true));
-    const out = detectReflections(slice({ habits: [habit('streak')], checkIns }));
+    const out = detectReflections(slice({ habits: [habit('streak')], checkIns }), NOW);
     expect(out.some((r) => r.kind === 'confidence' && r.habitIds.includes('streak'))).toBe(true);
   });
 
@@ -93,25 +103,25 @@ describe('detectReflections', () => {
       startTime: d(i + 1),
       outcome: 'gave_in' as const,
     }));
-    const out = detectReflections(slice({ urges }));
+    const out = detectReflections(slice({ urges }), NOW);
     expect(out.some((r) => r.kind === 'repetition' && r.context.includes('procrastination'))).toBe(true);
   });
 
   it('detects pattern-progress from a recent working track', () => {
     const tracks = [{ patternId: 'catastrophizing', step: 2, seenCount: 5, lastSeen: d(1), createdAt: d(-30) }];
-    const out = detectReflections(slice({ tracks }));
+    const out = detectReflections(slice({ tracks }), NOW);
     expect(out.some((r) => r.kind === 'pattern-progress' && r.dedupeKey.includes('catastrophizing'))).toBe(true);
   });
 
   it('does not ask pattern-progress when the track is old', () => {
     const tracks = [{ patternId: 'catastrophizing', step: 2, seenCount: 5, lastSeen: d(20), createdAt: d(-30) }];
-    const out = detectReflections(slice({ tracks }));
+    const out = detectReflections(slice({ tracks }), NOW);
     expect(out.some((r) => r.kind === 'pattern-progress')).toBe(false);
   });
 
   it('every reflection carries a stable dedupeKey', () => {
     const checkIns = [check('gym', 10, true), check('gym', 12, true), check('gym', 14, true)];
-    const out = detectReflections(slice({ habits: [habit('gym')], checkIns }));
+    const out = detectReflections(slice({ habits: [habit('gym')], checkIns }), NOW);
     for (const r of out) expect(r.dedupeKey.length).toBeGreaterThan(0);
   });
 });
