@@ -1,6 +1,6 @@
 [package]
 name = "lifetrack"
-version = "0.5.0"
+version = "0.6.1"
 description = "LifeTrack — A native Windows desktop habit tracker"
 authors = ["Lemniscate"]
 license = "MIT"

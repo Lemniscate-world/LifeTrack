@@ -11,6 +11,16 @@ To provide a fast, local-first, distraction-free **desktop** application for tra
 
 ## High-Level Status & Roadmap
 
+### Phase 15: Knowledge Harvest & Life Intelligence (Completed 2026-08)
+- [x] **Permanent automated ingestion** — schedule-driven RSS/Atom harvesting (arXiv seeds), auto-extraction + merge, zero manual pasting.
+- [x] **AI-assisted protocol extraction** — DeepSeek V4 Flash (default cloud model) + offline heuristic fallback.
+- [x] **Windows autostart** — ingestion continues at logon (`HKCU\...\Run`).
+- [x] **Projects linked to habits** — tasks, check-in attribution, skills from deliverables.
+- [x] **Behavior-based challenges + N=1 experiment factory**.
+- [x] **Preference engine** ("Savoir") — anti-overwhelm protocol/challenge/experiment ranking.
+- [x] **Recommendation freshness** — set-aside + daily rotation; no repeated insights.
+- [x] **Auto-achievements** from data milestones.
+
 ### Phase 1: Core Grid (Completed)
 - [x] 30-day monthly grid view for habit checks.
 - [x] Habit CRUD (Add, Rename, Archive, Delete).

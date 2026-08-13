@@ -2,6 +2,32 @@
 
 All notable changes to LifeTrack are documented in this file.
 
+## [0.6.1] — Automated knowledge harvest & life intelligence
+
+### Added
+- **Permanent automated ingestion (feeds)** — LifeTrack fetches its curated RSS/Atom feeds (arXiv: neuroscience, HClab, AI) on a schedule, extracts structured, evidence-graded protocols and merges them into the local library. No pasting, no manual step: while the app runs, it self-refreshes (`autoIngestEnabled`, interval configurable).
+- **Windows autostart** — optional launch at logon so the ingestion loop runs continuously (`set_autostart` → `HKCU\...\Run`, per-user, no admin).
+- **AI-assisted extraction** — `extract_protocols_ai` structures protocols via DeepSeek V4 Flash (or any configured provider); offline heuristic remains the fallback.
+- **DeepSeek V4 Flash by default** — new default cloud model (`deepseek/deepseek-v4-flash`), preconfigured in AI settings and on first install.
+- **Projects linked to habits** — "coding" can feed one or many projects; tasks + check-in attribution make skills measured by real deliverables.
+- **Behavior-based challenges + N=1 experiments** — suggestions derived from correlations, reflections and streaks, converted into challenges and testable experiments.
+- **Preference engine** ("Savoir") — ranks protocols to try, challenges to take and experiments to run from your own data (anti-overwhelm, stickyMax).
+- **Recommendation freshness** — set-aside (dismiss) + daily rotation stops the "same recommendations again and again" problem.
+- **Auto-achievements** — milestones derived from your data (first habit, streak ≥7/30, 100 completions, first win/experiment/urge/journal/project/challenge).
+- **Grid cleanup** — removed the 7-day mini-stripe under habit names.
+
+### Fixed
+- Atom namespace parsing in the RSS/Atom parser (robust to namespaced feeds, unescaped `&`, Atom `<id>`).
+- Reactivity of Projects/Knowledge views (memo on the tick value, not the setter).
+
+## [Unreleased / v0.6.2] — Life across all levels
+
+- **Today view enriched** — daily progress bar, one-tap mood for today, and a "Cette semaine"
+  digest (7-day completion, best day, active habits).
+- **"Aujourd'hui, essaie"** — a single focused protocol from the preference engine surfaced in
+  Today, so there's always one concrete thing to try.
+- **`weeklySummary` module** (pure, tested) — reusable trailing-7-days digest.
+
 ## [Unreleased]
 
 ## [0.3.2] — 2026-07-25

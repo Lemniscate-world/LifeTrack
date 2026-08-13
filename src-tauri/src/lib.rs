@@ -494,7 +494,7 @@ async fn complete_ai(
         }
         let cloud_model = match model.as_deref() {
             Some(m) if !m.trim().is_empty() => m.trim().to_string(),
-            _ => "openai/gpt-4o-mini".to_string(),
+            _ => "deepseek/deepseek-v4-flash".to_string(),
         };
         match call_openrouter(cloud_model, key.to_string(), call, call.json).await {
             Ok(text) => return Ok(text),
@@ -882,6 +882,93 @@ async fn summarize_achievements(
     .await
 }
 
+/// Fetch a remote URL (RSS/Atom feeds, articles…) server-side so the webview
+/// never faces CORS. Used by the permanent auto-ingest loop.
+#[tauri::command]
+async fn fetch_url(url: String) -> Result<String, String> {
+    const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+    let client = reqwest::Client::builder()
+        .timeout(FETCH_TIMEOUT)
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let resp = client
+        .get(&url)
+        .header("User-Agent", "LifeTrack/0.6 (automated knowledge harvester)")
+        .header("Accept", "application/rss+xml, application/atom+xml, application/xml, text/xml, */*")
+        .send()
+        .await
+        .map_err(|e| format!("Fetch failed for {url}: {e}"))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("HTTP {status} for {url}"));
+    }
+
+    resp.text().await.map_err(|e| format!("Read failed for {url}: {e}"))
+}
+
+/// AI-assisted extraction: turns a raw source into structured protocols via the
+/// configured provider (DeepSeek V4 Flash by default). Strict JSON, science-honest.
+#[tauri::command]
+async fn extract_protocols_ai(
+    raw: String,
+    model: Option<String>,
+    provider: Option<String>,
+    api_key: Option<String>,
+) -> Result<String, String> {
+    let system_prompt = "You are a meticulous, science-honest behavior & biohacking researcher. \
+        Extract actionable protocols from the input text. Reply ONLY valid JSON matching exactly this schema: \
+        {\"summary\":\"...\",\"top_priorities\":[{\"title\":\"...\",\"why\":\"evidence note: named study / expert or explicit hedge\",\"detail\":\"the claim\",\"action\":\"exact protocol\"}]}. \
+        Be honest: clearly distinguish established/peer-reviewed evidence from anecdote or opinion. Never invent sources or references.";
+    let user_prompt = format!("Input text to mine:\n\n{raw}");
+    let call = AiCall {
+        system_prompt: system_prompt.to_string(),
+        user_prompt,
+        temperature: 0.3,
+        max_tokens: 900,
+        json: true,
+    };
+    complete_ai(
+        provider.as_deref().unwrap_or("auto"),
+        api_key.as_deref().unwrap_or(""),
+        model,
+        &call,
+    )
+    .await
+}
+
+/// Add/remove LifeTrack from Windows "run at logon" so the permanent ingestion
+/// loop starts automatically with no manual step. Per-user (HKCU), no admin.
+#[tauri::command]
+fn set_autostart(enabled: bool) -> Result<String, String> {
+    let run_key = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+
+    if !enabled {
+        let _ = std::process::Command::new("reg")
+            .args(["delete", run_key, "/v", "LifeTrack", "/f"])
+            .output();
+        return Ok("autostart-disabled".to_string());
+    }
+
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let command = format!("\"{}\"", exe.to_string_lossy());
+
+    let out = std::process::Command::new("reg")
+        .args(["add", run_key, "/v", "LifeTrack", "/t", "REG_SZ", "/d", &command, "/f"])
+        .output()
+        .map_err(|e| format!("reg failed: {e}"))?;
+
+    if !out.status.success() {
+        return Err(format!(
+            "reg exited non-zero: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    Ok("autostart-enabled".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -896,7 +983,10 @@ pub fn run() {
             ask_coach,
             journal_analyze,
             psychoanalysis_ask,
-            summarize_achievements
+            summarize_achievements,
+            fetch_url,
+            extract_protocols_ai,
+            set_autostart
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
