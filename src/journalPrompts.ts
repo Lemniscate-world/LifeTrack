@@ -5,7 +5,7 @@
 // habit slips and "on this day" memories — plus a couple of open present-day
 // openers. Everything is local, deterministic (seeded by day) and never stored.
 
-import type { CheckIn, Habit, Note, UrgeEntry, JournalEntry } from './types';
+import type { CheckIn, Habit, Note, UrgeEntry, JournalEntry, Project, Protocol, ReflectionEntry } from './types';
 
 export interface JournalPrompt {
   id: string;
@@ -30,6 +30,9 @@ interface DataSlice {
   moods?: Record<string, string>;
   urges?: UrgeEntry[];
   journalEntries?: JournalEntry[];
+  projects?: Project[];
+  protocols?: Protocol[];
+  reflections?: ReflectionEntry[];
 }
 
 function day(key: string): string {
@@ -76,6 +79,9 @@ export function buildJournalPrompts(data: DataSlice, now: Date = new Date(), see
   const moods = data.moods ?? {};
   const urges = data.urges ?? [];
   const journalEntries = data.journalEntries ?? [];
+  const projects = data.projects ?? [];
+  const protocols = data.protocols ?? [];
+  const reflections = data.reflections ?? [];
 
   const today = day(now.toISOString());
   const seed = dayOfYear(now) + seedOffset;
@@ -164,6 +170,43 @@ export function buildJournalPrompts(data: DataSlice, now: Date = new Date(), see
       emoji: '📅',
       text: `Un an de cela (à cette date) tu écrivais : « ${past.content.slice(0, 90)} ». Que dirais-tu à cette version de toi ? Qu'a-t-elle accompli que tu n'avais pas encore vu alors ?`,
       context: 'ton journal un an plus tôt',
+    });
+  }
+
+  // 7. An active project — turn the project's inertia into a self-question.
+  const activeProject = projects.filter((p) => p.status === 'active' && !p.name.toLowerCase().includes('archive'));
+  if (activeProject.length > 0) {
+    const p = activeProject[0];
+    const done = p.tasks.filter((t) => t.done).length;
+    from.push({
+      id: 'project-check',
+      emoji: '🗂️',
+      text: `Ton projet « ${p.name} » : ${done}/${p.tasks.length} tâches faites. Qu'est-ce qui, concrètement, le fait avancer ou stagner en ce moment — et quelle serait la prochaine action de 10 minutes ?`,
+      context: `Projet « ${p.name} » · ${done}/${p.tasks.length} tâches`,
+    });
+  }
+
+  // 8. A protocol from the knowledge base — invite to experiment with it.
+  const recentProtocol = protocols[0];
+  if (recentProtocol) {
+    from.push({
+      id: 'protocol-try',
+      emoji: '🧬',
+      text: `Le protocole « ${recentProtocol.title} » (${recentProtocol.claim.slice(0, 100)}) propose de faire : ${recentProtocol.protocol.slice(0, 100)}. Serais-tu prêt·e à l'essayer 3 jours — et qu'est-ce qui t'en empêcherait le plus ?`,
+      context: `Protocole : ${recentProtocol.title} · évidence ${recentProtocol.evidenceLevel}`,
+    });
+  }
+
+  // 9. A lesson you already learned — reconnect to your own past insight.
+  const answered = reflections.filter((r) => r.status === 'answered' && r.answer).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  if (answered.length > 0) {
+    const r = answered[0];
+    const lesson = (r.answer ?? '').slice(0, 120);
+    from.push({
+      id: 'lesson-recall',
+      emoji: '💎',
+      text: `Tu as déjà écrit cette leçon : « ${lesson} ». Est-ce que ta vie d'aujourd'hui l'honore vraiment — ou l'as-tu laissée retomber silencieusement ?`,
+      context: 'une leçon enregistrée plus tôt',
     });
   }
 

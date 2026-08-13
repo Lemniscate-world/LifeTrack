@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildJournalPrompts } from '../journalPrompts';
 import { buildOnThisDay, buildMemoryReminder } from '../memories';
-import type { Habit, Note, JournalEntry } from '../types';
+import type { Habit, Note, JournalEntry, Project, Protocol, ReflectionEntry } from '../types';
 
 function hab(id: string, name: string): Habit {
   return { id, name, color: '#000' } as Habit;
@@ -28,6 +28,24 @@ describe('buildJournalPrompts', () => {
     const a = buildJournalPrompts({ journalEntries: [{ id: 'j', content: 'test', personality: 'coach', response: '', createdAt: '2025-07-20T00:00:00' }] as unknown as JournalEntry[] }, now);
     const b = buildJournalPrompts({ journalEntries: [{ id: 'j', content: 'test', personality: 'coach', response: '', createdAt: '2025-07-20T00:00:00' }] as unknown as JournalEntry[] }, now);
     expect(a.prompts.map((p) => p.id)).toEqual(b.prompts.map((p) => p.id));
+  });
+
+  it('asks about an active project', () => {
+    const projects: Project[] = [{ id: 'p1', name: 'Mon livre', status: 'active', habitIds: [], tasks: [{ id: 't1', title: 'Écrire', done: false, createdAt: '2026-01-01' }], createdAt: '2026-01-01' } as Project];
+    const set = buildJournalPrompts({ projects }, new Date('2026-07-20T12:00:00'));
+    expect(set.prompts.some((p) => p.id === 'project-check' && p.text.includes('Mon livre'))).toBe(true);
+  });
+
+  it('invites to try a knowledge-base protocol', () => {
+    const protocols: Protocol[] = [{ id: 'pr1', title: 'Soleil matinal', source: 'x', claim: 'La lumière du matin synchronise le rythme circadien', evidenceLevel: 'B', domain: 'sleep', protocol: '10 min de soleil le matin', keywords: [], habitSuggestions: [] } as Protocol];
+    const set = buildJournalPrompts({ protocols }, new Date('2026-07-20T12:00:00'));
+    expect(set.prompts.some((p) => p.id === 'protocol-try' && p.text.includes('Soleil matinal'))).toBe(true);
+  });
+
+  it('recalls a lesson the user already answered', () => {
+    const reflections: ReflectionEntry[] = [{ id: 'r1', kind: 'neglect', title: 'T', question: 'Q', context: 'c', habitIds: [], dedupeKey: 'k1', status: 'answered', answer: 'Ne pas remettre au lendemain', createdAt: '2026-07-10T00:00:00' }];
+    const set = buildJournalPrompts({ reflections }, new Date('2026-07-20T12:00:00'));
+    expect(set.prompts.some((p) => p.id === 'lesson-recall' && p.text.includes('Ne pas remettre'))).toBe(true);
   });
 });
 
