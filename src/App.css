@@ -1118,6 +1118,120 @@ body {
   margin: 0 0 6px;
 }
 
+/* Journal v0.6.2 — periodic digest, search, links, interactive actions */
+.journal-digest {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.journal-digest-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.journal-digest-header h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.journal-digest-period {
+  display: flex;
+  gap: 6px;
+}
+
+.journal-digest-summary {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.journal-digest-words {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.journal-digest-ai {
+  margin-top: 4px;
+}
+
+.journal-digest-output {
+  margin-top: 10px;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.journal-digest-output p {
+  margin: 0 0 6px;
+}
+
+.journal-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.journal-history-header h3 {
+  margin: 0;
+}
+
+.journal-search {
+  flex: 1;
+  min-width: 180px;
+  max-width: 320px;
+}
+
+.journal-entry-content mark {
+  background: rgba(255, 214, 10, 0.35);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.journal-entry-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 0;
+}
+
+.journal-link {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+}
+
+.journal-entry-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.journal-entry-actions-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
 .experiments-header {
   display: flex;
   align-items: center;

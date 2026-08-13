@@ -4,13 +4,17 @@
 // Strategist (planning). Uses the configured AI provider (cloud/local/auto).
 
 import { useState, useEffect, useMemo } from 'react';
-import { getJournalEntries, addJournalEntry, deleteJournalEntry, getJournalThreads, startJournalThread, deleteJournalThread, tagJournalEntryThread, exportAllData, getPreferences, subscribe, getPatternTracks, replacePatternTracks, getReflections, addReflection, answerReflection } from './store';
+import { getJournalEntries, addJournalEntry, deleteJournalEntry, getJournalThreads, startJournalThread, deleteJournalThread, tagJournalEntryThread, exportAllData, getPreferences, subscribe, getPatternTracks, replacePatternTracks, getReflections, addReflection, answerReflection, getProjects, getProtocols, updateJournalEntryLinks, addChallenge, addNote } from './store';
 import { buildAiContext } from './aiContext';
 import { buildJournalPrompts, type JournalPrompt } from './journalPrompts';
 import { detectNegativePatterns, allPatternsById } from './psychoanalysis';
 import { advanceTracks, questionForStep, STEPS, MAX_STEP } from './patternProgress';
 import { detectReflections, filterNewReflections, reflectionEmoji, type DetectedReflection } from './reflection';
-import type { JournalPersonality } from './types';
+import { buildJournalDigest, digestSummary, type DigestPeriod } from './journalDigest';
+import { detectJournalLinks, resolveEntryLinks, type JournalLink } from './journalLinks';
+import { suggestJournalActions } from './journalActions';
+import { searchJournalEntries, highlightQuery } from './journalSearch';
+import type { JournalEntry, JournalPersonality } from './types';
 
 const PERSONALITIES: { id: JournalPersonality; name: string; emoji: string; tagline: string; color: string }[] = [
   { id: 'coach', name: 'Coach', emoji: '🥊', tagline: 'Actionable & direct', color: '#DBEAFE' },
@@ -37,6 +41,13 @@ export default function JournalView() {
     d.setHours(12, 0, 0, 0);
     return d;
   });
+
+  // Periodic synthesis + search + interactivity (v0.6.2).
+  const [digestPeriod, setDigestPeriod] = useState<DigestPeriod>('week');
+  const [synthesizing, setSynthesizing] = useState(false);
+  const [synthesis, setSynthesis] = useState<string | null>(null);
+  const [searchText, setSearchText] = useState('');
+  const [showActions, setShowActions] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = subscribe(() => setTick(t => t + 1));
@@ -143,7 +154,16 @@ export default function JournalView() {
         provider: prefs.aiProvider || 'auto',
         apiKey: prefs.aiApiKey || '',
       });
-      const entry = addJournalEntry(content, personality, response);
+      // Auto-link the entry to projects/protocols/habits mentioned in it.
+      let links: JournalLink[] = [];
+      try {
+        links = detectJournalLinks(content, getProjects(), getProtocols(), exportAllData().habits);
+      } catch { links = []; }
+      const entry = addJournalEntry(content, personality, response, {
+        projectIds: links.filter((l) => l.kind === 'project').map((l) => l.id),
+        protocolIds: links.filter((l) => l.kind === 'protocol').map((l) => l.id),
+        habitIds: links.filter((l) => l.kind === 'habit').map((l) => l.id),
+      });
       if (activeThreadId) tagJournalEntryThread(entry.id, activeThreadId);
       // Progressive psychological work: detect the patterns in what was just
       // written, advance their tracks, and persist so growth continues later.
@@ -166,6 +186,91 @@ export default function JournalView() {
     const d = new Date(iso);
     return d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   };
+
+  const digest = useMemo(() => {
+    try { return buildJournalDigest(entries, today, digestPeriod); } catch { return null; }
+  }, [entries, today, digestPeriod]);
+
+  const handleSynthesize = async () => {
+    if (synthesizing) return;
+    setSynthesizing(true);
+    setError(null);
+    try {
+      const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+      if (!isTauriEnv) {
+        setError('La synthèse IA nécessite l\'application desktop (fournisseur IA).');
+        return;
+      }
+      const { invoke } = await import('@tauri-apps/api/core');
+      const prefs = getPreferences();
+      const periodLabel = digestPeriod === 'week' ? 'semaine' : 'mois';
+      const entriesForAi = entries
+        .filter((e) => {
+          const d = e.createdAt.slice(0, 10);
+          return digest ? d >= digest.windowStart && d <= digest.windowEnd : false;
+        })
+        .slice(0, 40)
+        .map((e) => `[${e.createdAt.slice(0, 10)}] (${e.personality}) ${e.content.slice(0, 200)}`)
+        .join('\n');
+      const out = await invoke<string>('journal_summary', {
+        digestJson: digest ? digestSummary(digest) : 'Aucune donnée.',
+        entriesJson: entriesForAi || '(aucune entrée dans la période)',
+        period: periodLabel,
+        model: prefs.aiModel || null,
+        provider: prefs.aiProvider || 'auto',
+        apiKey: prefs.aiApiKey || '',
+      });
+      setSynthesis(out);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erreur pendant la synthèse.');
+    } finally {
+      setSynthesizing(false);
+    }
+  };
+
+  const filteredEntries = useMemo(() => {
+    const query = { text: searchText.trim() };
+    try { return searchText.trim() ? searchJournalEntries(entries, query) : entries; } catch { return entries; }
+  }, [entries, searchText]);
+
+  const projects = getProjects();
+  const protocols = getProtocols();
+  const allHabits = exportAllData().habits;
+
+  const handleAction = (entry: JournalEntry, action: ReturnType<typeof suggestJournalActions>[number]) => {
+    try {
+      if (action.type === 'challenge' && action.habitId) {
+        const habit = allHabits.find((h) => h.id === action.habitId);
+        addChallenge(action.habitId, `Défi ${habit?.name ?? '7j'}`, 7, 1, true);
+        setError(null);
+        setShowActions(null);
+        return;
+      }
+      if (action.type === 'note' && action.noteText) {
+        addNote(action.noteText);
+        setError(null);
+        setShowActions(null);
+        return;
+      }
+      if ((action.type === 'link-project' || action.type === 'link-protocol') && (action.projectId || action.protocolId)) {
+        const resolved = resolveEntryLinks(entry, []);
+        updateJournalEntryLinks(entry.id, {
+          projectIds: action.projectId ? [...new Set([...(entry.projectIds ?? []), action.projectId])] : undefined,
+          protocolIds: action.protocolId ? [...new Set([...(entry.protocolIds ?? []), action.protocolId])] : undefined,
+          habitIds: resolved.habitIds,
+        });
+        setError(null);
+        setShowActions(null);
+        return;
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erreur.');
+    }
+  };
+
+  const projectLabel = (id: string) => projects.find((p) => p.id === id)?.name ?? id;
+  const protocolLabel = (id: string) => protocols.find((p) => p.id === id)?.title ?? id;
+  const habitLabel = (id: string) => allHabits.find((h) => h.id === id)?.name ?? id;
 
   return (
     <div className="journal-view">
@@ -320,6 +425,39 @@ export default function JournalView() {
         </div>
       )}
 
+      {/* Synthèse périodique — le journal se résume tout seul (v0.6.2) */}
+      {digest && digest.totalEntries > 0 && (
+        <div className="journal-digest">
+          <div className="journal-digest-header">
+            <h3>📊 Synthèse {digestPeriod === 'week' ? 'hebdomadaire' : 'mensuelle'}</h3>
+            <div className="journal-digest-period">
+              <button className={`btn btn-sm ${digestPeriod === 'week' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setDigestPeriod('week')}>7 jours</button>
+              <button className={`btn btn-sm ${digestPeriod === 'month' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setDigestPeriod('month')}>30 jours</button>
+            </div>
+          </div>
+          <p className="journal-digest-summary">{digestSummary(digest)}</p>
+          {digest.topWords.length > 0 && (
+            <p className="journal-digest-words">
+              Thèmes récurrents : {digest.topWords.map((w) => `« ${w.word} » ×${w.count}`).join(', ')}
+            </p>
+          )}
+          <button
+            className="btn btn-sm btn-primary journal-digest-ai"
+            onClick={handleSynthesize}
+            disabled={synthesizing}
+          >
+            {synthesizing ? 'Synthèse en cours…' : `✨ Synthèse IA de la ${digestPeriod === 'week' ? 'semaine' : 'mois'}`}
+          </button>
+          {synthesis && (
+            <div className="journal-digest-output">
+              {synthesis.split('\n').map((line, i) => (
+                <p key={i}>{line || '\u00A0'}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Fils de discussion — questions persistées qui ouvrent une conversation */}
       {threads.length > 0 && (
         <div className="journal-threads">
@@ -368,9 +506,22 @@ export default function JournalView() {
       {/* History */}
       {entries.length > 0 && (
         <div className="journal-history">
-          <h3>Past reflections</h3>
-          {entries.map(entry => {
+          <div className="journal-history-header">
+            <h3>Past reflections</h3>
+            <input
+              className="form-input journal-search"
+              type="search"
+              placeholder="🔍 Rechercher (contenu, réponse, personne)…"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+            />
+          </div>
+          {filteredEntries.length === 0 && <p className="empty-hint">Aucune entrée ne correspond à cette recherche.</p>}
+          {filteredEntries.map(entry => {
             const persona = PERSONALITIES.find(p => p.id === entry.personality);
+            const entryActions = showActions === entry.id
+              ? (() => { try { return suggestJournalActions(entry, allHabits, projects, protocols, entry); } catch { return []; } })()
+              : [];
             return (
               <div key={entry.id} className="journal-entry">
                 <div className="journal-entry-meta">
@@ -383,12 +534,52 @@ export default function JournalView() {
                     ✕
                   </button>
                 </div>
-                <p className="journal-entry-content">{entry.content}</p>
+                <p className="journal-entry-content">
+                  {searchText.trim()
+                    ? highlightQuery(entry.content, searchText).split('**').map((part, i) =>
+                        i % 2 === 1 ? <mark key={i}>{part}</mark> : <span key={i}>{part}</span>,
+                      )
+                    : entry.content}
+                </p>
                 <div className="journal-entry-response">
                   {entry.response.split('\n').map((line, i) => (
                     <p key={i}>{line || '\u00A0'}</p>
                   ))}
                 </div>
+                {(entry.projectIds?.length || entry.protocolIds?.length || entry.habitIds?.length) && (
+                  <div className="journal-entry-links">
+                    {entry.projectIds?.map((id) => (
+                      <span key={`p-${id}`} className="journal-link journal-link-project">🗂️ {projectLabel(id)}</span>
+                    ))}
+                    {entry.protocolIds?.map((id) => (
+                      <span key={`pr-${id}`} className="journal-link journal-link-protocol">📚 {protocolLabel(id)}</span>
+                    ))}
+                    {entry.habitIds?.map((id) => (
+                      <span key={`h-${id}`} className="journal-link journal-link-habit">🎯 {habitLabel(id)}</span>
+                    ))}
+                  </div>
+                )}
+                <div className="journal-entry-actions">
+                  <button
+                    className="btn btn-sm btn-ghost"
+                    onClick={() => setShowActions(showActions === entry.id ? null : entry.id)}
+                  >
+                    ⚡ Actions
+                  </button>
+                </div>
+                {entryActions.length > 0 && (
+                  <div className="journal-entry-actions-panel">
+                    {entryActions.map((a, i) => (
+                      <button
+                        key={`${a.type}-${i}`}
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => handleAction(entry, a)}
+                      >
+                        {a.emoji} {a.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
