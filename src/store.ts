@@ -2031,6 +2031,7 @@ export function addJournalEntry(
   personality: JournalPersonality,
   response: string,
   links?: { projectIds?: string[]; protocolIds?: string[]; habitIds?: string[] },
+  opts?: { local?: boolean },
 ): JournalEntry {
   const entry: JournalEntry = {
     id: crypto.randomUUID(),
@@ -2044,6 +2045,7 @@ export function addJournalEntry(
     if (links.protocolIds?.length) entry.protocolIds = links.protocolIds;
     if (links.habitIds?.length) entry.habitIds = links.habitIds;
   }
+  if (opts?.local) entry.local = true;
   data.journalEntries.push(entry);
   notify();
   return entry;
@@ -2134,6 +2136,50 @@ export function addReflection(d: { kind: ReflectionKind; title: string; question
   data.reflections.push(entry);
   notify();
   return entry;
+}
+
+/**
+ * Mark a detected reflection as "asked" so the engine does not re-ask the same
+ * question for a while. Persists the open question (the user can answer later)
+ * and bumps timesAsked. Idempotent: re-asking the same dedupeKey only bumps
+ * the counter, it does not create duplicates.
+ */
+export function markReflectionAsked(d: { kind: ReflectionKind; title: string; question: string; context: string; habitIds: string[]; dedupeKey: string }): ReflectionEntry {
+  if (!data.reflections) data.reflections = [];
+  const existing = data.reflections.find((r) => r.dedupeKey === d.dedupeKey);
+  if (existing) {
+    existing.timesAsked = (existing.timesAsked ?? 0) + 1;
+    existing.lastAskedAt = new Date().toISOString();
+    notify();
+    return existing;
+  }
+  const entry: ReflectionEntry = {
+    ...d,
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    status: 'open',
+    timesAsked: 1,
+    lastAskedAt: new Date().toISOString(),
+  };
+  data.reflections.push(entry);
+  notify();
+  return entry;
+}
+
+/** Hide an open reflection from the journal until `days` from now. */
+export function snoozeReflection(id: string, days: number): void {
+  const r = (data.reflections ?? []).find((x) => x.id === id);
+  if (!r) return;
+  r.snoozedUntil = new Date(Date.now() + days * 24 * 3600 * 1000).toISOString();
+  notify();
+}
+
+/** Clear a snooze so the question can be asked again. */
+export function unsnoozeReflection(id: string): void {
+  const r = (data.reflections ?? []).find((x) => x.id === id);
+  if (!r) return;
+  r.snoozedUntil = undefined;
+  notify();
 }
 
 export function answerReflection(id: string, answer: string): void {

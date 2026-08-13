@@ -232,6 +232,8 @@ export interface JournalEntry {
   protocolIds?: string[];
   /** Optional habits this entry references (for AI + interactivity). */
   habitIds?: string[];
+  /** True when the response was generated locally (no AI provider available). */
+  local?: boolean;
 }
 
 /** A persistent discussion thread started from a prompt / question. */
@@ -292,6 +294,12 @@ export interface ReflectionEntry extends DetectedReflection {
   createdAt: string;
   status: 'open' | 'answered';
   answer?: string;
+  /** When set, the question is hidden from the journal until this ISO date. */
+  snoozedUntil?: string;
+  /** How many distinct days this question has been surfaced (for rotation). */
+  timesAsked?: number;
+  /** ISO timestamp of the last time this question was surfaced. */
+  lastAskedAt?: string;
 }
 
 // --- Challenges (v0.5.0) ---

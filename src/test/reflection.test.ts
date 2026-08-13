@@ -1,10 +1,19 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   detectReflections,
   filterNewReflections,
   reflectionEmoji,
   type DataSlice,
 } from '../reflection';
+import {
+  resetStore,
+  flushSave,
+  markReflectionAsked,
+  snoozeReflection,
+  unsnoozeReflection,
+  answerReflection,
+  getReflections,
+} from '../store';
 import type { Habit, CheckIn, ReflectionEntry } from '../types';
 
 function d(daysBack: number, base = new Date('2026-08-08T12:00:00')): string {
@@ -158,5 +167,40 @@ describe('reflectionEmoji', () => {
     expect(reflectionEmoji('stale-win')).toBe('🏆');
     expect(reflectionEmoji('momentum')).toBe('🚀');
     expect(reflectionEmoji('unknown' as never)).toBe('💡');
+  });
+});
+
+describe('store — question tracking (markReflectionAsked / snooze)', () => {
+  beforeEach(() => {
+    resetStore();
+    flushSave();
+  });
+
+  const base = { kind: 'neglect' as const, title: 'T', question: 'Q', context: 'C', habitIds: ['h'] as string[], dedupeKey: 'neglect:h' };
+
+  it('marks a reflection as asked without duplicating on re-ask', () => {
+    const first = markReflectionAsked(base);
+    expect(first.timesAsked).toBe(1);
+    expect(first.status).toBe('open');
+    const second = markReflectionAsked(base);
+    expect(second.id).toBe(first.id);
+    expect(second.timesAsked).toBe(2);
+    expect(getReflections()).toHaveLength(1);
+  });
+
+  it('snooze hides the question and unsnooze reveals it again', () => {
+    const r = markReflectionAsked(base);
+    snoozeReflection(r.id, 3);
+    expect(getReflections()[0].snoozedUntil).toBeDefined();
+    unsnoozeReflection(r.id);
+    expect(getReflections()[0].snoozedUntil).toBeUndefined();
+  });
+
+  it('answers a persisted question through the tracking helpers', () => {
+    const r = markReflectionAsked(base);
+    answerReflection(r.id, 'ma leçon');
+    const after = getReflections()[0];
+    expect(after.status).toBe('answered');
+    expect(after.answer).toBe('ma leçon');
   });
 });
