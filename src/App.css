@@ -1232,6 +1232,119 @@ body {
   border-top: 1px dashed var(--border);
 }
 
+/* Journal v0.6.3 — question tracking, snooze, offline flag */
+.journal-reflection-snooze {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.journal-entry-thread {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin: 0 0 10px;
+}
+
+.journal-question-track {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.journal-question-track-header {
+  margin-bottom: 10px;
+}
+
+.journal-question-track-header h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.journal-question-track-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.journal-question-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.journal-question {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+
+.journal-question-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.journal-question-title {
+  font-weight: 600;
+  font-size: 13px;
+  flex: 1;
+}
+
+.journal-question-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.journal-question-badge.answered {
+  border-color: rgba(52, 211, 153, 0.4);
+  color: #34d399;
+}
+
+.journal-question-question {
+  margin: 8px 0 4px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.journal-question-answer {
+  margin: 4px 0;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg-alt);
+  border-left: 3px solid rgba(52, 211, 153, 0.5);
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+.journal-question-actions {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.journal-question-reply {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 100%;
+  margin-top: 6px;
+}
+
 .experiments-header {
   display: flex;
   align-items: center;

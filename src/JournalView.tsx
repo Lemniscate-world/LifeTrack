@@ -4,17 +4,18 @@
 // Strategist (planning). Uses the configured AI provider (cloud/local/auto).
 
 import { useState, useEffect, useMemo } from 'react';
-import { getJournalEntries, addJournalEntry, deleteJournalEntry, getJournalThreads, startJournalThread, deleteJournalThread, tagJournalEntryThread, exportAllData, getPreferences, subscribe, getPatternTracks, replacePatternTracks, getReflections, addReflection, answerReflection, getProjects, getProtocols, updateJournalEntryLinks, addChallenge, addNote } from './store';
+import { getJournalEntries, addJournalEntry, deleteJournalEntry, getJournalThreads, startJournalThread, deleteJournalThread, tagJournalEntryThread, exportAllData, getPreferences, subscribe, getPatternTracks, replacePatternTracks, getReflections, addReflection, answerReflection, getProjects, getProtocols, updateJournalEntryLinks, addChallenge, addNote, markReflectionAsked, snoozeReflection, unsnoozeReflection } from './store';
 import { buildAiContext } from './aiContext';
 import { buildJournalPrompts, type JournalPrompt } from './journalPrompts';
 import { detectNegativePatterns, allPatternsById } from './psychoanalysis';
 import { advanceTracks, questionForStep, STEPS, MAX_STEP } from './patternProgress';
-import { detectReflections, filterNewReflections, reflectionEmoji, type DetectedReflection } from './reflection';
+import { detectReflections, reflectionEmoji, type DetectedReflection } from './reflection';
 import { buildJournalDigest, digestSummary, type DigestPeriod } from './journalDigest';
 import { detectJournalLinks, resolveEntryLinks, type JournalLink } from './journalLinks';
 import { suggestJournalActions } from './journalActions';
 import { searchJournalEntries, highlightQuery } from './journalSearch';
-import type { JournalEntry, JournalPersonality } from './types';
+import { localReflection } from './localReflection';
+import type { JournalEntry, JournalPersonality, ReflectionEntry } from './types';
 
 const PERSONALITIES: { id: JournalPersonality; name: string; emoji: string; tagline: string; color: string }[] = [
   { id: 'coach', name: 'Coach', emoji: '🥊', tagline: 'Actionable & direct', color: '#DBEAFE' },
@@ -89,8 +90,14 @@ export default function JournalView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick]);
 
-  // Self-improvement loop: current data → open questions, minus any already
-  // asked/persisted recently under the same dedupeKey.
+  // Self-improvement loop: current data → open questions. The panel rotates a
+  // fresh subset every day (day-seed) so it never shows the same four forever.
+  // Persistence for tracking happens on interaction (answer or snooze), not on
+  // display — answered and snoozed questions are excluded from the panel.
+  const [askedDay, setAskedDay] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
   const reflections = useMemo(() => {
     try {
       const all = exportAllData();
@@ -103,27 +110,55 @@ export default function JournalView() {
         journalEntries: all.journalEntries,
         tracks: all.patternTracks,
       });
-      const fresh = filterNewReflections(detected, getReflections(), 7);
-      return fresh
-        .sort((a, b) => (b.habitIds.length - a.habitIds.length))
-        .slice(0, 4);
+      const now = new Date();
+      const persisted = getReflections();
+      const today = now.toISOString();
+      // Exclude answered questions and currently-snoozed ones.
+      const answered = new Set(persisted.filter((r) => r.status === 'answered').map((r) => r.dedupeKey));
+      const snoozed = new Set(persisted.filter((r) => r.snoozedUntil && r.snoozedUntil > today).map((r) => r.dedupeKey));
+      const visible = detected.filter((d) => !answered.has(d.dedupeKey) && !snoozed.has(d.dedupeKey));
+      // Rotate so we don't always show the same subset: pick by day-seed from
+      // the ranked candidates instead of a fixed slice.
+      const ranked = visible
+        .sort((a, b) => (b.habitIds.length - a.habitIds.length) || a.dedupeKey.localeCompare(b.dedupeKey));
+      if (ranked.length === 0) return [];
+      const daySeed = Math.floor(now.getTime() / 86400000);
+      const count = Math.min(4, ranked.length);
+      const rotated: DetectedReflection[] = [];
+      for (let i = 0; i < count; i++) {
+        rotated.push(ranked[(daySeed + i * 7) % ranked.length]);
+      }
+      return rotated.filter(Boolean);
     } catch { return []; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tick, entries.length]);
+  }, [tick, entries.length, askedDay]);
+
+  // Tracked questions: all persisted reflections (asked, answered or snoozed).
+  const openReflections = useMemo(() => {
+    try {
+      return getReflections()
+        .sort((a, b) => (b.lastAskedAt ?? b.createdAt).localeCompare(a.lastAskedAt ?? a.createdAt));
+    } catch { return []; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick, entries.length, askedDay]);
 
   const handleAnswerReflection = (r: DetectedReflection) => {
     const answer = (answerDrafts[r.dedupeKey] ?? '').trim();
     if (!answer) return;
-    const entry = addReflection({
-      kind: r.kind,
-      title: r.title,
-      question: r.question,
-      context: r.context,
-      habitIds: r.habitIds,
-      dedupeKey: r.dedupeKey,
-    });
-    answerReflection(entry.id, answer);
+    // Persist as a tracked question (bump timesAsked) then record the answer.
+    let persisted: ReflectionEntry;
+    try { persisted = markReflectionAsked(r); } catch { persisted = addReflection(r); }
+    answerReflection(persisted.id, answer);
     setAnswerDrafts((d) => ({ ...d, [r.dedupeKey]: '' }));
+    setAskedDay(new Date().toISOString().slice(0, 10));
+  };
+
+  // Answer a question that was already persisted (from the question tracker).
+  const handleAnswerTracked = (r: ReflectionEntry, answer: string) => {
+    if (!answer.trim()) return;
+    answerReflection(r.id, answer);
+    setAnswerDrafts((d) => ({ ...d, [r.dedupeKey]: '' }));
+    setAskedDay(new Date().toISOString().slice(0, 10));
   };
 
   const allFrames = useMemo(() => {
@@ -136,49 +171,59 @@ export default function JournalView() {
     if (!content || reflecting) return;
     setReflecting(true);
     setError(null);
+    let response = '';
+    let local = false;
     try {
       const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
       if (!isTauriEnv) {
-        setError('Journal reflection requires the desktop app (AI provider).');
-        return;
+        // No desktop app → still record the entry with a local reflection.
+        local = true;
+      } else {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const prefs = getPreferences();
+        let context = '';
+        try { context = buildAiContext(exportAllData()); } catch { context = ''; }
+        response = await invoke<string>('journal_analyze', {
+          content,
+          personality,
+          summaryJson: context,
+          model: prefs.aiModel || null,
+          provider: prefs.aiProvider || 'auto',
+          apiKey: prefs.aiApiKey || '',
+        });
       }
-      const { invoke } = await import('@tauri-apps/api/core');
-      const prefs = getPreferences();
-      let context = '';
-      try { context = buildAiContext(exportAllData()); } catch { context = ''; }
-      const response = await invoke<string>('journal_analyze', {
-        content,
-        personality,
-        summaryJson: context,
-        model: prefs.aiModel || null,
-        provider: prefs.aiProvider || 'auto',
-        apiKey: prefs.aiApiKey || '',
-      });
-      // Auto-link the entry to projects/protocols/habits mentioned in it.
-      let links: JournalLink[] = [];
-      try {
-        links = detectJournalLinks(content, getProjects(), getProtocols(), exportAllData().habits);
-      } catch { links = []; }
-      const entry = addJournalEntry(content, personality, response, {
-        projectIds: links.filter((l) => l.kind === 'project').map((l) => l.id),
-        protocolIds: links.filter((l) => l.kind === 'protocol').map((l) => l.id),
-        habitIds: links.filter((l) => l.kind === 'habit').map((l) => l.id),
-      });
-      if (activeThreadId) tagJournalEntryThread(entry.id, activeThreadId);
-      // Progressive psychological work: detect the patterns in what was just
-      // written, advance their tracks, and persist so growth continues later.
-      try {
-        const tracks = getPatternTracks();
-        const hitList = detectNegativePatterns([], [{ id: 'tmp', habitId: 'tmp', content, createdAt: new Date().toISOString() }], []);
-        const next = advanceTracks(tracks, hitList, new Date());
-        replacePatternTracks(next);
-      } catch { /* pattern tracking is best-effort */ }
-      setDraft('');
-      setPromptRandom((n) => n + 1);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong while reflecting.');
+    } catch {
+      // AI failed (provider down, no key, …) → never lose the entry.
+      local = true;
     } finally {
-      setReflecting(false);
+      if (local) {
+        try { response = localReflection(content, personality); } catch { response = ''; }
+      }
+    }
+    // Auto-link the entry to projects/protocols/habits mentioned in it.
+    let links: JournalLink[] = [];
+    try {
+      links = detectJournalLinks(content, getProjects(), getProtocols(), exportAllData().habits);
+    } catch { /* keep empty links */ }
+    const entry = addJournalEntry(content, personality, response, {
+      projectIds: links.filter((l) => l.kind === 'project').map((l) => l.id),
+      protocolIds: links.filter((l) => l.kind === 'protocol').map((l) => l.id),
+      habitIds: links.filter((l) => l.kind === 'habit').map((l) => l.id),
+    }, { local });
+    if (activeThreadId) tagJournalEntryThread(entry.id, activeThreadId);
+    // Progressive psychological work: detect the patterns in what was just
+    // written, advance their tracks, and persist so growth continues later.
+    try {
+      const tracks = getPatternTracks();
+      const hitList = detectNegativePatterns([], [{ id: 'tmp', habitId: 'tmp', content, createdAt: new Date().toISOString() }], []);
+      const next = advanceTracks(tracks, hitList, new Date());
+      replacePatternTracks(next);
+    } catch { /* pattern tracking is best-effort */ }
+    setDraft('');
+    setPromptRandom((n) => n + 1);
+    setReflecting(false);
+    if (local) {
+      setError('Réflexion hors-ligne enregistrée. Configure un fournisseur IA (Réglages → IA) pour des réponses plus profondes.');
     }
   };
 
@@ -399,6 +444,19 @@ export default function JournalView() {
                 <div className="journal-reflection-top">
                   <span className="journal-reflection-emoji">{reflectionEmoji(r.kind)}</span>
                   <span className="journal-reflection-title">{r.title}</span>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost journal-reflection-snooze"
+                    title="Cacher cette question quelques jours"
+                    onClick={() => {
+                      const persisted = getReflections().find((x) => x.dedupeKey === r.dedupeKey);
+                      if (persisted) snoozeReflection(persisted.id, 3);
+                      else { const p = markReflectionAsked(r); snoozeReflection(p.id, 3); }
+                      setAskedDay(new Date().toISOString().slice(0, 10));
+                    }}
+                  >
+                    💤
+                  </button>
                 </div>
                 <p className="journal-reflection-question">{r.question}</p>
                 <span className="journal-reflection-context">{r.context}</span>
@@ -418,6 +476,84 @@ export default function JournalView() {
                   >
                     Enregistrer la leçon
                   </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Suivi des questions — questions posées, ouvertes ou répondes (v0.6.3) */}
+      {openReflections.length > 0 && (
+        <div className="journal-question-track">
+          <div className="journal-question-track-header">
+            <h3>📌 Questions posées</h3>
+            <span className="journal-question-track-hint">
+              LifeTrack se souvient des questions qu'il t'a posées. Réponds-y
+              quand tu veux, ou relance une leçon ancienne.
+            </span>
+          </div>
+          <ul className="journal-question-list">
+            {openReflections.slice(0, 8).map((r) => (
+              <li key={r.id} className={`journal-question ${r.status}`}>
+                <div className="journal-question-top">
+                  <span className="journal-question-emoji">{reflectionEmoji(r.kind)}</span>
+                  <span className="journal-question-title">{r.title}</span>
+                  <span className={`journal-question-badge ${r.status}`}>
+                    {r.status === 'answered' ? '✓ répondue' : r.snoozedUntil && r.snoozedUntil > new Date().toISOString() ? '💤 endormie' : '… en attente'}
+                  </span>
+                </div>
+                <p className="journal-question-question">{r.question}</p>
+                {r.status === 'answered' && r.answer && (
+                  <p className="journal-question-answer">Ma leçon : « {r.answer} »</p>
+                )}
+                <div className="journal-question-actions">
+                  {r.status === 'answered' ? (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => { /* answerReflection is closed; reopen to re-answer */ }}
+                      title="(relance via la réponse dans l'historique)"
+                    >
+                      ✓
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => {
+                          if (r.snoozedUntil && r.snoozedUntil > new Date().toISOString()) {
+                            unsnoozeReflection(r.id);
+                          } else {
+                            snoozeReflection(r.id, 7);
+                          }
+                          setAskedDay(new Date().toISOString().slice(0, 10));
+                        }}
+                      >
+                        {r.snoozedUntil && r.snoozedUntil > new Date().toISOString() ? '↩ Réactiver' : '💤 Snooze 7j'}
+                      </button>
+                      {r.status === 'open' && (
+                        <div className="journal-question-reply">
+                          <textarea
+                            className="form-textarea journal-reflection-textarea"
+                            rows={2}
+                            placeholder="Ta leçon, en une phrase ou deux…"
+                            value={answerDrafts[r.dedupeKey] ?? ''}
+                            onChange={(e) => setAnswerDrafts((d) => ({ ...d, [r.dedupeKey]: e.target.value }))}
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-primary"
+                            onClick={() => handleAnswerTracked(r, answerDrafts[r.dedupeKey] ?? '')}
+                            disabled={!(answerDrafts[r.dedupeKey] ?? '').trim()}
+                          >
+                            Enregistrer la leçon
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               </li>
             ))}
@@ -519,13 +655,14 @@ export default function JournalView() {
           {filteredEntries.length === 0 && <p className="empty-hint">Aucune entrée ne correspond à cette recherche.</p>}
           {filteredEntries.map(entry => {
             const persona = PERSONALITIES.find(p => p.id === entry.personality);
+            const thread = threads.find((t) => t.id === entry.threadId);
             const entryActions = showActions === entry.id
               ? (() => { try { return suggestJournalActions(entry, allHabits, projects, protocols, entry); } catch { return []; } })()
               : [];
             return (
               <div key={entry.id} className="journal-entry">
                 <div className="journal-entry-meta">
-                  <span className="journal-entry-persona">{persona?.emoji} {persona?.name}</span>
+                  <span className="journal-entry-persona">{persona?.emoji} {persona?.name}{entry.local ? ' · 🏠 hors-ligne' : ''}</span>
                   <span className="journal-entry-date">{formatDate(entry.createdAt)}</span>
                   <button
                     className="btn btn-sm btn-ghost journal-delete"
@@ -534,6 +671,11 @@ export default function JournalView() {
                     ✕
                   </button>
                 </div>
+                {thread && (
+                  <div className="journal-entry-thread" title="Question posée">
+                    💬 {thread.emoji ?? ''} {thread.question}
+                  </div>
+                )}
                 <p className="journal-entry-content">
                   {searchText.trim()
                     ? highlightQuery(entry.content, searchText).split('**').map((part, i) =>
