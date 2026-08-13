@@ -13,7 +13,7 @@ interface Props {
   habits: Habit[];
   checkIns: CheckIn[];
   /** Visual relink: set/clear a child's parent anchor + timing. */
-  // eslint-disable-next-line no-unused-vars
+   
   onSetParent?: (childId: string, parentId: string | null, when?: 'before' | 'after' | 'with') => void;
 }
 

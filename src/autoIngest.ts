@@ -14,7 +14,7 @@ import type { FeedConfig, IngestedSource, Protocol } from './types';
 import { parseFeed, type FeedItem } from './feeds';
 import { extractProtocolsFromText, mergeProtocols } from './ingest';
 
-// eslint-disable-next-line no-unused-vars
+ 
 export type Fetcher = (url: string) => Promise<string>;
 
 /** Max dedupe guids kept per feed. */

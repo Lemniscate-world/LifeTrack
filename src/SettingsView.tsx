@@ -21,7 +21,7 @@ interface SettingsViewProps {
   darkMode: boolean;
   onToggleDarkMode: () => void;
   theme: string;
-  // eslint-disable-next-line no-unused-vars
+   
   onSetTheme: (_theme: string) => void;
   onExportJSON: () => void;
   onExportCSV: () => void;
