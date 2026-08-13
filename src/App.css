@@ -3500,6 +3500,20 @@ body {
   gap: 12px;
 }
 
+.insights-ai-banner {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 8px 4px 0;
+}
+
+.insight-card.insight-ai {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent, #7c5cff) 7%, var(--bg)), var(--bg));
+  border-color: color-mix(in srgb, var(--accent, #7c5cff) 35%, var(--border));
+}
+
 .insight-card {
   display: flex;
   align-items: flex-start;

@@ -45,10 +45,13 @@ export type RecKind =
   | 'STREAK_SAVER'
   | 'JOURNAL_THEME'
   | 'REFLECTION_DUE'
-  | 'REFLECTION_REVIEW';
+  | 'REFLECTION_REVIEW'
+  | 'AI_PRIORITY'
+  | 'AI_TREND'
+  | 'AI_RISK';
 
 /** Number of distinct insight rule kinds — kept in sync with RecKind. */
-export const INSIGHT_RULES_COUNT = 32;
+export const INSIGHT_RULES_COUNT = 35;
 
 export interface Recommendation {
   kind: RecKind;
@@ -1826,6 +1829,10 @@ export function generateInsights(
     JOURNAL_THEME: 1,
     REFLECTION_DUE: 0,
     REFLECTION_REVIEW: 2,
+    // v0.6.4: AI-derived insights rank first — they are the freshest signal
+    AI_PRIORITY: 0,
+    AI_TREND: 1,
+    AI_RISK: 0,
   };
   pairDeduped.sort((a, b) => {
     const pa = kindPriority[a.kind] ?? 2;

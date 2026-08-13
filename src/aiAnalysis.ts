@@ -4,6 +4,8 @@
  * schema and the parser turns the raw model reply into typed cards.
  */
 
+import type { Recommendation } from './recommendations';
+
 export interface AiAnalysisItem {
   title?: string;
   why?: string;
@@ -56,4 +58,45 @@ export function parseAiAnalysis(raw: string): AiAnalysis | null {
     return null;
   }
   return { summary, top_priorities, trends, risks, next_step: nextStep };
+}
+
+/**
+ * v0.6.4: Turn the AI's structured analysis into insight cards so the local
+ * Insights list is "based on the AI engine" too — the AI's priorities, trends
+ * and risks appear alongside the heuristic recommendations.
+ */
+export function aiAnalysisToInsights(analysis: AiAnalysis): Recommendation[] {
+  if (!analysis) return [];
+  const recs: Recommendation[] = [];
+  for (const [i, p] of (analysis.top_priorities ?? []).entries()) {
+    if (!p.title) continue;
+    recs.push({
+      kind: 'AI_PRIORITY',
+      title: `🤖 ${p.title}`,
+      detail: [p.why, p.action].filter(Boolean).join(' → '),
+      habitIds: [],
+      strength: Math.max(70, 90 - i * 5),
+    });
+  }
+  for (const t of analysis.trends ?? []) {
+    if (!t.title) continue;
+    recs.push({
+      kind: 'AI_TREND',
+      title: `📈 ${t.title}`,
+      detail: t.detail ?? '',
+      habitIds: [],
+      strength: 68,
+    });
+  }
+  for (const r of analysis.risks ?? []) {
+    if (!r.title) continue;
+    recs.push({
+      kind: 'AI_RISK',
+      title: `⚠️ ${r.title}`,
+      detail: [r.detail, r.action].filter(Boolean).join(' → '),
+      habitIds: [],
+      strength: 75,
+    });
+  }
+  return recs;
 }

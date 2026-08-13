@@ -80,7 +80,7 @@ import CorrelationsView from './CorrelationsView';
 import { playCompletionSound, playLevelUpSound } from './audio';
 import OnboardingHelp from './OnboardingHelp';
 import { buildAiContext } from './aiContext';
-import { parseAiAnalysis, type AiAnalysis, type AiChatMessage } from './aiAnalysis';
+import { parseAiAnalysis, aiAnalysisToInsights, type AiAnalysis, type AiChatMessage } from './aiAnalysis';
 // (Mood view removed — emotional state is tracked via the 'emotional' chaos dimension.)
 import { generateInsights, type Recommendation, type RecKind } from './recommendations';
 import { computeCorrelations } from './correlations';
@@ -2135,6 +2135,12 @@ function InsightsView({
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResponse, setAiResponse] = useState<string | null>(null);
   const [aiStructured, setAiStructured] = useState<AiAnalysis | null>(null);
+  // v0.6.4: the AI's structured analysis becomes insight cards shown first,
+  // so Insights are also "based on the AI engine" — not just heuristics.
+  const aiInsights = useMemo(
+    () => (aiStructured ? aiAnalysisToInsights(aiStructured) : []),
+    [aiStructured],
+  );
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiLastRun, setAiLastRun] = useState<number>(0);
   // Conversational coach (v0.3.4): keeps a short chat history so the AI
@@ -2269,6 +2275,9 @@ function InsightsView({
     JOURNAL_THEME: '📓',
     REFLECTION_DUE: '💭',
     REFLECTION_REVIEW: '🔄',
+    AI_PRIORITY: '🎯',
+    AI_TREND: '📈',
+    AI_RISK: '⚠️',
   };
 
   const kindAction: Record<RecKind, (r: Recommendation) => void> = {
@@ -2310,6 +2319,9 @@ function InsightsView({
     JOURNAL_THEME: () => onView('journal'),
     REFLECTION_DUE: () => onView('journal'),
     REFLECTION_REVIEW: () => onView('journal'),
+    AI_PRIORITY: () => onView('journal'),
+    AI_TREND: () => onView('journal'),
+    AI_RISK: () => onView('journal'),
   };
 
   // AI Section component (always rendered, even when no recommendations yet)
@@ -2345,51 +2357,17 @@ function InsightsView({
             {aiStructured.summary && (
               <div className="ai-summary">{aiStructured.summary}</div>
             )}
-            {aiStructured.top_priorities && aiStructured.top_priorities.length > 0 && (
-              <div className="ai-block ai-block-priority">
-                <div className="ai-block-title">🔥 Top priority</div>
-                {aiStructured.top_priorities.map((item, i) => (
-                  <div className="ai-item" key={`p${i}`}>
-                    <div className="ai-item-title">{item.title ?? 'Priority'}</div>
-                    {item.why && <div className="ai-item-detail">{item.why}</div>}
-                    {item.action && (
-                      <div className="ai-item-action">→ {item.action}</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            {aiStructured.trends && aiStructured.trends.length > 0 && (
-              <div className="ai-block ai-block-trends">
-                <div className="ai-block-title">📈 Trends</div>
-                {aiStructured.trends.map((item, i) => (
-                  <div className="ai-item" key={`t${i}`}>
-                    {item.title && <div className="ai-item-title">{item.title}</div>}
-                    {item.detail && <div className="ai-item-detail">{item.detail}</div>}
-                  </div>
-                ))}
-              </div>
-            )}
-            {aiStructured.risks && aiStructured.risks.length > 0 && (
-              <div className="ai-block ai-block-risks">
-                <div className="ai-block-title">⚠️ Risks</div>
-                {aiStructured.risks.map((item, i) => (
-                  <div className="ai-item" key={`r${i}`}>
-                    {item.title && <div className="ai-item-title">{item.title}</div>}
-                    {item.detail && <div className="ai-item-detail">{item.detail}</div>}
-                    {item.action && (
-                      <div className="ai-item-action">→ {item.action}</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
             {aiStructured.next_step && (
               <div className="ai-block ai-block-next">
                 <div className="ai-block-title">💡 Next step</div>
                 <div className="ai-item">
                   <div className="ai-item-detail">{aiStructured.next_step}</div>
                 </div>
+              </div>
+            )}
+            {(!aiStructured.summary && !aiStructured.next_step) && (
+              <div className="ai-item-detail">
+                Les priorités, tendances et risques de l'IA sont affichés dans la liste Insights ci-dessous.
               </div>
             )}
           </div>
@@ -2499,7 +2477,7 @@ function InsightsView({
       <div className="insights-header">
         <h2><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:6}}><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>Insights</h2>
         <span className="insights-subtitle">
-          {visibleRecs.length} recommendation{visibleRecs.length > 1 ? 's' : ''} — 100% local
+          {visibleRecs.length + aiInsights.length} recommendation{visibleRecs.length + aiInsights.length > 1 ? 's' : ''}{aiInsights.length > 0 ? ` — ${aiInsights.length} IA + ${visibleRecs.length} local` : ' — 100% local'}
           <span className="insights-generated" title="Recomputed when your data changes">
             · {new Date(generatedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
           </span>
@@ -2507,6 +2485,25 @@ function InsightsView({
       </div>
 
       <div className="insights-list">
+        {aiInsights.length > 0 && (
+          <div className="insights-ai-banner">
+            🤖 Recommandations de l'IA coach
+          </div>
+        )}
+        {aiInsights.map((rec, i) => (
+          <div key={`ai-${i}`} className={`insight-card insight-ai insight-${rec.kind.toLowerCase()}`}>
+            <div className="insight-icon">{kindIcon[rec.kind]}</div>
+            <div className="insight-body">
+              <div className="insight-title">{rec.title}</div>
+              <div className="insight-detail">{rec.detail}</div>
+              <div className="insight-meta">
+                <span className="insight-strength" style={{ '--pct': `${rec.strength}%` } as Record<string, string>}>
+                  Relevance {rec.strength}%
+                </span>
+              </div>
+            </div>
+          </div>
+        ))}
         {dismissAll ? (
           <div className="insights-empty">
             <span style={{ fontSize: 40, display: 'block', marginBottom: 12 }}>✅</span>

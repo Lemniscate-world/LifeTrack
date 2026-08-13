@@ -4,7 +4,7 @@
  * fallbacks for the messy replies small local models sometimes produce.
  */
 import { describe, it, expect } from 'vitest';
-import { parseAiAnalysis } from '../aiAnalysis';
+import { parseAiAnalysis, aiAnalysisToInsights } from '../aiAnalysis';
 
 describe('parseAiAnalysis', () => {
   it('parses a well-formed analysis', () => {
@@ -66,5 +66,29 @@ describe('parseAiAnalysis', () => {
     expect(parsed).not.toBeNull();
     expect(parsed!.top_priorities).toHaveLength(1);
     expect(parsed!.top_priorities![0].title).toBe('Good');
+  });
+});
+
+describe('aiAnalysisToInsights (v0.6.4)', () => {
+  it('maps priorities, trends and risks into insight cards', () => {
+    const cards = aiAnalysisToInsights({
+      summary: 'ok',
+      top_priorities: [
+        { title: 'Protect sleep', why: 'Energy slipping', action: 'Set 10pm wind-down' },
+      ],
+      trends: [{ title: 'Reading', detail: 'Up 40%' }],
+      risks: [{ title: 'Exercise', detail: 'Missed 5 days', action: 'Do a walk' }],
+    });
+    expect(cards.map((c) => c.kind)).toEqual(['AI_PRIORITY', 'AI_TREND', 'AI_RISK']);
+    expect(cards[0].title).toContain('Protect sleep');
+    expect(cards[0].detail).toContain('Energy slipping');
+    expect(cards[0].detail).toContain('10pm wind-down');
+    expect(cards[1].title).toContain('Reading');
+    expect(cards[2].title).toContain('Exercise');
+  });
+
+  it('skips items without a title and returns empty on no analysis', () => {
+    expect(aiAnalysisToInsights(null as never)).toEqual([]);
+    expect(aiAnalysisToInsights({ summary: 'x', top_priorities: [{ why: 'no title' }] })).toEqual([]);
   });
 });
