@@ -2030,6 +2030,7 @@ export function addJournalEntry(
   content: string,
   personality: JournalPersonality,
   response: string,
+  links?: { projectIds?: string[]; protocolIds?: string[]; habitIds?: string[] },
 ): JournalEntry {
   const entry: JournalEntry = {
     id: crypto.randomUUID(),
@@ -2038,9 +2039,27 @@ export function addJournalEntry(
     response,
     createdAt: new Date().toISOString(),
   };
+  if (links) {
+    if (links.projectIds?.length) entry.projectIds = links.projectIds;
+    if (links.protocolIds?.length) entry.protocolIds = links.protocolIds;
+    if (links.habitIds?.length) entry.habitIds = links.habitIds;
+  }
   data.journalEntries.push(entry);
   notify();
   return entry;
+}
+
+/** Update the project / protocol / habit links attached to a journal entry. */
+export function updateJournalEntryLinks(
+  id: string,
+  links: { projectIds?: string[]; protocolIds?: string[]; habitIds?: string[] },
+): void {
+  const entry = data.journalEntries.find((e) => e.id === id);
+  if (!entry) return;
+  if (links.projectIds) entry.projectIds = links.projectIds.length > 0 ? links.projectIds : undefined;
+  if (links.protocolIds) entry.protocolIds = links.protocolIds.length > 0 ? links.protocolIds : undefined;
+  if (links.habitIds) entry.habitIds = links.habitIds.length > 0 ? links.habitIds : undefined;
+  notify();
 }
 
 export function deleteJournalEntry(id: string): void {

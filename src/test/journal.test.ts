@@ -11,6 +11,7 @@ import {
   getJournalThread,
   deleteJournalThread,
   tagJournalEntryThread,
+  updateJournalEntryLinks,
 } from '../store';
 
 beforeEach(() => {
@@ -104,5 +105,25 @@ describe('Journal — store CRUD', () => {
     expect(greene?.response).toContain('Loi 1');
     expect(huberman).toBeDefined();
     expect(huberman?.response).toContain('soleil');
+  });
+
+  it('stores links passed at creation', () => {
+    const entry = addJournalEntry('c', 'coach', 'r', { projectIds: ['p1'], protocolIds: ['pr1'], habitIds: ['h1'] });
+    const saved = exportAllData().journalEntries.find((e) => e.id === entry.id);
+    expect(saved?.projectIds).toEqual(['p1']);
+    expect(saved?.protocolIds).toEqual(['pr1']);
+    expect(saved?.habitIds).toEqual(['h1']);
+  });
+
+  it('updates links and clears them when emptied', () => {
+    const entry = addJournalEntry('c', 'coach', 'r', { projectIds: ['p1'] });
+    updateJournalEntryLinks(entry.id, { projectIds: ['p2'], protocolIds: ['pr2'] });
+    const after = getJournalEntries().find((e) => e.id === entry.id);
+    expect(after?.projectIds).toEqual(['p2']);
+    expect(after?.protocolIds).toEqual(['pr2']);
+    updateJournalEntryLinks(entry.id, { projectIds: [] });
+    const cleared = getJournalEntries().find((e) => e.id === entry.id);
+    expect(cleared?.projectIds).toBeUndefined();
+    expect(cleared?.protocolIds).toEqual(['pr2']);
   });
 });

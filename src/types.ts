@@ -226,6 +226,12 @@ export interface JournalEntry {
   createdAt: string;          // ISO timestamp
   /** Optional id of the thread this entry belongs to (see JournalThread). */
   threadId?: string;
+  /** Optional projects this entry is linked to (Savoir cross-linking). */
+  projectIds?: string[];
+  /** Optional protocols this entry is linked to (Knowledge base). */
+  protocolIds?: string[];
+  /** Optional habits this entry references (for AI + interactivity). */
+  habitIds?: string[];
 }
 
 /** A persistent discussion thread started from a prompt / question. */
