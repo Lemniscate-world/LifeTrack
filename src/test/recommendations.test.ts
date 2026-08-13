@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { generateInsights } from '../recommendations';
-import type { Habit, CheckIn, UrgeEntry } from '../types';
+import type { Habit, CheckIn, UrgeEntry, JournalEntry } from '../types';
 import {
   addHabit,
   linkHabitToParent,
@@ -1230,5 +1230,59 @@ describe('STREAK_SAVER detection', () => {
     ];
     const result = generateInsights([habit], checks, NOW);
     expect(result.recommendations.some((r) => r.kind === 'STREAK_SAVER')).toBe(false);
+  });
+});
+
+describe('generateInsights � journal-driven rules (v0.6.4)', () => {
+  const entry = (content: string, createdAt: string, personality: string = 'coach'): JournalEntry => ({
+    id: Math.random().toString(36).slice(2),
+    content,
+    personality: personality as JournalEntry['personality'],
+    response: 'ok',
+    createdAt,
+  });
+
+  it('JOURNAL_THEME fires from recurring keywords in entries', () => {
+    const entries = [
+      entry('Le travail me stresse beaucoup aujourd\'hui', '2026-06-28T10:00:00Z'),
+      entry('Encore une réunion interminable au travail', '2026-06-29T10:00:00Z'),
+      entry('deadline à venir, je stresse', '2026-06-30T10:00:00Z'),
+    ];
+    const result = generateInsights([], [], NOW, {}, { journalEntries: entries });
+    const rec = result.recommendations.find((r) => r.kind === 'JOURNAL_THEME');
+    expect(rec).toBeDefined();
+    expect(rec!.title).toContain('Travail');
+  });
+
+  it('JOURNAL_THEME does not fire with a single entry', () => {
+    const result = generateInsights([], [], NOW, {}, {
+      journalEntries: [entry('une pensée seule', '2026-06-30T10:00:00Z')],
+    });
+    expect(result.recommendations.some((r) => r.kind === 'JOURNAL_THEME')).toBe(false);
+  });
+
+  it('REFLECTION_DUE surfaces the oldest open question', () => {
+    const reflections = [
+      { id: '1', kind: 'neglect' as const, title: 't', question: 'Pourquoi ignores-tu le sport ?', context: 'c', habitIds: ['h'], dedupeKey: 'k1', createdAt: '2026-06-01T00:00:00Z', status: 'open' as const },
+      { id: '2', kind: 'momentum' as const, title: 't2', question: 'Quel est ton levier ?', context: 'c', habitIds: ['h'], dedupeKey: 'k2', createdAt: '2026-06-20T00:00:00Z', status: 'open' as const },
+    ];
+    const result = generateInsights([], [], NOW, {}, { reflections });
+    const rec = result.recommendations.find((r) => r.kind === 'REFLECTION_DUE');
+    expect(rec).toBeDefined();
+    expect(rec!.detail).toContain('Pourquoi ignores-tu le sport ?');
+    expect(rec!.detail).toContain('2');
+  });
+
+  it('REFLECTION_REVIEW appears after 3+ answers, not right after answering', () => {
+    const base = { kind: 'neglect' as const, title: 't', question: 'q', context: 'c', habitIds: [], dedupeKey: 'x' };
+    const answered = ['2026-04-01', '2026-04-10', '2026-04-20'].map((d, i) => ({
+      ...base, id: String(i), createdAt: `${d}T00:00:00Z`, status: 'answered' as const, answer: 'leçon', dedupeKey: `x${i}`,
+    }));
+    const noNudge = generateInsights([], [], NOW, {}, { reflections: answered.map((r) => ({ ...r, createdAt: '2026-06-25T00:00:00Z' })) });
+    expect(noNudge.recommendations.some((r) => r.kind === 'REFLECTION_REVIEW')).toBe(false);
+    const nudge = generateInsights([], [], NOW, {}, { reflections: answered });
+    const rec = nudge.recommendations.find((r) => r.kind === 'REFLECTION_REVIEW');
+    expect(rec).toBeDefined();
+    expect(rec!.detail).toContain('3 answers');
   });
 });

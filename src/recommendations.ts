@@ -8,7 +8,7 @@
  * No external API, no user data leaves the device.
  */
 
-import type { Habit, CheckIn, Note, UrgeEntry, Capacity, CapacityRating, Experiment } from './types';
+import type { Habit, CheckIn, Note, UrgeEntry, Capacity, CapacityRating, Experiment, JournalEntry, ReflectionEntry } from './types';
 import { computeStreakStats } from './stats';
 
 // --- Recommendation types ---
@@ -42,10 +42,13 @@ export type RecKind =
   | 'PERFECT_DAY'
   | 'ENERGY_BUDGET'
   | 'WEEKLY_LETTER'
-  | 'STREAK_SAVER';
+  | 'STREAK_SAVER'
+  | 'JOURNAL_THEME'
+  | 'REFLECTION_DUE'
+  | 'REFLECTION_REVIEW';
 
 /** Number of distinct insight rule kinds — kept in sync with RecKind. */
-export const INSIGHT_RULES_COUNT = 29;
+export const INSIGHT_RULES_COUNT = 32;
 
 export interface Recommendation {
   kind: RecKind;
@@ -1442,6 +1445,73 @@ function detectNoteThemes(notes: Note[]): Recommendation[] {
   }];
 }
 
+// --- Rule 30: Journal themes ---
+// v0.6.4: Recurring topics across journal entries (like detectNoteThemes, but on
+// the journal where people actually express their inner world).
+function detectJournalThemes(entries: JournalEntry[]): Recommendation[] {
+  const themes = new Map<string, number>();
+  for (const e of entries) {
+    const text = e.content.toLowerCase();
+    for (const [keyword, theme] of Object.entries(THEME_KEYWORDS)) {
+      if (text.includes(keyword)) themes.set(theme, (themes.get(theme) ?? 0) + 1);
+    }
+  }
+  const sorted = [...themes.entries()].sort((a, b) => b[1] - a[1]);
+  if (sorted.length === 0 || sorted[0][1] < 2) return [];
+  const top = sorted.slice(0, 3);
+  return [{
+    kind: 'JOURNAL_THEME',
+    title: `📓 Your journal revolves around: ${top.map(([t]) => t).join(', ')}`,
+    detail: `Across your ${entries.length} journal entr${entries.length > 1 ? 'ies' : 'y'}, ${top.map(([t, c]) => `${t} (${c}×)`).join(', ')} appear most. That recurring topic is worth a deliberate session — journal about what you can actually change.`,
+    habitIds: [],
+    strength: Math.min(82, 50 + sorted[0][1] * 6),
+    actionLabel: 'Open journal',
+  }];
+}
+
+// --- Rule 31: Reflection due ---
+// v0.6.4: The engine posed a question that is still unanswered. Surface it so
+// the loop (observe → question → answer → learn) keeps moving.
+function detectReflectionDue(reflections: ReflectionEntry[]): Recommendation[] {
+  if (reflections.length === 0) return [];
+  const open = reflections
+    .filter((r) => r.status === 'open')
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  if (open.length === 0) return [];
+  const oldest = open[0];
+  const answeredCount = reflections.filter((r) => r.status === 'answered').length;
+  return [{
+    kind: 'REFLECTION_DUE',
+    title: `💭 ${open.length} question${open.length > 1 ? 's' : ''} awaiting your answer`,
+    detail: `One is still open from ${oldest.createdAt.slice(0, 10)}: "${oldest.question}" — ${open.length > 1 ? `plus ${open.length - 1} more. ` : ''}You've answered ${answeredCount} so far. Each answer is a durable lesson LifeTrack remembers.`,
+    habitIds: oldest.habitIds ?? [],
+    strength: Math.min(75, 45 + open.length * 10),
+    actionLabel: 'Answer now',
+  }];
+}
+
+// --- Rule 32: Reflection review ---
+// v0.6.4: After enough answered reflections, gently invite re-reading the
+// learned lessons — the stored wisdom compounds when revisited.
+function detectReflectionReview(reflections: ReflectionEntry[], now: Date): Recommendation[] {
+  const answered = reflections
+    .filter((r) => r.status === 'answered' && r.answer)
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  if (answered.length < 3) return [];
+  const latest = answered[answered.length - 1];
+  const weekCut = now.getTime() - 7 * 86400000;
+  const recentCount = answered.filter((r) => new Date(r.createdAt).getTime() > weekCut).length;
+  if (recentCount > 0) return []; // they're already in the loop, no nudge needed
+  return [{
+    kind: 'REFLECTION_REVIEW',
+    title: `🔄 You've learned ${answered.length} lessons — revisit them`,
+    detail: `Your last answered question was "${latest.question}". Re-reading your stored ${answered.length} answers re-anchors them. Pick one and act on it today.`,
+    habitIds: latest.habitIds ?? [],
+    strength: 62,
+    actionLabel: 'Review learnings',
+  }];
+}
+
 // --- Rule 26: Perfect day ---
 // v0.4.0: A day where ALL active habits were completed (bonus: positive mood).
 function detectPerfectDays(
@@ -1614,6 +1684,9 @@ export interface InsightContext {
   capacityRatings?: CapacityRating[];
   experiments?: Experiment[];
   notes?: Note[];
+  /** v0.6.4: journal entries + reflections feed new insight rules. */
+  journalEntries?: JournalEntry[];
+  reflections?: ReflectionEntry[];
 }
 
 export function generateInsights(
@@ -1629,6 +1702,8 @@ export function generateInsights(
     capacityRatings = [],
     experiments = [],
     notes = [],
+    journalEntries = [],
+    reflections = [],
   } = extra;
   const activeHabits = habits.filter((h) => !h.archived);
   const hasAnyData =
@@ -1638,7 +1713,9 @@ export function generateInsights(
     capacities.length > 0 ||
     capacityRatings.length > 0 ||
     experiments.length > 0 ||
-    notes.length > 0;
+    notes.length > 0 ||
+    journalEntries.length > 0 ||
+    reflections.length > 0;
   if (!hasAnyData) {
     return {
       recommendations: [],
@@ -1680,6 +1757,10 @@ export function generateInsights(
     ...detectEnergyBudget(activeHabits, checkIns, moods, now),
     ...generateWeeklyLetter(moods, notes, now),
     ...detectStreakSavers(habits, checkIns, now),
+    // v0.6.4: Insights from the journal (the user's own words + reflections)
+    ...detectJournalThemes(journalEntries),
+    ...detectReflectionDue(reflections),
+    ...detectReflectionReview(reflections, now),
   ];
 
   // Deduplicate by title
@@ -1741,6 +1822,10 @@ export function generateInsights(
     ENERGY_BUDGET: 1,
     WEEKLY_LETTER: 2,
     STREAK_SAVER: 0,
+    // v0.6.4: journal insights are gentle nudges — medium priority
+    JOURNAL_THEME: 1,
+    REFLECTION_DUE: 0,
+    REFLECTION_REVIEW: 2,
   };
   pairDeduped.sort((a, b) => {
     const pa = kindPriority[a.kind] ?? 2;

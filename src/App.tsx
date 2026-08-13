@@ -2057,6 +2057,8 @@ function InsightsView({
           capacityRatings: allData.capacityRatings ?? [],
           experiments: allData.experiments ?? [],
           notes: allData.notes ?? [],
+          journalEntries: allData.journalEntries ?? [],
+          reflections: allData.reflections ?? [],
         });
       } catch { return generateInsights(habits, checkIns); }
     },
@@ -2264,6 +2266,9 @@ function InsightsView({
     ENERGY_BUDGET: '🔋',
     WEEKLY_LETTER: '✉️',
     STREAK_SAVER: '🛟',
+    JOURNAL_THEME: '📓',
+    REFLECTION_DUE: '💭',
+    REFLECTION_REVIEW: '🔄',
   };
 
   const kindAction: Record<RecKind, (r: Recommendation) => void> = {
@@ -2302,6 +2307,9 @@ function InsightsView({
     ENERGY_BUDGET: () => onView('chaos'),
     WEEKLY_LETTER: () => onView('history'),
     STREAK_SAVER: () => onView('grid'),
+    JOURNAL_THEME: () => onView('journal'),
+    REFLECTION_DUE: () => onView('journal'),
+    REFLECTION_REVIEW: () => onView('journal'),
   };
 
   // AI Section component (always rendered, even when no recommendations yet)
