@@ -730,7 +730,51 @@ async fn journal_analyze(
     .await
 }
 
-/// Psychoanalysis assistant: an AI that spots negative thinking / self-sabotage
+/// Periodic journal synthesis: a digest of the last week/month of journal
+/// entries, turned into a reflective narrative by the AI. The digest itself is
+/// computed on-device (journalDigest.ts); this command only narrates it.
+#[tauri::command]
+async fn journal_summary(
+    digest_json: String,
+    entries_json: String,
+    period: String,
+    model: Option<String>,
+    provider: Option<String>,
+    api_key: Option<String>,
+) -> Result<String, String> {
+    let system_prompt = format!(
+        "You are a perceptive journaling companion who writes reflective syntheses.\n\
+         Below is a statistical digest of the user's journal over the last {} and a set of their actual entries.\n\
+         Write a short, warm, honest synthesis (under 260 words) that:\n\
+         - notices the rhythm (frequency, streaks, persona mix),\n\
+         - surfaces the recurring themes and any arc or change across the period,\n\
+         - names one quiet question worth sitting with next,\n\
+         - never invents entries, dates or numbers that are not present.\n\
+         Reply in the same language the journal entries are written in.",
+        period
+    );
+
+    let user_prompt = format!(
+        "DIGEST (computed on-device):\n{}\n\nENTRIES (newest first, up to 40):\n{}",
+        digest_json, entries_json
+    );
+
+    let call = AiCall {
+        system_prompt,
+        user_prompt,
+        temperature: 0.6,
+        max_tokens: 700,
+        json: false,
+    };
+
+    complete_ai(
+        provider.as_deref().unwrap_or("auto"),
+        api_key.as_deref().unwrap_or(""),
+        model,
+        &call,
+    )
+    .await
+}
 /// patterns in the user's data and helps "destroy" them through Socratic Q&A.
 /// Uses the configured provider (cloud / local / auto). Grounded in established
 /// psychology (Beck's cognitive distortions, psychoanalytic defenses).
@@ -979,10 +1023,11 @@ pub fn run() {
             export_file,
             import_file,
             find_latest_backup,
-            analyze_habits,
-            ask_coach,
-            journal_analyze,
-            psychoanalysis_ask,
+              analyze_habits,
+              ask_coach,
+              journal_analyze,
+              journal_summary,
+              psychoanalysis_ask,
             summarize_achievements,
             fetch_url,
             extract_protocols_ai,
