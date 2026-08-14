@@ -211,6 +211,35 @@ export interface CorrelationResult {
   ciLow: number;            // 95% CI lower bound
   ciHigh: number;           // 95% CI upper bound
   requiredN: number;        // pairs needed to detect this effect at 80% power (∞ = unreliable)
+  /** When > 0: X on day t is compared against Y on day t+lag (temporal lead). */
+  lag?: number;
+  /** When set: the correlation was computed only over weekdays or weekend days. */
+  window?: 'weekday' | 'weekend';
+  /** Grounding note explaining what a correlation of this shape may or may not mean. */
+  caveat?: string;
+  /** Unique comparison key used to dedupe same pair across windows. */
+  pairKey?: string;
+}
+
+/** One cell of the full correlation matrix (heatmap). */
+export interface CorrelationCell {
+  row: string;              // metric label (row)
+  col: string;              // metric label (column)
+  coefficient: number | null; // null = not enough paired data
+  sampleSize: number;
+  significant: boolean;
+  qValue: number;
+}
+
+/** Full correlation analysis across windows and lags. */
+export interface CorrelationAnalysis {
+  sameDay: CorrelationResult[];          // contemporaneous, all days
+  lag1: CorrelationResult[];             // X(t) → Y(t+1)
+  weekday: CorrelationResult[];          // Mon–Fri only
+  weekend: CorrelationResult[];          // Sat–Sun only
+  matrix: CorrelationCell[];             // heatmap over all metric pairs
+  metrics: string[];                     // ordered metric labels (row/col headers)
+  caveats: string[];                     // "corrélation ≠ causation" interpretive rules
 }
 
 // --- Journal (v0.4.0) ---

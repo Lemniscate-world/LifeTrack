@@ -11,9 +11,12 @@
 //   - reports a two-tailed p-value, a 95% confidence interval, a Benjamini–
 //     Hochberg FDR-adjusted q-value, and the sample size needed to reach 80%
 //     power — instead of hiding behind arbitrary |r| thresholds.
+//   - extends beyond same-day only: lag-1 correlations (X on day t vs Y on day
+//     t+1), weekday/weekend split to expose weekday confounds, a full heatmap
+//     matrix, and interpretive caveats that separate correlation from causation.
 // All functions are pure (input → output) for easy isolated testing.
 
-import type { CheckIn, Habit, CapacityRating, CorrelationResult } from './types';
+import type { CheckIn, Habit, CapacityRating, CorrelationResult, CorrelationCell, CorrelationAnalysis } from './types';
 import { pearsonTest, spearmanTest, benjaminiHochberg, requiredSampleSize } from './statistics';
 
 /** Distinct ordinal rank for each mood id (the raw number is irrelevant; Spearman
@@ -24,6 +27,19 @@ const MOOD_RANK: Record<string, number> = {
 
 export function moodRank(moodId: string): number {
   return MOOD_RANK[moodId] ?? 5;
+}
+
+/** Weekday number for a YYYY-MM-DD key: 0=Sun … 6=Sat. */
+export function weekdayOf(date: string): number {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(y, m - 1, d).getDay();
+}
+
+/** Shift a YYYY-MM-DD key by ±days. */
+export function shiftDateKey(date: string, days: number): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const t = new Date(y, m - 1, d + days);
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
 }
 
 /** Enumerate every distinct date across all sources, oldest → newest. */
@@ -73,6 +89,28 @@ function align(
   return { xs, ys };
 }
 
+/**
+ * Align with a LEAD: x values come from the earlier series (day t), y values
+ * from the later series (day t+lag). This powers predictive lag correlations:
+ * "habit on day t vs mood on day t+1". Pairwise deletion applies to BOTH ends.
+ */
+function alignLag(
+  a: Map<string, number>,
+  b: Map<string, number>,
+  lag: number,
+): { xs: number[]; ys: number[] } {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const date of a.keys()) {
+    const target = shiftDateKey(date, lag);
+    if (b.has(target)) {
+      xs.push(a.get(date)!);
+      ys.push(b.get(target)!);
+    }
+  }
+  return { xs, ys };
+}
+
 /** Classify effect-size strength by |coefficient|. */
 function classifyStrength(r: number): CorrelationResult['strength'] {
   const abs = Math.abs(r);
@@ -82,13 +120,25 @@ function classifyStrength(r: number): CorrelationResult['strength'] {
   return 'none';
 }
 
-/** Build a CorrelationResult from a test outcome. */
+/** Grounding caveat for a correlation pair (corrélation ≠ causation). */
+function caveatFor(method: 'pearson' | 'spearman', lag: number, window?: 'weekday' | 'weekend'): string {
+  const scope = window === 'weekday' ? ' sur les jours ouvrés uniquement' : window === 'weekend' ? ' sur les week-ends uniquement' : '';
+  const stat = method === 'pearson' ? 'coefficient de Pearson' : 'coefficient de rang de Spearman';
+  if (lag > 0) {
+    return `Corrélation prédictive (X jour t → Y jour t+${lag})${scope}, via ${stat}. La temporalité soutient la direction, mais n'implique pas une causalité : un facteur tiers (sommeil, stress, week-end) peut piloter les deux.`;
+  }
+  return `Corrélation contemporaine${scope}, via ${stat}. Le lien est statistique, pas causal : un facteur confondant (saison, humeur générale, événements de vie) peut expliquer les deux.`;
+}
+
+/** Build a CorrelationResult from a test outcome (with lag/window metadata). */
 function build(
   metricA: string,
   metricB: string,
   method: 'pearson' | 'spearman',
   xs: number[],
   ys: number[],
+  lag = 0,
+  window?: 'weekday' | 'weekend',
 ): { item: Omit<CorrelationResult, 'qValue' | 'significant'>; p: number } | null {
   const test = method === 'pearson' ? pearsonTest(xs, ys) : spearmanTest(xs, ys);
   if (!test || test.p === 1) return null;
@@ -106,14 +156,93 @@ function build(
       ciLow: test.ci[0],
       ciHigh: test.ci[1],
       requiredN: requiredSampleSize(coefficient, 0.05, 0.8),
+      lag: lag > 0 ? lag : undefined,
+      window,
+      caveat: caveatFor(method, lag, window),
     },
     p: test.p,
   };
 }
 
+interface SeriesSet {
+  habitSeries: Map<string, Map<string, number>>;
+  activeHabits: Habit[];
+  moodSeries: Map<string, number>;
+  capSeries: Map<string, Map<string, number>>;
+}
+
+/** Build all date→value series, optionally filtered to a weekday subset. */
+function buildSeries(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  moods: Record<string, string>,
+  capacities: { id: string; name: string }[],
+  ratings: CapacityRating[],
+  window?: 'weekday' | 'weekend',
+): SeriesSet {
+  const activeHabits = habits.filter((h) => !h.archived);
+  const habitSeries = new Map<string, Map<string, number>>();
+  for (const h of activeHabits) {
+    let hd = habitSeriesByDate(h.id, checkIns);
+    if (window) {
+      const sub = new Map<string, number>();
+      for (const [date, v] of hd) if (weekdayOf(date) !== 0 && weekdayOf(date) !== 6 ? window === 'weekday' : window === 'weekend') sub.set(date, v);
+      hd = sub;
+    }
+    if (hd.size >= 3) habitSeries.set(h.id, hd);
+  }
+
+  let moodSeries = new Map<string, number>();
+  for (const [date, moodId] of Object.entries(moods)) moodSeries.set(date, moodRank(moodId));
+  if (window) {
+    const sub = new Map<string, number>();
+    for (const [date, v] of moodSeries) if (weekdayOf(date) !== 0 && weekdayOf(date) !== 6 ? window === 'weekday' : window === 'weekend') sub.set(date, v);
+    moodSeries = sub;
+  }
+
+  const capSeries = new Map<string, Map<string, number>>();
+  for (const cap of capacities) {
+    const cm = new Map<string, number>();
+    for (const r of ratings) {
+      if (r.capacityId === cap.id && r.rating !== undefined) {
+        if (!window || (weekdayOf(r.date) !== 0 && weekdayOf(r.date) !== 6 ? window === 'weekday' : window === 'weekend')) {
+          cm.set(r.date, r.rating);
+        }
+      }
+    }
+    if (cm.size >= 3) capSeries.set(cap.id, cm);
+  }
+
+  return { habitSeries, activeHabits, moodSeries, capSeries };
+}
+
+function nameOf(id: string, set: SeriesSet, capacities: { id: string; name: string }[]): string {
+  const h = set.activeHabits.find((x) => x.id === id);
+  if (h) return h.name;
+  const cap = capacities.find((c) => c.id === id);
+  return cap ? cap.name : id;
+}
+
+interface Raw { item: Omit<CorrelationResult, 'qValue' | 'significant'>; p: number }
+
+/** Attach FDR-adjusted q-values and sort by |coefficient| (strongest first). */
+function finalize(raw: Raw[]): CorrelationResult[] {
+  if (raw.length === 0) return [];
+  const qValues = benjaminiHochberg(raw.map((r) => r.p));
+  return raw
+    .map((r, idx): CorrelationResult => ({
+      ...r.item,
+      qValue: qValues[idx],
+      significant: qValues[idx] < 0.05,
+      pairKey: `${r.item.metricA}↔${r.item.metricB}${r.item.window ? `@${r.item.window}` : ''}`,
+    }))
+    .sort((a, b) => Math.abs(b.coefficient) - Math.abs(a.coefficient));
+}
+
 /**
- * Compute correlations between habits, mood and capacities. Returns results
- * sorted by absolute coefficient (strongest first) with FDR-adjusted q.
+ * Compute contemporaneous (lag=0) correlations between habits, mood and
+ * capacities over ALL days. Returns results sorted by absolute coefficient
+ * with FDR-adjusted q. Backwards-compatible entry point.
  */
 export function computeCorrelations(
   habits: Habit[],
@@ -122,100 +251,149 @@ export function computeCorrelations(
   capacities: { id: string; name: string }[],
   ratings: CapacityRating[],
 ): CorrelationResult[] {
+  return runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: undefined });
+}
+
+/**
+ * Compute the full correlation analysis: contemporaneous, lag-1, weekday and
+ * weekend windows, plus a heatmap matrix and interpretive caveats.
+ */
+export function computeCorrelationAnalysis(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  moods: Record<string, string>,
+  capacities: { id: string; name: string }[],
+  ratings: CapacityRating[],
+): CorrelationAnalysis {
   const dates = allDates(checkIns, moods, ratings);
-  if (dates.length < 5) return [];
-
-  // --- Build each series as a date→value map for clean pairwise alignment ---
-  const habitSeries = new Map<string, Map<string, number>>();
-  for (const h of habits) {
-    if (h.archived) continue;
-    const hd = habitSeriesByDate(h.id, checkIns);
-    if (hd.size >= 3) habitSeries.set(h.id, hd);
+  if (dates.length < 5) {
+    return { sameDay: [], lag1: [], weekday: [], weekend: [], matrix: [], metrics: [], caveats: defaultCaveats() };
   }
-  const activeHabits = habits.filter((h) => !h.archived);
+  const sameDay = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: undefined });
+  const lag1 = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 1, window: undefined });
+  const weekday = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: 'weekday' });
+  const weekend = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: 'weekend' });
 
-  // Mood series as rank values (only on days a mood exists).
-  const moodSeries = new Map<string, number>();
-  for (const [date, moodId] of Object.entries(moods)) {
-    moodSeries.set(date, moodRank(moodId));
-  }
-
-  // Capacity series as rated values.
-  const capSeries = new Map<string, Map<string, number>>();
-  for (const cap of capacities) {
-    const cm = new Map<string, number>();
-    for (const r of ratings) {
-      if (r.capacityId === cap.id && r.rating !== undefined) {
-        cm.set(r.date, r.rating);
+  // Heatmap matrix over all metric pairs (all habits + Mood + capacities).
+  const set = buildSeries(habits, checkIns, moods, capacities, ratings);
+  const metrics = [
+    ...set.activeHabits.map((h) => h.name),
+    ...(Object.keys(moods).length > 0 ? ['Mood'] : []),
+    ...capacities.map((c) => c.name),
+  ];
+  const matrix: CorrelationCell[] = [];
+  for (let i = 0; i < metrics.length; i++) {
+    for (let j = i + 1; j < metrics.length; j++) {
+      const a = seriesForLabel(metrics[i], set, capacities);
+      const b = seriesForLabel(metrics[j], set, capacities);
+      if (!a || !b) continue;
+      const { xs, ys } = align(a, b);
+      if (xs.length >= 6) {
+        const usesMood = metrics[i] === 'Mood' || metrics[j] === 'Mood';
+        const test = usesMood ? spearmanTest(xs, ys) : pearsonTest(xs, ys);
+        if (test && test.p !== 1) {
+          const coeff = usesMood ? (test as { rho: number }).rho : (test as { r: number }).r;
+          matrix.push({
+            row: metrics[i],
+            col: metrics[j],
+            coefficient: coeff,
+            sampleSize: xs.length,
+            significant: test.p < 0.05,
+            qValue: test.p,
+          });
+        }
       }
     }
-    if (cm.size >= 3) capSeries.set(cap.id, cm);
   }
 
-  // --- compute raw results with p-values ---
-  interface Raw { item: Omit<CorrelationResult, 'qValue' | 'significant'>; p: number }
+  return {
+    sameDay,
+    lag1,
+    weekday,
+    weekend,
+    matrix,
+    metrics,
+    caveats: defaultCaveats(),
+  };
+}
+
+function defaultCaveats(): string[] {
+  return [
+    'Corrélation ≠ causalité : une association forte ne prouve pas qu’un facteur cause l’autre.',
+    'Confondant possible : un tiers (sommeil, stress, week-end, événements de vie) peut piloter les deux variables.',
+    'Une corrélation contemporaine ne dit rien sur la direction du lien.',
+    'Les corrélations lag (X → Y le lendemain) soutiennent la direction temporelle, mais n’éliminent pas les confondants.',
+    'N faible = faible puissance : vérifie toujours N (jours alignés) vs requiredN avant de conclure.',
+  ];
+}
+
+function seriesForLabel(
+  label: string,
+  set: SeriesSet,
+  capacities: { id: string; name: string }[],
+): Map<string, number> | null {
+  if (label === 'Mood') return set.moodSeries;
+  const h = set.activeHabits.find((x) => x.name === label);
+  if (h) return set.habitSeries.get(h.id) ?? null;
+  const cap = capacities.find((c) => c.name === label);
+  if (cap) return set.capSeries.get(cap.id) ?? null;
+  return null;
+}
+
+interface RunOptions {
+  lag: number;
+  window?: 'weekday' | 'weekend';
+}
+
+function runPairs(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  moods: Record<string, string>,
+  capacities: { id: string; name: string }[],
+  ratings: CapacityRating[],
+  opts: RunOptions,
+): CorrelationResult[] {
+  const set = buildSeries(habits, checkIns, moods, capacities, ratings, opts.window);
   const raw: Raw[] = [];
 
-  // habit ↔ habit (Pearson: both are metric counts)
-  const habitArr = [...habitSeries.entries()];
+  const habitArr = [...set.habitSeries.entries()];
   for (let i = 0; i < habitArr.length; i++) {
     for (let j = i + 1; j < habitArr.length; j++) {
       const [idA, mapA] = habitArr[i];
       const [idB, mapB] = habitArr[j];
-      const { xs, ys } = align(mapA, mapB);
+      const { xs, ys } = opts.lag > 0 ? alignLag(mapA, mapB, opts.lag) : align(mapA, mapB);
       if (xs.length >= 6) {
-        const r = build(nameOf(idA), nameOf(idB), 'pearson', xs, ys);
+        const r = build(nameOf(idA, set, capacities), nameOf(idB, set, capacities), 'pearson', xs, ys, opts.lag, opts.window);
         if (r) raw.push(r);
       }
     }
   }
 
-  // habit ↔ mood (Spearman, mood is ordinal)
-  for (const [id, map] of habitSeries) {
-    const { xs, ys } = align(map, moodSeries);
+  for (const [id, map] of set.habitSeries) {
+    const { xs, ys } = opts.lag > 0 ? alignLag(map, set.moodSeries, opts.lag) : align(map, set.moodSeries);
     if (xs.length >= 6) {
-      const r = build(nameOf(id), 'Mood', 'spearman', xs, ys);
+      const r = build(nameOf(id, set, capacities), 'Mood', 'spearman', xs, ys, opts.lag, opts.window);
       if (r) raw.push(r);
     }
   }
 
-  // capacity ↔ mood (Spearman, mood is ordinal)
-  for (const [, cm] of capSeries) {
-    const { xs, ys } = align(cm, moodSeries);
+  for (const [, cm] of set.capSeries) {
+    const { xs, ys } = opts.lag > 0 ? alignLag(cm, set.moodSeries, opts.lag) : align(cm, set.moodSeries);
     if (xs.length >= 6) {
-      const r = build('Capacité', 'Mood', 'spearman', xs, ys);
+      const r = build('Capacité', 'Mood', 'spearman', xs, ys, opts.lag, opts.window);
       if (r) raw.push(r);
     }
   }
 
-  // habit ↔ capacity (Pearson, both metric) — rare but rigorous
-  for (const [capId, cm] of capSeries) {
-    for (const [habitId, hm] of habitSeries) {
-      const { xs, ys } = align(hm, cm);
+  for (const [capId, cm] of set.capSeries) {
+    for (const [habitId, hm] of set.habitSeries) {
+      const { xs, ys } = opts.lag > 0 ? alignLag(hm, cm, opts.lag) : align(hm, cm);
       if (xs.length >= 6) {
-        const r = build(nameOf(habitId), nameOf(capId), 'pearson', xs, ys);
+        const r = build(nameOf(habitId, set, capacities), nameOf(capId, set, capacities), 'pearson', xs, ys, opts.lag, opts.window);
         if (r) raw.push(r);
       }
     }
   }
 
-  if (raw.length === 0) return [];
-
-  // --- multiple-comparison correction (Benjamini–Hochberg) ---
-  const qValues = benjaminiHochberg(raw.map((r) => r.p));
-
-  return raw
-    .map((r, idx): CorrelationResult => ({
-      ...r.item,
-      qValue: qValues[idx],
-      significant: qValues[idx] < 0.05,
-    }))
-    .sort((a, b) => Math.abs(b.coefficient) - Math.abs(a.coefficient));
-
-  function nameOf(id: string): string {
-    const h = activeHabits.find((x) => x.id === id);
-    if (h) return h.name;
-    const cap = capacities.find((c) => c.id === id);
-    return cap ? cap.name : id;
-  }
+  return finalize(raw);
 }

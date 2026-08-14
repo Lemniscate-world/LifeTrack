@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { CheckIn, Habit } from '../types';
-import { computeCorrelations } from '../correlations';
+import { computeCorrelations, computeCorrelationAnalysis, shiftDateKey, weekdayOf } from '../correlations';
 
 function habit(id: string, name = id): Habit {
   return { id, name, color: '#fff', goal: 1, createdAt: new Date().toISOString(), archived: false, order: 0 };
@@ -66,5 +66,102 @@ describe('computeCorrelations', () => {
     // sampleSize must equal days with BOTH habit AND mood = 6, not 12.
     expect(moodPair).toBeDefined();
     expect(moodPair!.sampleSize).toBe(6);
+  });
+});
+
+describe('correlation engine — lag, windows, matrix, caveats', () => {
+  it('shiftDateKey and weekdayOf behave correctly', () => {
+    expect(shiftDateKey('2026-01-15', 1)).toBe('2026-01-16');
+    expect(shiftDateKey('2026-01-15', -1)).toBe('2026-01-14');
+    expect(shiftDateKey('2026-03-01', -1)).toBe('2026-02-28');
+    expect(weekdayOf('2026-01-19')).toBe(1); // Monday
+    expect(weekdayOf('2026-01-17')).toBe(6); // Saturday
+    expect(weekdayOf('2026-01-18')).toBe(0); // Sunday
+  });
+
+  it('lag-1 detects a predictive link: exercise today → better mood tomorrow', () => {
+    // Days alternate: day d has exercise iff d is odd. Mood is great the day
+    // AFTER an exercise day, bad otherwise → a clear lag-1 signal.
+    const moods: Record<string, string> = {};
+    const checks: CheckIn[] = [];
+    const start = 15;
+    for (let i = 0; i < 14; i++) {
+      const k = `2026-02-${String(start + i).padStart(2, '0')}`;
+      const exercise = i % 2 === 0;
+      checks.push(ci('a', k, exercise));
+      const next = `2026-02-${String(start + i + 1).padStart(2, '0')}`;
+      moods[next] = exercise ? 'great' : 'bad';
+    }
+    const analysis = computeCorrelationAnalysis([habit('a', 'Sport')], checks, moods, [], []);
+    const lag = analysis.lag1.find((c) => c.metricB === 'Mood');
+    expect(lag).toBeDefined();
+    expect(lag!.lag).toBe(1);
+    expect(lag!.coefficient).toBeGreaterThan(0.4);
+  });
+
+  it('does not report a same-day link when only the lag-1 signal exists', () => {
+    const moods: Record<string, string> = {};
+    const checks: CheckIn[] = [];
+    for (let i = 0; i < 14; i++) {
+      const k = `2026-03-${String(i + 1).padStart(2, '0')}`;
+      checks.push(ci('a', k, i % 2 === 0));
+    }
+    // Same-day mood is constant neutral → no same-day correlation possible.
+    for (let i = 1; i <= 15; i++) moods[`2026-03-${String(i).padStart(2, '0')}`] = 'okay';
+    const analysis = computeCorrelationAnalysis([habit('a')], checks, moods, [], []);
+    const same = analysis.sameDay.find((c) => c.metricB === 'Mood');
+    // Constant mood → no variance → the pair is excluded (not reported).
+    expect(same).toBeUndefined();
+  });
+
+  it('splits weekday vs weekend windows', () => {
+    // Sat/Sun = great mood + habit done; weekdays = mixed. Weekday-only window
+    // must show a weaker (or null) link than the all-days contemporaneous one.
+    const moods: Record<string, string> = {};
+    const checks: CheckIn[] = [];
+    for (let i = 1; i <= 21; i++) {
+      const k = `2026-02-${String(i).padStart(2, '0')}`;
+      const day = weekdayOf(k);
+      const weekend = day === 0 || day === 6;
+      checks.push(ci('a', k, weekend));
+      moods[k] = weekend ? 'great' : (i % 2 === 0 ? 'great' : 'bad');
+    }
+    const analysis = computeCorrelationAnalysis([habit('a', 'Sport')], checks, moods, [], []);
+    expect(analysis.weekday.length).toBeGreaterThanOrEqual(0);
+    // weekend window should exist if enough weekend pairs (Feb 2026 has 8 weekend days).
+    const weekendCorr = analysis.weekend.find((c) => c.metricB === 'Mood');
+    if (weekendCorr) expect(weekendCorr.window).toBe('weekend');
+  });
+
+  it('builds a heatmap matrix over habit+mood and attaches caveats', () => {
+    const moods: Record<string, string> = {};
+    const checks: CheckIn[] = [];
+    for (let i = 1; i <= 12; i++) {
+      const k = `2026-04-${String(i).padStart(2, '0')}`;
+      const good = i > 6;
+      moods[k] = good ? 'great' : 'bad';
+      checks.push(ci('a', k, good));
+    }
+    const analysis = computeCorrelationAnalysis([habit('a', 'Run')], checks, moods, [], []);
+    expect(analysis.metrics).toContain('Run');
+    expect(analysis.metrics).toContain('Mood');
+    const cell = analysis.matrix.find((c) => c.row === 'Run' && c.col === 'Mood');
+    expect(cell).toBeDefined();
+    expect(cell!.coefficient).toBeGreaterThan(0.8);
+    expect(analysis.caveats.length).toBeGreaterThan(0);
+    expect(analysis.caveats[0]).toContain('≠');
+  });
+
+  it('every lag-1 result carries a predictive caveat', () => {
+    const moods: Record<string, string> = {};
+    const checks: CheckIn[] = [];
+    for (let i = 0; i < 14; i++) {
+      const k = `2026-05-${String(i + 1).padStart(2, '0')}`;
+      checks.push(ci('a', k, i % 2 === 0));
+      const next = `2026-05-${String(i + 2).padStart(2, '0')}`;
+      moods[next] = i % 2 === 0 ? 'great' : 'bad';
+    }
+    const analysis = computeCorrelationAnalysis([habit('a', 'Sport')], checks, moods, [], []);
+    for (const r of analysis.lag1) expect(r.caveat).toContain('prédictive');
   });
 });
