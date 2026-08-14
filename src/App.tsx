@@ -77,6 +77,7 @@ import UrgeSurfingView from './UrgeSurfingView';
 import ProjectsView from './ProjectsView';
 import KnowledgeView from './KnowledgeView';
 import CorrelationsView from './CorrelationsView';
+import GainsView from './GainsView';
 import { playCompletionSound, playLevelUpSound } from './audio';
 import OnboardingHelp from './OnboardingHelp';
 import { buildAiContext } from './aiContext';
@@ -183,7 +184,7 @@ const DEFAULT_CATEGORIES = [
   const [editWhyText, setEditWhyText] = useState('');
   // v0.3.2: Toggle to display archived habits in the grid
   const [showArchived, setShowArchived] = useState(false);
-  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'correlations' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'experiments' | 'urges' | 'journal' | 'mantras' | 'achievements' | 'settings' | 'psycho' | 'projects' | 'knowledge'>('grid');
+  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'correlations' | 'gains' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'experiments' | 'urges' | 'journal' | 'mantras' | 'achievements' | 'settings' | 'psycho' | 'projects' | 'knowledge'>('grid');
   const [savedMsg, setSavedMsg] = useState('');
   // Shortcuts help + toast
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -1092,6 +1093,7 @@ const DEFAULT_CATEGORIES = [
           <button role="tab" aria-selected={view === 'correlations'} className={`view-tab ${view === 'correlations' ? 'active' : ''}`} onClick={() => setView('correlations')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg> Corr.
           </button>
+          <button role="tab" aria-selected={view === 'gains'} className={`view-tab ${view === 'gains' ? 'active' : ''}`} onClick={() => setView('gains')}>📈 Gains</button>
           <button role="tab" aria-selected={view === 'history'} className={`view-tab ${view === 'history' ? 'active' : ''}`} onClick={() => setView('history')}>History</button>
           <button role="tab" aria-selected={view === 'year'} className={`view-tab ${view === 'year' ? 'active' : ''}`} onClick={() => setView('year')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Year
@@ -1757,6 +1759,8 @@ const DEFAULT_CATEGORIES = [
         <KnowledgeView />
       ) : view === 'correlations' ? (
         <CorrelationsView />
+      ) : view === 'gains' ? (
+        <GainsView />
       ) : (
         <ChaosView />
       )}
