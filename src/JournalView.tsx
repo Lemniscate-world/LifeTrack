@@ -4,7 +4,7 @@
 // Strategist (planning). Uses the configured AI provider (cloud/local/auto).
 
 import { useState, useEffect, useMemo } from 'react';
-import { getJournalEntries, addJournalEntry, deleteJournalEntry, getJournalThreads, startJournalThread, deleteJournalThread, tagJournalEntryThread, exportAllData, getPreferences, subscribe, getPatternTracks, replacePatternTracks, getReflections, addReflection, answerReflection, getProjects, getProtocols, updateJournalEntryLinks, addChallenge, addNote, markReflectionAsked, snoozeReflection, unsnoozeReflection } from './store';
+import { getJournalEntries, addJournalEntry, deleteJournalEntry, getJournalThreads, startJournalThread, deleteJournalThread, tagJournalEntryThread, exportAllData, getPreferences, subscribe, getPatternTracks, replacePatternTracks, getReflections, addReflection, answerReflection, getProjects, getProtocols, updateJournalEntryLinks, addChallenge, addNote, markReflectionAsked, snoozeReflection, unsnoozeReflection, updateJournalEntryResponse } from './store';
 import { buildAiContext } from './aiContext';
 import { buildJournalPrompts, type JournalPrompt } from './journalPrompts';
 import { detectNegativePatterns, allPatternsById } from './psychoanalysis';
@@ -224,6 +224,48 @@ export default function JournalView() {
     setReflecting(false);
     if (local) {
       setError('Réflexion hors-ligne enregistrée. Configure un fournisseur IA (Réglages → IA) pour des réponses plus profondes.');
+    }
+  };
+
+  // "Régénérer avec l'IA": an offline entry (local reflection) can be upgraded
+  // once an AI provider is available — the full pipeline runs again and the
+  // entry is rewritten with the deep answer.
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const regenerateAiReflection = async (entryId: string) => {
+    if (regeneratingId) return;
+    const entry = getJournalEntries().find((e) => e.id === entryId);
+    if (!entry) return;
+    setRegeneratingId(entryId);
+    try {
+      const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+      if (!isTauriEnv) {
+        setError('Régénération impossible : le chat IA requiert l\'app de bureau.');
+        return;
+      }
+      const { invoke } = await import('@tauri-apps/api/core');
+      const prefs = getPreferences();
+      let context = '';
+      try { context = buildAiContext(exportAllData()); } catch { context = ''; }
+      const response = await invoke<string>('journal_analyze', {
+        content: entry.content,
+        personality: entry.personality,
+        summaryJson: context,
+        model: prefs.aiModel || null,
+        provider: prefs.aiProvider || 'auto',
+        apiKey: prefs.aiApiKey || '',
+      });
+      updateJournalEntryResponse(entry.id, response, { local: false });
+      // Re-detect patterns on the fresh AI answer (it may reference them).
+      try {
+        const tracks = getPatternTracks();
+        const hitList = detectNegativePatterns([], [{ id: 'tmp', habitId: 'tmp', content: response, createdAt: new Date().toISOString() }], []);
+        const next = advanceTracks(tracks, hitList, new Date());
+        replacePatternTracks(next);
+      } catch { /* best-effort */ }
+    } catch (e) {
+      setError(e instanceof Error ? `⚠️ ${e.message}` : '⚠️ La régénération a échoué.');
+    } finally {
+      setRegeneratingId(null);
     }
   };
 
@@ -664,6 +706,16 @@ export default function JournalView() {
                 <div className="journal-entry-meta">
                   <span className="journal-entry-persona">{persona?.emoji} {persona?.name}{entry.local ? ' · 🏠 hors-ligne' : ''}</span>
                   <span className="journal-entry-date">{formatDate(entry.createdAt)}</span>
+                  {entry.local && (
+                    <button
+                      className="btn btn-sm btn-ghost journal-regen"
+                      title="Régénérer la réflexion avec l'IA (une fois un fournisseur configuré)"
+                      disabled={regeneratingId !== null}
+                      onClick={() => void regenerateAiReflection(entry.id)}
+                    >
+                      {regeneratingId === entry.id ? '…' : '🔄 IA'}
+                    </button>
+                  )}
                   <button
                     className="btn btn-sm btn-ghost journal-delete"
                     onClick={() => deleteJournalEntry(entry.id)}

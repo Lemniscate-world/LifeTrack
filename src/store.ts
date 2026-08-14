@@ -2067,6 +2067,18 @@ export function updateJournalEntryLinks(
   notify();
 }
 
+/**
+ * Overwrite an entry's reflection (used by "régénérer avec l'IA" after an
+ * offline entry was recorded with only a local reflection).
+ */
+export function updateJournalEntryResponse(id: string, response: string, opts?: { local?: boolean }): void {
+  const entry = data.journalEntries.find((e) => e.id === id);
+  if (!entry) return;
+  entry.response = response;
+  if (opts?.local !== undefined) entry.local = opts.local;
+  notify();
+}
+
 export function deleteJournalEntry(id: string): void {
   data.journalEntries = data.journalEntries.filter((e) => e.id !== id);
   notify();

@@ -5,6 +5,7 @@ import {
   addJournalEntry,
   deleteJournalEntry,
   getJournalEntries,
+  updateJournalEntryResponse,
   exportAllData,
   startJournalThread,
   getJournalThreads,
@@ -93,6 +94,15 @@ describe('Journal — store CRUD', () => {
     const entries = getJournalEntries();
     expect(entries).toHaveLength(1);
     expect(entries[0].id).toBe(b.id);
+  });
+
+  it('replaces a local reflection with a deep AI one via updateJournalEntryResponse', () => {
+    const entry = addJournalEntry('entrée hors-ligne', 'coach', 'Réflexion locale', undefined, { local: true });
+    expect(entry.local).toBe(true);
+    updateJournalEntryResponse(entry.id, 'Réflexion IA profonde', { local: false });
+    const after = getJournalEntries().find((e) => e.id === entry.id);
+    expect(after?.response).toBe('Réflexion IA profonde');
+    expect(after?.local).toBe(false);
   });
 
   it('accepts the new Robert Greene and Huberman personas', () => {
