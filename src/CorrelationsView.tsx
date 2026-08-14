@@ -13,7 +13,7 @@ import { computeHabitTrends, moodTrend, WEEKDAY_LABELS } from './timeseries';
 type Tab = 'matrix' | 'same' | 'lag' | 'weekend' | 'weekday' | 'trends';
 
 function heatColor(coef: number | null): string {
-  if (coef === null) return 'rgba(255,255,255,0.03)';
+  if (coef === null) return 'var(--border)';
   const abs = Math.min(1, Math.abs(coef));
   if (coef >= 0) {
     return `rgba(16,185,129,${0.12 + 0.55 * abs})`;
@@ -97,7 +97,7 @@ export default function CorrelationsView() {
           <p style={{ color: 'var(--text-muted, #94a3b8)', margin: 0, fontSize: '0.85rem' }}>{subLabel}</p>
         </div>
         {tab !== 'matrix' && tab !== 'trends' && (
-          <span style={{ background: 'var(--bg-card, #1e293b)', padding: '0.35rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', border: '1px solid var(--border-color, #334155)', whiteSpace: 'nowrap' }}>
+          <span style={{ background: 'var(--bg-alt)', padding: '0.35rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', border: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
             {filteredResults.length} / {activeList.length} paires
           </span>
         )}
@@ -117,8 +117,8 @@ export default function CorrelationsView() {
             key={t}
             onClick={() => setTab(t)}
             style={{
-              padding: '0.4rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border-color, #334155)',
-              background: tab === t ? 'var(--accent-color, #6366f1)' : 'var(--bg-card, #1e293b)',
+              padding: '0.4rem 0.8rem', borderRadius: '8px', border: '1px solid var(--border)',
+              background: tab === t ? 'var(--primary)' : 'var(--bg-alt)',
               color: tab === t ? '#fff' : 'inherit', cursor: 'pointer', fontSize: '0.82rem'
             }}
           >{label}</button>
@@ -127,10 +127,10 @@ export default function CorrelationsView() {
 
       {/* Filter toolbar (not on matrix/trends) */}
       {tab !== 'matrix' && tab !== 'trends' && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', background: 'var(--bg-card, #1e293b)', padding: '0.85rem 1rem', borderRadius: '12px', marginBottom: '1.5rem', border: '1px solid var(--border-color, #334155)' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', background: 'var(--bg-alt)', padding: '0.85rem 1rem', borderRadius: '12px', marginBottom: '1.5rem', border: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Force :</label>
-            <select value={strengthFilter} onChange={e => setStrengthFilter(e.target.value as 'all' | 'strong' | 'moderate' | 'weak')} style={{ background: 'var(--bg-main, #0f172a)', color: 'inherit', padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.8rem' }}>
+            <select value={strengthFilter} onChange={e => setStrengthFilter(e.target.value as 'all' | 'strong' | 'moderate' | 'weak')} style={{ background: 'var(--bg)', color: 'inherit', padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}>
               <option value="all">Toutes</option>
               <option value="strong">Fortes (|r|≥0.6)</option>
               <option value="moderate">Modérées (|r|≥0.3)</option>
@@ -139,7 +139,7 @@ export default function CorrelationsView() {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Direction :</label>
-            <select value={directionFilter} onChange={e => setDirectionFilter(e.target.value as 'all' | 'positive' | 'negative')} style={{ background: 'var(--bg-main, #0f172a)', color: 'inherit', padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.8rem' }}>
+            <select value={directionFilter} onChange={e => setDirectionFilter(e.target.value as 'all' | 'positive' | 'negative')} style={{ background: 'var(--bg)', color: 'inherit', padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}>
               <option value="all">Toutes (+/-)</option>
               <option value="positive">Positive (+)</option>
               <option value="negative">Négative (-)</option>
@@ -159,7 +159,7 @@ export default function CorrelationsView() {
       {/* MATRIX HEATMAP */}
       {tab === 'matrix' && (
         analysis.metrics.length === 0 ? (
-          <div style={{ padding: '3rem 1rem', background: 'var(--bg-card, #1e293b)', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border-color, #334155)' }}>
+          <div style={{ padding: '3rem 1rem', background: 'var(--bg-alt)', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border)' }}>
             <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>📊</div>
             <h3 style={{ margin: '0 0 0.5rem 0' }}>Pas encore assez de données</h3>
             <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.9rem' }}>
@@ -168,7 +168,7 @@ export default function CorrelationsView() {
           </div>
         ) : (
           <>
-            <div style={{ overflowX: 'auto', background: 'var(--bg-card, #1e293b)', borderRadius: '12px', border: '1px solid var(--border-color, #334155)', padding: '1rem' }}>
+            <div style={{ overflowX: 'auto', background: 'var(--bg-alt)', borderRadius: '12px', border: '1px solid var(--border)', padding: '1rem' }}>
               <table style={{ borderCollapse: 'collapse', fontSize: '0.78rem' }}>
                 <thead>
                   <tr>
@@ -187,7 +187,7 @@ export default function CorrelationsView() {
                           ? { row, col, coefficient: 1, sampleSize: 0, significant: false, qValue: 0 }
                           : analysis.matrix.find(c => (c.row === row && c.col === col) || (c.row === col && c.col === row));
                         if (row === col) {
-                          return <td key={col} style={{ padding: '0.3rem 0.4rem', background: 'rgba(255,255,255,0.05)', textAlign: 'center', color: 'var(--text-muted)' }}>—</td>;
+                          return <td key={col} style={{ padding: '0.3rem 0.4rem', background: 'var(--border)', textAlign: 'center', color: 'var(--text-muted)' }}>—</td>;
                         }
                         return (
                           <td
@@ -208,7 +208,7 @@ export default function CorrelationsView() {
                             style={{
                               padding: '0.3rem 0.4rem', background: heatColor(cell ? cell.coefficient : null), textAlign: 'center',
                               color: cell && cell.coefficient !== null ? '#fff' : 'var(--text-muted)', cursor: cell && cell.coefficient !== null ? 'pointer' : 'default',
-                              border: cell && cell.significant ? '1px solid rgba(255,255,255,0.5)' : '1px solid transparent',
+                              border: cell && cell.significant ? '1px solid var(--border)' : '1px solid transparent',
                             }}
                           >
                             {cell && cell.coefficient !== null ? (cell.coefficient >= 0 ? '' : '') + cell.coefficient.toFixed(2) : '·'}
@@ -247,9 +247,9 @@ export default function CorrelationsView() {
                 <div
                   key={r.pairKey ?? idx}
                   onClick={() => setSelectedPair(r)}
-                  style={{ background: 'var(--bg-card, #1e293b)', border: '1px solid var(--border-color, #334155)', borderRadius: '12px', padding: '1rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '0.6rem', transition: 'border-color 0.15s ease, transform 0.1s ease' }}
+                  style={{ background: 'var(--bg-alt)', border: '1px solid var(--border)', borderRadius: '12px', padding: '1rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '0.6rem', transition: 'border-color 0.15s ease, transform 0.1s ease' }}
                   onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = color; (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-1px)'; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border-color, #334155)'; (e.currentTarget as HTMLDivElement).style.transform = 'none'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border)'; (e.currentTarget as HTMLDivElement).style.transform = 'none'; }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
                     <div style={{ fontWeight: 600, fontSize: '0.9rem', lineHeight: 1.3 }}>
@@ -261,20 +261,20 @@ export default function CorrelationsView() {
                       {isPos ? '+' : ''}{r.coefficient.toFixed(2)}
                     </span>
                   </div>
-                  <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '3px', height: '5px', overflow: 'hidden' }}>
+                  <div style={{ background: 'var(--border)', borderRadius: '3px', height: '5px', overflow: 'hidden' }}>
                     <div style={{ width: `${Math.min(100, Math.max(4, absR * 100))}%`, height: '100%', background: color, borderRadius: '3px', transition: 'width 0.4s ease' }} />
                   </div>
                   <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.72rem', background: 'rgba(255,255,255,0.06)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>
+                    <span style={{ fontSize: '0.72rem', background: 'var(--border)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>
                       {r.strength === 'strong' ? '🔥 Forte' : r.strength === 'moderate' ? '⚡ Modérée' : '🔹 Faible'}
                     </span>
-                    <span style={{ fontSize: '0.72rem', background: 'rgba(255,255,255,0.06)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>N={r.sampleSize}j</span>
+                    <span style={{ fontSize: '0.72rem', background: 'var(--border)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>N={r.sampleSize}j</span>
                     {r.lag ? <span style={{ fontSize: '0.72rem', background: 'rgba(56,189,248,0.15)', color: '#38bdf8', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>lag {r.lag}j</span> : null}
-                    {r.window ? <span style={{ fontSize: '0.72rem', background: 'rgba(255,255,255,0.06)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>{r.window === 'weekend' ? '🌙 week-end' : '💼 semaine'}</span> : null}
+                    {r.window ? <span style={{ fontSize: '0.72rem', background: 'var(--border)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>{r.window === 'weekend' ? '🌙 week-end' : '💼 semaine'}</span> : null}
                     {r.significant && (
                       <span style={{ fontSize: '0.72rem', background: 'rgba(16,185,129,0.15)', color: '#10b981', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>q={r.qValue.toFixed(3)} ✓</span>
                     )}
-                    <span style={{ fontSize: '0.72rem', background: 'rgba(255,255,255,0.06)', padding: '0.15rem 0.4rem', borderRadius: '4px', color: 'var(--text-muted)' }}>{r.method}</span>
+                    <span style={{ fontSize: '0.72rem', background: 'var(--border)', padding: '0.15rem 0.4rem', borderRadius: '4px', color: 'var(--text-muted)' }}>{r.method}</span>
                   </div>
                 </div>
               );
@@ -286,7 +286,7 @@ export default function CorrelationsView() {
       {/* TRENDS TAB */}
       {tab === 'trends' && (
         <div>
-          <div className="trends-section" style={{ background: 'var(--bg-card, #1e293b)', borderRadius: '12px', border: '1px solid var(--border-color, #334155)', padding: '1rem 1.25rem' }}>
+          <div className="trends-section" style={{ background: 'var(--bg-alt)', borderRadius: '12px', border: '1px solid var(--border)', padding: '1rem 1.25rem' }}>
             <h3 style={{ margin: '0 0 0.75rem 0', fontSize: '0.95rem' }}>Humeur</h3>
             {moodTrendResult ? (
               <div className="trends-row trend-mood" style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
@@ -299,11 +299,11 @@ export default function CorrelationsView() {
           </div>
 
           {habitTrends.some((t) => t.trend || t.weekday || t.changepoint) ? (
-            <div className="trends-section" style={{ background: 'var(--bg-card, #1e293b)', borderRadius: '12px', border: '1px solid var(--border-color, #334155)', padding: '1rem 1.25rem', marginTop: '1rem' }}>
+            <div className="trends-section" style={{ background: 'var(--bg-alt)', borderRadius: '12px', border: '1px solid var(--border)', padding: '1rem 1.25rem', marginTop: '1rem' }}>
               <h3 style={{ margin: '0 0 0.75rem 0', fontSize: '0.95rem' }}>Habitudes</h3>
               <div className="trends-list">
                 {habitTrends.filter((t) => t.trend || t.weekday || t.changepoint).map((t) => (
-                  <div key={t.habitId} className="trend-row" style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border-color, #334155)' }}>
+                  <div key={t.habitId} className="trend-row" style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--border)' }}>
                     <span className="trend-name" style={{ flex: '0 0 auto' }}>{t.name}</span>
                     {t.trend ? (
                       <>
@@ -346,10 +346,10 @@ export default function CorrelationsView() {
       {/* Detail Inspector Modal */}
       {selectedPair && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 200, padding: '1rem' }} onClick={() => setSelectedPair(null)}>
-          <div style={{ background: 'var(--bg-card, #1e293b)', border: '1px solid var(--border-color, #334155)', borderRadius: '16px', maxWidth: '520px', width: '100%', padding: '1.5rem', position: 'relative' }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: 'var(--bg-alt)', border: '1px solid var(--border)', borderRadius: '16px', maxWidth: '520px', width: '100%', padding: '1.5rem', position: 'relative' }} onClick={e => e.stopPropagation()}>
             <button onClick={() => setSelectedPair(null)} style={{ position: 'absolute', top: '1rem', right: '1rem', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.1rem', cursor: 'pointer' }}>✕</button>
             <h3 style={{ margin: '0 0 1rem 0', fontSize: '1rem' }}>📊 Inspecteur de Corrélation</h3>
-            <p style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--accent-color, #6366f1)', margin: '0 0 0.25rem 0' }}>
+            <p style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--primary)', margin: '0 0 0.25rem 0' }}>
               {selectedPair.metricA} <span style={{ color: 'var(--text-muted)' }}>↔</span> {selectedPair.metricB}
               {selectedPair.lag ? <span style={{ color: '#38bdf8', marginLeft: '0.5rem', fontSize: '0.8rem' }}>lag {selectedPair.lag}j</span> : null}
               {selectedPair.window ? <span style={{ color: '#38bdf8', marginLeft: '0.5rem', fontSize: '0.8rem' }}>{selectedPair.window === 'weekend' ? '🌙 week-end' : '💼 semaine'}</span> : null}
@@ -366,7 +366,7 @@ export default function CorrelationsView() {
                 { label: 'N (jours)', value: selectedPair.sampleSize, color: undefined },
                 { label: 'Force', value: selectedPair.strength, color: undefined },
               ].map(item => (
-                <div key={item.label} style={{ background: 'rgba(255,255,255,0.04)', padding: '0.6rem', borderRadius: '8px' }}>
+                <div key={item.label} style={{ background: 'var(--border)', padding: '0.6rem', borderRadius: '8px' }}>
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.15rem' }}>{item.label}</div>
                   <div style={{ fontWeight: 700, fontSize: '1rem', color: item.color ?? 'inherit' }}>{item.value}</div>
                 </div>

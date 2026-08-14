@@ -84,23 +84,23 @@ export default function GainsView() {
           </p>
         </div>
         {report.totalHabits > 0 && (
-          <span style={{ background: 'var(--bg-card, #1e293b)', padding: '0.35rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', border: '1px solid var(--border-color, #334155)', whiteSpace: 'nowrap' }}>
+          <span style={{ background: 'var(--bg-alt)', padding: '0.35rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', border: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
             Moyenne globale : <strong>{report.overallAvg}%</strong> · {report.totalHabits} habitudes
           </span>
         )}
       </div>
 
       {/* Filters */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', background: 'var(--bg-card, #1e293b)', padding: '0.85rem 1rem', borderRadius: '12px', marginBottom: '1.5rem', border: '1px solid var(--border-color, #334155)' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', background: 'var(--bg-alt)', padding: '0.85rem 1rem', borderRadius: '12px', marginBottom: '1.5rem', border: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Période :</label>
-          <select value={period} onChange={(e) => setPeriod(e.target.value as PeriodKey)} style={{ background: 'var(--bg-main, #0f172a)', color: 'inherit', padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.8rem' }}>
+          <select value={period} onChange={(e) => setPeriod(e.target.value as PeriodKey)} style={{ background: 'var(--bg)', color: 'inherit', padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}>
             {Object.entries(PERIOD_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Jours :</label>
-          <select value={dayWindow} onChange={(e) => setDayWindow(e.target.value as DayWindow)} style={{ background: 'var(--bg-main, #0f172a)', color: 'inherit', padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.8rem' }}>
+          <select value={dayWindow} onChange={(e) => setDayWindow(e.target.value as DayWindow)} style={{ background: 'var(--bg)', color: 'inherit', padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}>
             <option value="all">Tous</option>
             <option value="weekday">Ouvrés (Lun–Ven)</option>
             <option value="weekend">Week-end</option>
@@ -108,7 +108,7 @@ export default function GainsView() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Domaine :</label>
-          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} style={{ background: 'var(--bg-main, #0f172a)', color: 'inherit', padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.8rem' }}>
+          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} style={{ background: 'var(--bg)', color: 'inherit', padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.8rem' }}>
             <option value="all">Tous</option>
             {GAIN_CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>)}
             <option value="__none__">🏷️ Non classé</option>
@@ -123,7 +123,7 @@ export default function GainsView() {
 
       {/* Empty state */}
       {report.totalHabits === 0 ? (
-        <div style={{ padding: '3rem 1rem', background: 'var(--bg-card, #1e293b)', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border-color, #334155)' }}>
+        <div style={{ padding: '3rem 1rem', background: 'var(--bg-alt)', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border)' }}>
           <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>🌱</div>
           <h3 style={{ margin: '0 0 0.5rem 0' }}>Pas encore de données de gains</h3>
           <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.9rem' }}>
@@ -133,16 +133,16 @@ export default function GainsView() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           {domains.map((domain) => (
-            <div key={domain.categoryId} style={{ background: 'var(--bg-card, #1e293b)', borderRadius: '12px', border: '1px solid var(--border-color, #334155)', overflow: 'hidden' }}>
+            <div key={domain.categoryId} style={{ background: 'var(--bg-alt)', borderRadius: '12px', border: '1px solid var(--border)', overflow: 'hidden' }}>
               {/* Domain header */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border-color, #334155)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border)' }}>
                 <span style={{ fontSize: '1.3rem' }}>{domain.emoji}</span>
                 <span style={{ fontWeight: 700, fontSize: '1rem' }}>{domain.categoryName}</span>
                 <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>· {domain.count} habitude{domain.count > 1 ? 's' : ''}</span>
                 <span style={{ marginLeft: 'auto', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                   Moyenne <strong style={{ color: domain.avgRate >= 60 ? '#10b981' : domain.avgRate >= 30 ? '#f59e0b' : '#ef4444' }}>{domain.avgRate}%</strong>
                 </span>
-                <div style={{ width: '120px', height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                <div style={{ width: '120px', height: '6px', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
                   <div style={{ width: `${Math.min(100, domain.avgRate)}%`, height: '100%', background: domain.color, borderRadius: '3px' }} />
                 </div>
               </div>
@@ -154,12 +154,12 @@ export default function GainsView() {
                   const d1 = g.deltas.d7to30;
                   const d2 = g.deltas.d30to90;
                   return (
-                    <div key={g.habitId} style={{ display: 'flex', alignItems: 'center', gap: '0.9rem', padding: '0.7rem 1.25rem', borderBottom: '1px solid var(--border-color, #334155)' }}>
+                    <div key={g.habitId} style={{ display: 'flex', alignItems: 'center', gap: '0.9rem', padding: '0.7rem 1.25rem', borderBottom: '1px solid var(--border)' }}>
                       <span style={{ fontWeight: 600, fontSize: '0.9rem', minWidth: '180px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={g.name}>{g.name}</span>
                       <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
                         {g.streak > 0 ? `🔥 ${g.streak}j · ` : ''}{g.trackingDays}j suivis
                       </span>
-                      <div style={{ flex: 1, height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                      <div style={{ flex: 1, height: '6px', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
                         <div style={{ width: `${Math.min(100, rate)}%`, height: '100%', background: rate >= 60 ? '#10b981' : rate >= 30 ? '#f59e0b' : '#ef4444', borderRadius: '3px' }} />
                       </div>
                       <span style={{ fontWeight: 700, fontSize: '0.9rem', minWidth: '44px', textAlign: 'right' }}>{rate}%</span>
@@ -188,8 +188,8 @@ export default function GainsView() {
       )}
 
       {/* Documented gains: declared cause→effect relationships (levers) */}
-      <div style={{ background: 'var(--bg-card, #1e293b)', borderRadius: '12px', border: '1px solid var(--border-color, #334155)', marginTop: '1.5rem', overflow: 'hidden' }}>
-        <div style={{ padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border-color, #334155)' }}>
+      <div style={{ background: 'var(--bg-alt)', borderRadius: '12px', border: '1px solid var(--border)', marginTop: '1.5rem', overflow: 'hidden' }}>
+        <div style={{ padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border)' }}>
           <h3 style={{ margin: 0, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             ⚡ Gains documentés
             <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 400 }}>
@@ -204,13 +204,13 @@ export default function GainsView() {
               onChange={(e) => setLeverContent(e.target.value)}
               placeholder="Le facteur (ex : No PMO)"
               required
-              style={{ background: 'var(--bg-main, #0f172a)', color: 'inherit', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.85rem', flex: '1 1 180px', minWidth: '150px' }}
+              style={{ background: 'var(--bg)', color: 'inherit', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.85rem', flex: '1 1 180px', minWidth: '150px' }}
             />
             <input
               value={leverEffect}
               onChange={(e) => setLeverEffect(e.target.value)}
               placeholder="Effet observé (ex : +15% d'énergie)"
-              style={{ background: 'var(--bg-main, #0f172a)', color: 'inherit', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.85rem', flex: '1 1 200px', minWidth: '170px' }}
+              style={{ background: 'var(--bg)', color: 'inherit', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '0.85rem', flex: '1 1 200px', minWidth: '170px' }}
             />
             <button className="btn btn-primary" type="submit">Ajouter</button>
           </form>
@@ -222,7 +222,7 @@ export default function GainsView() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               {levers.map((lever) => (
-                <div key={lever.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0.75rem', background: 'var(--bg-main, #0f172a)', borderRadius: '8px', border: '1px solid var(--border-color, #334155)' }}>
+                <div key={lever.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0.75rem', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                   <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{lever.content}</span>
                   {lever.effect && <span style={{ color: '#10b981', fontSize: '0.88rem' }}>→ {lever.effect}</span>}
                   {leverAddedId === lever.id && <span style={{ color: '#10b981', fontSize: '0.75rem' }}>✓ Ajouté</span>}
