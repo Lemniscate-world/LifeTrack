@@ -8918,6 +8918,19 @@ body {
   padding-top: 12px;
 }
 
+.psycho-chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.psycho-chat-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+
 .psycho-chat-history {
   display: flex;
   flex-direction: column;

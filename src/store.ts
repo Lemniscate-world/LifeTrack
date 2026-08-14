@@ -1,4 +1,4 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalThread, JournalPersonality, Challenge, Persona, Lever, PatternTrack, ReflectionEntry, ReflectionKind, Project, Protocol, IngestedSource, Task, FeedConfig } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalThread, JournalPersonality, Challenge, Persona, Lever, PatternTrack, ReflectionEntry, ReflectionKind, Project, Protocol, IngestedSource, Task, FeedConfig, PsychoMessage } from './types';
 import { computeStreakStats } from './stats';
 import { computeChallengeProgress } from './challenges';
 import {
@@ -201,6 +201,7 @@ function sanitizeData(raw: unknown): AppData {
     levers: [],
     patternTracks: [],
     reflections: [],
+    psychoHistory: [],
     projects: [],
     protocols: [],
     ingestedSources: [],
@@ -359,6 +360,7 @@ function sanitizeData(raw: unknown): AppData {
     levers: Array.isArray(obj.levers) ? obj.levers.filter(isValidLever) as Lever[] : [],
     patternTracks: Array.isArray(obj.patternTracks) ? obj.patternTracks.filter((e: unknown) => e && typeof e === 'object' && 'patternId' in (e as object)) as PatternTrack[] : [],
     reflections: Array.isArray(obj.reflections) ? obj.reflections.filter((r: unknown) => r && typeof r === 'object' && 'kind' in (r as object) && 'question' in (r as object) && 'dedupeKey' in (r as object)) as ReflectionEntry[] : [],
+    psychoHistory: Array.isArray(obj.psychoHistory) ? obj.psychoHistory.filter((m: unknown) => m && typeof m === 'object' && 'content' in (m as object) && 'role' in (m as object)) as PsychoMessage[] : [],
     dismissedRecs: Array.isArray(obj.dismissedRecs) ? obj.dismissedRecs.filter((x: unknown): x is string => typeof x === 'string') : [],
     projects: sanitizeProjects(obj.projects),
     protocols: sanitizeProtocols(obj.protocols),
@@ -992,6 +994,7 @@ function freshData(): AppData {
     levers: [],
     patternTracks: [],
     reflections: [],
+    psychoHistory: [],
     preferences: { darkMode: false, theme: '' },
   };
 }
@@ -2113,6 +2116,22 @@ export function tagJournalEntryThread(entryId: string, threadId: string | undefi
     const thread = data.journalThreads.find((t) => t.id === threadId);
     if (thread) thread.updatedAt = new Date().toISOString();
   }
+  notify();
+}
+
+// --- Psychoanalysis history (v0.6.4): the chat is persisted, not volatile ---
+export function getPsychoHistory(): PsychoMessage[] {
+  return [...(data.psychoHistory ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export function appendPsychoMessage(msg: Omit<PsychoMessage, 'createdAt'>): void {
+  if (!data.psychoHistory) data.psychoHistory = [];
+  data.psychoHistory.push({ ...msg, createdAt: new Date().toISOString() });
+  notify();
+}
+
+export function clearPsychoHistory(): void {
+  if (data.psychoHistory) data.psychoHistory = [];
   notify();
 }
 

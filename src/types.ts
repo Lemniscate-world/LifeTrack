@@ -302,6 +302,17 @@ export interface ReflectionEntry extends DetectedReflection {
   lastAskedAt?: string;
 }
 
+/** One persisted exchange in the psychoanalysis chat (v0.6.4). */
+export interface PsychoMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  /** Which theoretical frame answered (e.g. 'cognitive', 'jungian'). */
+  frame: string;
+  /** Optional pattern id the exchange is working on. */
+  patternId?: string;
+  createdAt: string;
+}
+
 // --- Challenges (v0.5.0) ---
 // A persistent, adaptive challenge attached to a habit. Unlike the old static
 // 30-day view, challenges are stored, can be customized (duration + daily goal)
@@ -446,6 +457,8 @@ export interface AppData {
   levers: Lever[];
   patternTracks?: PatternTrack[];
   reflections?: ReflectionEntry[];
+  /** v0.6.4: persisted psychoanalysis chat — survives navigation (was volatile). */
+  psychoHistory?: PsychoMessage[];
   dismissedRecs?: string[];      // recommendation keys the user set aside
   projects?: Project[];
   protocols?: Protocol[];

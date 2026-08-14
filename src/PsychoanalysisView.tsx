@@ -6,7 +6,7 @@
 //  - automatic (deterministic) prompting + an AI chat to dismantle each pattern.
 // All statistics are local and grounded; the AI only answers the open questions.
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import {
   detectNegativePatterns,
   detectAllFrames,
@@ -18,7 +18,7 @@ import {
   type PatternGroup,
   type NegativePattern,
 } from './psychoanalysis';
-import { exportAllData, getPreferences, subscribe, getPatternTracks, replacePatternTracks } from './store';
+import { exportAllData, getPreferences, subscribe, getPatternTracks, replacePatternTracks, getPsychoHistory, appendPsychoMessage, clearPsychoHistory } from './store';
 import { buildAiContext } from './aiContext';
 import type { AiChatMessage } from './aiAnalysis';
 import { STEPS, MAX_STEP, averageProgress, bucketTracks, advanceTracks, questionForStep } from './patternProgress';
@@ -69,22 +69,29 @@ export default function PsychoanalysisView() {
   const buckets = bucketTracks(tracks);
   const overall = averageProgress(tracks);
 
-  // --- AI chat state ---
+  // --- AI chat state (persisted: survives navigation) ---
   const [frame, setFrame] = useState('cognitive');
-  const [history, setHistory] = useState<AiChatMessage[]>([]);
+  const [history, setHistory] = useState<AiChatMessage[]>(() => {
+    try {
+      return getPsychoHistory().map((m) => ({ role: m.role === 'assistant' ? 'coach' : 'user', content: m.content }));
+    } catch { return []; }
+  });
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const ask = useCallback(async (rawQuestion: string) => {
+  const ask = async (rawQuestion: string, patternId?: string) => {
     const question = rawQuestion.trim();
     if (!question || loading) return;
+    appendPsychoMessage({ role: 'user', content: question, frame, patternId });
     setHistory((h) => [...h, { role: 'user', content: question }]);
     setInput('');
     setLoading(true);
     try {
       const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
       if (!isTauriEnv) {
-        setHistory((h) => [...h, { role: 'coach', content: 'Le chat psycho requiert l\'app de bureau (fournisseur IA).' }]);
+        const offline = 'Le chat psycho requiert l\'app de bureau (fournisseur IA).';
+        appendPsychoMessage({ role: 'assistant', content: offline, frame });
+        setHistory((h) => [...h, { role: 'coach', content: offline }]);
         return;
       }
       const { invoke } = await import('@tauri-apps/api/core');
@@ -98,17 +105,20 @@ export default function PsychoanalysisView() {
         apiKey: prefs.aiApiKey || '',
         frame,
       });
+      appendPsychoMessage({ role: 'assistant', content: answer, frame, patternId });
       setHistory((h) => [...h, { role: 'coach', content: answer }]);
     } catch (e) {
-      setHistory((h) => [...h, { role: 'coach', content: e instanceof Error ? `⚠️ ${e.message}` : '⚠️ Une erreur est survenue.' }]);
+      const err = e instanceof Error ? `⚠️ ${e.message}` : '⚠️ Une erreur est survenue.';
+      appendPsychoMessage({ role: 'assistant', content: err, frame });
+      setHistory((h) => [...h, { role: 'coach', content: err }]);
     } finally {
       setLoading(false);
     }
-  }, [loading, frame]);
+  };
 
   const askSuggestion = (q: SuggestedQuestion) => {
     if (loading) return;
-    ask(q.question);
+    ask(q.question, q.patternId ?? undefined);
   };
 
   const trackFor = (patternId: string) => tracks.find((t) => t.patternId === patternId);
@@ -121,14 +131,14 @@ export default function PsychoanalysisView() {
     replacePatternTracks(next);
     const t = next.find((x) => x.patternId === pattern.id);
     const question = questionForStep(pattern, t ? t.step : 0);
-    ask(question);
+    ask(question, pattern.id);
   };
 
   // "Contre-moteur": ask the AI to design an exact counter for this pattern,
   // grounded in the pattern's own anti-dote from the literature.
   const counterPattern = (pattern: NegativePattern) => {
     if (loading) return;
-    ask(`Le schéma « ${pattern.emoji} ${pattern.name} » apparaît dans mes écrits. ${pattern.description}\n\nConcentre-toi sur le contre-maté que tu proposes : ${pattern.counter}. Conçois-moi 1 à 3 plans d'action précis et minuscules à appliquer dès aujourd'hui pour le neutraliser.`);
+    ask(`Le schéma « ${pattern.emoji} ${pattern.name} » apparaît dans mes écrits. ${pattern.description}\n\nConcentre-toi sur le contre-maté que tu proposes : ${pattern.counter}. Conçois-moi 1 à 3 plans d'action précis et minuscules à appliquer dès aujourd'hui pour le neutraliser.`, pattern.id);
   };
 
   return (
@@ -368,6 +378,14 @@ export default function PsychoanalysisView() {
       </div>
 
       <div className="psycho-chat">
+        <div className="psycho-chat-head">
+          <span className="psycho-chat-title">🗨️ Conversation avec le psycho</span>
+          {history.length > 0 && (
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => { clearPsychoHistory(); setHistory([]); }}>
+              🗑️ Effacer
+            </button>
+          )}
+        </div>
         <div className="psycho-chat-history">
           {history.length === 0 && (
             <div className="psycho-chat-empty">

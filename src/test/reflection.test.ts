@@ -13,6 +13,9 @@ import {
   unsnoozeReflection,
   answerReflection,
   getReflections,
+  appendPsychoMessage,
+  clearPsychoHistory,
+  getPsychoHistory,
 } from '../store';
 import type { Habit, CheckIn, ReflectionEntry } from '../types';
 
@@ -202,5 +205,30 @@ describe('store — question tracking (markReflectionAsked / snooze)', () => {
     const after = getReflections()[0];
     expect(after.status).toBe('answered');
     expect(after.answer).toBe('ma leçon');
+  });
+});
+
+describe('store — psycho history persistence (v0.6.4)', () => {
+  beforeEach(() => {
+    resetStore();
+    flushSave();
+  });
+
+  it('persists chat exchanges in order and reloads them', () => {
+    appendPsychoMessage({ role: 'user', content: 'Pourquoi je sabote ?', frame: 'cognitive', patternId: 'catastrophizing' });
+    appendPsychoMessage({ role: 'assistant', content: 'Réponse de l\'IA', frame: 'cognitive', patternId: 'catastrophizing' });
+    const history = getPsychoHistory();
+    expect(history).toHaveLength(2);
+    expect(history[0].role).toBe('user');
+    expect(history[1].role).toBe('assistant');
+    expect(history[0].patternId).toBe('catastrophizing');
+    expect(history[0].frame).toBe('cognitive');
+    expect(history[0].createdAt).toBeDefined();
+  });
+
+  it('clears the history on demand', () => {
+    appendPsychoMessage({ role: 'user', content: 'x', frame: 'ta' });
+    clearPsychoHistory();
+    expect(getPsychoHistory()).toEqual([]);
   });
 });
