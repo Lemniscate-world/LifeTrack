@@ -4,7 +4,7 @@
 // Strategist (planning). Uses the configured AI provider (cloud/local/auto).
 
 import { useState, useEffect, useMemo } from 'react';
-import { getJournalEntries, addJournalEntry, deleteJournalEntry, getJournalThreads, startJournalThread, deleteJournalThread, tagJournalEntryThread, exportAllData, getPreferences, subscribe, getPatternTracks, replacePatternTracks, getReflections, addReflection, answerReflection, getProjects, getProtocols, updateJournalEntryLinks, addChallenge, addNote, markReflectionAsked, snoozeReflection, unsnoozeReflection, updateJournalEntryResponse } from './store';
+import { getJournalEntries, addJournalEntry, deleteJournalEntry, getJournalThreads, startJournalThread, deleteJournalThread, tagJournalEntryThread, exportAllData, getPreferences, subscribe, getPatternTracks, replacePatternTracks, getReflections, addReflection, answerReflection, getProjects, getProtocols, updateJournalEntryLinks, addChallenge, addNote, markReflectionAsked, snoozeReflection, unsnoozeReflection, updateJournalEntryResponse, reopenReflection } from './store';
 import { buildAiContext } from './aiContext';
 import { buildJournalPrompts, type JournalPrompt } from './journalPrompts';
 import { detectNegativePatterns, allPatternsById } from './psychoanalysis';
@@ -554,10 +554,13 @@ export default function JournalView() {
                     <button
                       type="button"
                       className="btn btn-sm btn-ghost"
-                      onClick={() => { /* answerReflection is closed; reopen to re-answer */ }}
-                      title="(relance via la réponse dans l'historique)"
+                      onClick={() => {
+                        reopenReflection(r.id);
+                        setAskedDay(new Date().toISOString().slice(0, 10));
+                      }}
+                      title="Répondre à nouveau"
                     >
-                      ✓
+                      ✏️ répondre
                     </button>
                   ) : (
                     <>

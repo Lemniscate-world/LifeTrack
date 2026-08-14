@@ -3496,7 +3496,7 @@ body {
 /* ============ INSIGHTS VIEW ============ */
 .insights-view {
   flex: 1;
-  overflow: auto;
+  min-height: 0;
   padding: 20px 24px;
 }
 
