@@ -12,12 +12,14 @@
  *   - give personalized life recommendations.
  */
 
-import type { AppData, Habit, CheckIn, CapacityRating, Experiment, UrgeEntry } from './types';
+import type { AppData, Habit, CheckIn, CapacityRating, Experiment, UrgeEntry, PatternTrack } from './types';
 import { computeChaosReport, getAchievementCategories, MOODS } from './store';
 import { computeCorrelations } from './correlations';
 import { computeHabitTrends, moodTrend, WEEKDAY_LABELS } from './timeseries';
 import { computeUrgeInsights } from './urgeInsights';
 import { validateLevers, detectRelapses } from './leverInsights';
+import { NEGATIVE_PATTERNS } from './psychoanalysis';
+import { STEPS } from './patternProgress';
 
 const MOOD_LABEL: Record<string, string> = Object.fromEntries(MOODS.map((m) => [m.id, m.label]));
 
@@ -34,6 +36,27 @@ interface HabitSummary {
 function todayStr(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Summarize the user's persistent psycho work: which negative patterns are being
+ * actively worked on (via journal detection → patternTracks) and at which stage
+ * of the 5-step healing journey (identify→understand→counter→integrate→transcend).
+ * Lets the AI coach build on the user's progress instead of restarting from zero.
+ */
+function summarizePsychoWork(data: AppData): string {
+  const tracks: PatternTrack[] = Array.isArray(data.patternTracks) ? data.patternTracks : [];
+  if (tracks.length === 0) return '  (none yet — patterns appear once journal entries are detected)';
+  const byId = new Map(NEGATIVE_PATTERNS.map((p) => [p.id, p]));
+  const lines = tracks.map((t) => {
+    const p = byId.get(t.patternId);
+    const name = p ? `${p.emoji} ${p.name}` : t.patternId;
+    const step = Math.max(0, Math.min(t.step, STEPS.length - 1));
+    const stage = STEPS[step]?.label ?? '?';
+    const when = t.lastSeen ? ` (dernier passage : ${t.lastSeen})` : '';
+    return `  [${t.seenCount} j] ${name} — étape ${step + 1}/${STEPS.length} (${stage})${when}`;
+  });
+  return lines.join('\n');
 }
 
 function fmtRate(completed: number, total: number): string {
@@ -431,6 +454,7 @@ export function buildAiContext(data: AppData): string {
 
   sections.push(`## JOURNAL MEMORY (past journal entries, newest first)\n${summarizeJournalMemory(data)}`);
   sections.push(`## JOURNAL LEARNINGS (answered self-questions)\n${summarizeJournalLearnings(data)}`);
+  sections.push(`## PSYCHO PATTERNS IN WORK (progress toward transcending each detected flaw)\n${summarizePsychoWork(data)}`);
 
   const totalCheckIns = Array.isArray(data.checkIns) ? data.checkIns.length : 0;
   const allCheckIns = Array.isArray(data.checkIns) ? data.checkIns : [];

@@ -19,7 +19,7 @@ import {
   addNote,
 } from '../store';
 import { addUrgeEntry, addCustomUrgeType } from '../urgeSurfing';
-import { addJournalEntry, addReflection, answerReflection } from '../store';
+import { addJournalEntry, addReflection, answerReflection, replacePatternTracks } from '../store';
 
 beforeEach(() => {
   localStorage.clear();
@@ -130,6 +130,24 @@ describe('buildAiContext — coverage of all data domains', () => {
     expect(report).toContain('JOURNAL LEARNINGS');
     expect(report).toContain('Une habitude négligée');
     expect(report).toContain('La leçon apprise');
+  });
+
+  it('includes psycho patterns in work with their healing stage', () => {
+    replacePatternTracks([
+      { patternId: 'self_sabotage', step: 2, seenCount: 4, lastSeen: '2026-08-10', createdAt: '2026-08-01' },
+    ]);
+    const report = buildAiContext(exportAllData());
+    expect(report).toContain('PSYCHO PATTERNS IN WORK');
+    expect(report).toContain('Auto-sabotage');
+    expect(report).toContain('étape 3/5');
+    expect(report).toContain('Contre-action');
+    expect(report).toContain('[4 j]');
+  });
+
+  it('reports no psycho work when no pattern is tracked', () => {
+    const report = buildAiContext(exportAllData());
+    expect(report).toContain('PSYCHO PATTERNS IN WORK');
+    expect(report).toContain('(none yet');
   });
 
   it('includes overview counts', () => {
