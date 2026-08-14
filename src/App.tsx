@@ -84,7 +84,6 @@ import { parseAiAnalysis, aiAnalysisToInsights, type AiAnalysis, type AiChatMess
 // (Mood view removed — emotional state is tracked via the 'emotional' chaos dimension.)
 import { generateInsights, type Recommendation, type RecKind } from './recommendations';
 import { computeCorrelations } from './correlations';
-import { computeHabitTrends, moodTrend, WEEKDAY_LABELS } from './timeseries';
 import { computeUrgeInsights } from './urgeInsights';
 import { validateLevers, detectRelapses } from './leverInsights';
 import PsychoanalysisView from './PsychoanalysisView';
@@ -2041,7 +2040,7 @@ function InsightsView({
   habits: Habit[];
   checkIns: CheckIn[];
   onLink: (childId: string, parentId: string | null) => void;
-  onView: (_v: 'grid' | 'stats' | 'history' | 'stacks' | 'chaos' | 'insights' | 'mantras' | 'settings' | 'today' | 'year' | 'challenge' | 'experiments' | 'skills' | 'urges' | 'journal') => void;
+  onView: (_v: 'grid' | 'stats' | 'correlations' | 'history' | 'stacks' | 'chaos' | 'insights' | 'mantras' | 'settings' | 'today' | 'year' | 'challenge' | 'experiments' | 'skills' | 'urges' | 'journal') => void;
 }) {
 // Data change tick: urges/moods/levers/capacities are read via exportAllData()
   // inside the memos below, so the deps alone (habits, checkIns) never recompute
@@ -2087,20 +2086,6 @@ function InsightsView({
       const caps = (allData.capacities ?? []).map(c => ({ id: c.id, name: c.name }));
       return computeCorrelations(habits, checkIns, allData.moods ?? {}, caps, allData.capacityRatings ?? []);
     } catch { return []; }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [habits, checkIns, storeTick]);
-
-  // Time-series trends (Mann-Kendall + Theil-Sen + changepoints + seasonality)
-  const habitTrends = useMemo(() => {
-    try {
-      return computeHabitTrends(habits, checkIns);
-    } catch { return []; }
-  }, [habits, checkIns]);
-  const moodTrendResult = useMemo(() => {
-    try {
-      const allData = exportAllData();
-      return moodTrend(allData.moods ?? {});
-    } catch { return null; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [habits, checkIns, storeTick]);
 
@@ -2559,95 +2544,30 @@ function InsightsView({
         })}
       </div>
 
-      {/* Correlations */}
+      {/* Correlations & Trends → consolidated in the dedicated view */}
       {correlations.length > 0 && (
         <div className="correlations-section">
           <h3>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}>
               <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
             </svg>
-            Correlations
+            Correlations &amp; Trends
           </h3>
           <div className="correlations-list">
-            {correlations.slice(0, 6).map((c, i) => (
+            {correlations.filter((c) => c.significant).slice(0, 3).map((c, i) => (
               <div key={i} className={`correlation-item ${c.direction} ${c.strength}`}>
                 <span className="correlation-pair">{c.metricA} ↔ {c.metricB}</span>
                 <span className={`correlation-value ${c.direction}`}>
                   {c.direction === 'positive' ? '↑' : '↓'} {Math.abs(c.coefficient).toFixed(2)}
                 </span>
                 <span className="correlation-strength">{c.strength}</span>
-                <span className={`correlation-signif ${c.significant ? 'sig' : 'ns'}`}>
-                  {c.significant ? '✓' : 'n.s.'} {c.method}
-                </span>
-                {c.sampleSize < c.requiredN && (
-                  <span className="correlation-power" title="Données insuffisantes pour une conclusion fiable">
-                    ⚠ {c.sampleSize}/{c.requiredN} points
-                  </span>
-                )}
+                <span className={`correlation-signif ${c.significant ? 'sig' : 'ns'}`}>✓</span>
               </div>
             ))}
           </div>
           <p className="correlations-note">
-            {correlations.filter((c) => c.significant).length > 0
-              ? '✓ = statistiquement significatif après correction FDR (p<0.05).'
-              : 'Aucune corrélation statistiquement fiable pour l’instant — il faut plus de données.'}
-          </p>
-        </div>
-      )}
-
-      {/* Trends — Mann–Kendall, Theil–Sen, changepoints and seasonality */}
-      {(habitTrends.some((t) => t.trend || t.weekday || t.changepoint) || moodTrendResult) && (
-        <div className="trends-section">
-          <h3>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}>
-              <polyline points="3 18 9 12 13 16 21 8"/><polyline points="15 8 21 8 21 14"/>
-            </svg>
-            Trends
-          </h3>
-          <div className="trends-list">
-            <div className="trends-row trend-mood">
-              <span className="trend-name">Humeur</span>
-              {moodTrendResult ? (
-                <>
-                  <span className={`trend-arrow ${moodTrendResult.direction}`}>
-                    {moodTrendResult.direction === 'up' ? '▲' : moodTrendResult.direction === 'down' ? '▼' : '→'}
-                  </span>
-                  <span className="trend-detail">τ={moodTrendResult.tau.toFixed(2)}<span className="trend-p">p={moodTrendResult.p.toFixed(3)}</span></span>
-                  {!moodTrendResult.significant && <span className="trend-ns">(n.s.)</span>}
-                </>
-              ) : (
-                <span className="trend-ns">moins de 10 jours</span>
-              )}
-            </div>
-            {habitTrends
-              .filter((t) => t.trend || t.weekday || t.changepoint)
-              .map((t) => (
-                <div key={t.habitId} className="trend-row">
-                  <span className="trend-name">{t.name}</span>
-                  {t.trend ? (
-                    <>
-                      <span className={`trend-arrow ${t.trend.direction}`}>
-                        {t.trend.direction === 'up' ? '▲' : t.trend.direction === 'down' ? '▼' : '→'}
-                      </span>
-                      <span className="trend-detail">τ={t.trend.tau.toFixed(2)}<span className="trend-p">p={t.trend.p.toFixed(3)}</span></span>
-                      {!t.trend.significant && <span className="trend-ns">(n.s.)</span>}
-                    </>
-                  ) : (
-                    <span className="trend-ns">—</span>
-                  )}
-                  {t.changepoint && t.changepoint.significant && (
-                    <span className="trend-cp" title={`Changement de régime ~${t.changepointAt}`}>
-                      ~{t.changepointAt ?? '?'} {t.changepoint.direction === 'up' ? '+' : ''}{Math.round(t.changepoint.delta * 100)}%
-                    </span>
-                  )}
-                  {t.weekday && t.weekday.significant && (
-                    <span className="trend-weekday">meilleur jour {WEEKDAY_LABELS[t.weekday.best]} {Math.round(t.weekday.rates[t.weekday.best])}%</span>
-                  )}
-                </div>
-              ))}
-          </div>
-          <p className="trends-note">
-            τ = Kendall tau, p du test de Mann-Kendall (n≥10 jours enregistrés requis).
+            Analyse complète (matrice, lag-1, week-end, tendances, caveats de causalité) dans l’onglet{' '}
+            <button className="btn btn-sm btn-ghost" onClick={() => onView('correlations')}>Corr. →</button>
           </p>
         </div>
       )}
