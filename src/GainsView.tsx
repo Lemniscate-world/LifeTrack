@@ -5,9 +5,11 @@
 // Self-contained: subscribes to the store, owns its own filter state.
 
 import { useState, useEffect, useMemo } from 'react';
-import { exportAllData, getHabits, subscribe } from './store';
+import type { FormEvent } from 'react';
+import { exportAllData, getHabits, subscribe, getLevers, addLever, deleteLever } from './store';
 import { computeGains, PERIOD_DAYS, GAIN_CATEGORIES } from './gainsAnalysis';
 import type { PeriodKey, DayWindow } from './gainsAnalysis';
+import type { Lever } from './types';
 
 const PERIOD_LABELS: Record<PeriodKey, string> = {
   '7d': '7 jours',
@@ -37,6 +39,28 @@ export default function GainsView() {
   }, [period, dayWindow]);
 
   const habitCount = getHabits().filter((h) => !h.archived).length;
+
+  const levers: Lever[] = useMemo(() => {
+    try { return getLevers(); } catch { return []; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setTick]);
+
+  const [leverContent, setLeverContent] = useState('');
+  const [leverEffect, setLeverEffect] = useState('');
+  const [leverAddedId, setLeverAddedId] = useState<string | null>(null);
+
+  const handleAddLever = (e: FormEvent) => {
+    e.preventDefault();
+    const content = leverContent.trim();
+    if (!content) return;
+    try {
+      const created = addLever(content, leverEffect.trim() || undefined);
+      setLeverAddedId(created.id);
+      setLeverContent('');
+      setLeverEffect('');
+      setTimeout(() => setLeverAddedId((cur) => (cur === created.id ? null : cur)), 2000);
+    } catch { /* ignore */ }
+  };
 
   const domains = categoryFilter === 'all'
     ? report.domains
@@ -162,6 +186,63 @@ export default function GainsView() {
           </p>
         </div>
       )}
+
+      {/* Documented gains: declared cause→effect relationships (levers) */}
+      <div style={{ background: 'var(--bg-card, #1e293b)', borderRadius: '12px', border: '1px solid var(--border-color, #334155)', marginTop: '1.5rem', overflow: 'hidden' }}>
+        <div style={{ padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border-color, #334155)' }}>
+          <h3 style={{ margin: 0, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            ⚡ Gains documentés
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 400 }}>
+              relations cause → effet que tu as remarquées (ex : « No PMO → +15% d'énergie »)
+            </span>
+          </h3>
+        </div>
+        <div style={{ padding: '1rem 1.25rem' }}>
+          <form onSubmit={handleAddLever} style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginBottom: levers.length > 0 ? '0.85rem' : 0 }}>
+            <input
+              value={leverContent}
+              onChange={(e) => setLeverContent(e.target.value)}
+              placeholder="Le facteur (ex : No PMO)"
+              required
+              style={{ background: 'var(--bg-main, #0f172a)', color: 'inherit', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.85rem', flex: '1 1 180px', minWidth: '150px' }}
+            />
+            <input
+              value={leverEffect}
+              onChange={(e) => setLeverEffect(e.target.value)}
+              placeholder="Effet observé (ex : +15% d'énergie)"
+              style={{ background: 'var(--bg-main, #0f172a)', color: 'inherit', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.85rem', flex: '1 1 200px', minWidth: '170px' }}
+            />
+            <button className="btn btn-primary" type="submit">Ajouter</button>
+          </form>
+
+          {levers.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0 }}>
+              Aucun gain documenté. Note ici les relations qui marchent pour toi — elles restent visibles et tu peux les transformer en habitude plus tard.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {levers.map((lever) => (
+                <div key={lever.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0.75rem', background: 'var(--bg-main, #0f172a)', borderRadius: '8px', border: '1px solid var(--border-color, #334155)' }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{lever.content}</span>
+                  {lever.effect && <span style={{ color: '#10b981', fontSize: '0.88rem' }}>→ {lever.effect}</span>}
+                  {leverAddedId === lever.id && <span style={{ color: '#10b981', fontSize: '0.75rem' }}>✓ Ajouté</span>}
+                  <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+                    {new Date(lever.createdAt).toLocaleDateString()}
+                  </span>
+                  <button
+                    className="btn btn-sm btn-ghost"
+                    onClick={() => deleteLever(lever.id)}
+                    title="Supprimer"
+                    style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
+                  >
+                    🗑️
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
