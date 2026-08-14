@@ -706,8 +706,9 @@ function detectMantraMatches(
     const ago = daysSince(lastCheck, now);
     if (ago < 3) continue; // only suggest if habit is being neglected (3+ days)
 
-    const mantraDomain = habit.chaosDimension
-      ? dimensionToMantra[habit.chaosDimension] ?? 'life'
+    const links = chaosLinksOf(habit);
+    const mantraDomain = links.length > 0
+      ? dimensionToMantra[links[0].dimension] ?? 'life'
       : 'life';
 
     recs.push({
@@ -924,7 +925,7 @@ function detectChaosHabitLink(
   now: Date,
 ): Recommendation[] {
   const recs: Recommendation[] = [];
-  const chaosHabits = habits.filter(h => !h.archived && h.chaosDimension && h.chaosThresholdDays);
+  const chaosHabits = habits.filter(h => !h.archived && chaosLinksOf(h).length > 0 && h.chaosThresholdDays);
   if (chaosHabits.length === 0) return [];
 
   for (const habit of chaosHabits) {
@@ -938,12 +939,12 @@ function detectChaosHabitLink(
     const threshold = habit.chaosThresholdDays ?? 3;
 
     if (missedDays >= threshold && threshold > 0) {
-      const impact = habit.chaosImpact ?? 50;
-      const dimName = habit.chaosDimension ?? 'unknown';
+      const links = chaosLinksOf(habit);
+      const dims = links.map((l) => `${l.dimension}+${l.impact}%`).join(', ');
       recs.push({
         kind: 'CHAOS_CORRELATION',
-        title: `🌀 "${habit.name}" — ${missedDays} days missed, chaos risk +${impact}%`,
-        detail: `You've missed "${habit.name}" for ${missedDays} consecutive days (threshold: ${threshold}d). This is adding ~${impact}% to your "${dimName}" chaos dimension. One check-in today reduces it.`,
+        title: `🌀 "${habit.name}" — ${missedDays} days missed, chaos risk +${links[0]?.impact ?? 50}%`,
+        detail: `You've missed "${habit.name}" for ${missedDays} consecutive days (threshold: ${threshold}d). This is adding pressure to ${dims}. One check-in today reduces it.`,
         habitIds: [habit.id],
         strength: Math.min(95, Math.round((missedDays / threshold) * 60 + 30)),
         actionLabel: 'Check in now',
@@ -1035,6 +1036,17 @@ function detectGoalProgress(
 // low-mood days, is a leading signal of burnout — not a judgement, just an
 // early-warning so the user can dial back instead of crashing.
 const BURNOUT_DIMS = ['energy', 'physical', 'emotional', 'psychological'];
+
+/** Canonical chaos links of a habit (multi-zone `chaosLinks` or legacy single). */
+function chaosLinksOf(h: Habit): { dimension: string; impact: number }[] {
+  if (Array.isArray(h.chaosLinks) && h.chaosLinks.length > 0) {
+    return h.chaosLinks.filter((l) => l && l.dimension);
+  }
+  if (h.chaosDimension) {
+    return [{ dimension: h.chaosDimension, impact: h.chaosImpact ?? 50 }];
+  }
+  return [];
+}
 const LOW_MOOD_IDS = ['sick', 'tired', 'bad', 'angry'];
 
 function detectBurnoutRisk(
@@ -1043,7 +1055,7 @@ function detectBurnoutRisk(
   now: Date,
   moods: Record<string, string> = {},
 ): Recommendation[] {
-  const candidates = habits.filter((h) => !h.archived && h.chaosDimension && BURNOUT_DIMS.includes(h.chaosDimension));
+  const candidates = habits.filter((h) => !h.archived && chaosLinksOf(h).some((l) => BURNOUT_DIMS.includes(l.dimension)));
   if (candidates.length === 0) return [];
 
   const inWindow = (daysAgoStart: number, daysAgoEnd: number) => {
@@ -1094,7 +1106,7 @@ function detectBurnoutRisk(
   if (score < 45) return [];
   if (!hasWorst && lowMoodRatio < 0.4) return [];
 
-  const dimName = worstHabit ? worstHabit.habit.chaosDimension : '';
+  const dimName = worstHabit ? (chaosLinksOf(worstHabit.habit)[0]?.dimension ?? '') : '';
   const title = worstHabit
     ? `🫀 Burnout watch — "${worstHabit.habit.name}" is slipping (${worstHabit.decline}% decline)`
     : `🫀 Burnout watch — energy low (${lowMoodDays} low-mood days in 2 weeks)`;
@@ -1562,7 +1574,7 @@ function detectEnergyBudget(
   moods: Record<string, string>,
   now: Date,
 ): Recommendation[] {
-  const energyHabits = habits.filter((h) => !h.archived && h.chaosDimension && ENERGY_DIMS.includes(h.chaosDimension));
+  const energyHabits = habits.filter((h) => !h.archived && chaosLinksOf(h).some((l) => ENERGY_DIMS.includes(l.dimension)));
   if (energyHabits.length === 0) return [];
 
   const week = dateStrDaysAgo(6, now);

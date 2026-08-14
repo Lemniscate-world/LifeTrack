@@ -174,8 +174,7 @@ const DEFAULT_CATEGORIES = [
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editingGoalValue, setEditingGoalValue] = useState('');
   const [editingChaosHabitId, setEditingChaosHabitId] = useState<string | null>(null);
-  const [editChaosDim, setEditChaosDim] = useState('physical');
-  const [editChaosImpact, setEditChaosImpact] = useState(50);
+  const [editChaosLinks, setEditChaosLinks] = useState<{ dimension: string; impact: number }[]>([{ dimension: 'physical', impact: 50 }]);
   const [editChaosThreshold, setEditChaosThreshold] = useState(2);
   // Stack parent picker (which habit triggers this one)
   const [editingStackParentId, setEditingStackParentId] = useState<string | null>(null);
@@ -733,24 +732,29 @@ const DEFAULT_CATEGORIES = [
   function openChaosEditor(habit: Habit) {
     setEditingChaosHabitId(habit.id);
     // Use ?? (nullish coalescing) to preserve empty string for "None"
-    setEditChaosDim(habit.chaosDimension ?? 'physical');
-    setEditChaosImpact(habit.chaosImpact ?? 50);
+    const existing = (Array.isArray(habit.chaosLinks) && habit.chaosLinks.length > 0)
+      ? habit.chaosLinks
+      : habit.chaosDimension
+        ? [{ dimension: habit.chaosDimension, impact: habit.chaosImpact ?? 50 }]
+        : [];
+    setEditChaosLinks(existing.length > 0 ? existing : [{ dimension: 'physical', impact: 50 }]);
     setEditChaosThreshold(habit.chaosThresholdDays ?? 2);
   }
 
   function saveChaosEditor() {
     if (editingChaosHabitId) {
-      if (editChaosDim === '' || editChaosDim === null) {
-        // Fully unlink: clear all three chaos fields
+      const links = editChaosLinks.filter((l) => l.dimension && l.impact > 0);
+      if (links.length === 0) {
+        // Fully unlink: clear all chaos fields
         updateHabit(editingChaosHabitId, {
+          chaosLinks: undefined,
           chaosDimension: undefined,
           chaosImpact: undefined,
           chaosThresholdDays: undefined,
         });
       } else {
         updateHabit(editingChaosHabitId, {
-          chaosDimension: editChaosDim,
-          chaosImpact: editChaosImpact,
+          chaosLinks: links,
           chaosThresholdDays: editChaosThreshold,
         });
       }
@@ -1283,9 +1287,13 @@ const DEFAULT_CATEGORIES = [
                             </svg>
                           </button>
                           <button
-                            className={`habit-chaos-btn ${habit.chaosDimension ? 'linked' : ''}`}
+                            className={`habit-chaos-btn ${(habit.chaosLinks?.length ?? 0) > 0 || habit.chaosDimension ? 'linked' : ''}`}
                             onClick={() => openChaosEditor(habit)}
-                            title={habit.chaosDimension ? `Chaos: ${habit.chaosDimension} +${habit.chaosImpact}%` : 'Link to chaos'}
+                            title={(habit.chaosLinks && habit.chaosLinks.length > 0)
+                              ? `Chaos: ${habit.chaosLinks.map((l) => `${l.dimension}+${l.impact}%`).join(', ')}`
+                              : habit.chaosDimension
+                                ? `Chaos: ${habit.chaosDimension} +${habit.chaosImpact}%`
+                                : 'Link to chaos'}
                           >
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
                               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
@@ -1380,21 +1388,61 @@ const DEFAULT_CATEGORIES = [
                         )}
                         {editingChaosHabitId === habit.id && (
                           <div className="habit-chaos-edit">
-                            <select value={editChaosDim} onChange={(e) => setEditChaosDim(e.target.value)} className="chaos-select-sm">
-                              <option value="">— None (unlink) —</option>
-                              <option value="physical">Physical</option>
-                              <option value="financial">Financial</option>
-                              <option value="social">Social</option>
-                              <option value="structural">Structural</option>
-                              <option value="spiritual">Spiritual</option>
-                              <option value="emotional">Emotional</option>
-                              <option value="energy">Energy</option>
-                            </select>
-                            <input type="number" min="1" max="100" value={Number.isFinite(editChaosImpact) ? editChaosImpact : ''} onChange={(e) => {
-                              const raw = e.target.value;
-                              if (raw === '') { setEditChaosImpact(NaN); return; }
-                              setEditChaosImpact(parseInt(raw, 10));
-                            }} className="chaos-input-sm" title="Impact %" />
+                            <div className="chaos-edit-links">
+                              {editChaosLinks.map((link, i) => (
+                                <div className="chaos-edit-link" key={i}>
+                                  <select
+                                    value={link.dimension}
+                                    onChange={(e) => {
+                                      const next = [...editChaosLinks];
+                                      next[i] = { ...next[i], dimension: e.target.value };
+                                      setEditChaosLinks(next);
+                                    }}
+                                    className="chaos-select-sm"
+                                  >
+                                    <option value="">— None (unlink) —</option>
+                                    <option value="physical">Physical</option>
+                                    <option value="financial">Financial</option>
+                                    <option value="social">Social</option>
+                                    <option value="structural">Structural</option>
+                                    <option value="spiritual">Spiritual</option>
+                                    <option value="emotional">Emotional</option>
+                                    <option value="energy">Energy</option>
+                                  </select>
+                                  <input
+                                    type="number" min="1" max="100"
+                                    value={Number.isFinite(link.impact) ? link.impact : ''}
+                                    onChange={(e) => {
+                                      const raw = e.target.value;
+                                      const next = [...editChaosLinks];
+                                      next[i] = { ...next[i], impact: raw === '' ? NaN : parseInt(raw, 10) };
+                                      setEditChaosLinks(next);
+                                    }}
+                                    className="chaos-input-sm" title="Impact %"
+                                  />
+                                  {editChaosLinks.length > 1 && (
+                                    <button
+                                      className="btn btn-sm btn-ghost"
+                                      onClick={() => setEditChaosLinks((prev) => prev.filter((_, idx) => idx !== i))}
+                                      title="Retirer cette zone"
+                                      style={{ padding: '0 0.3rem', fontSize: '0.75rem' }}
+                                    >
+                                      ✕
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                              {editChaosLinks.length < 2 && (
+                                <button
+                                  className="btn btn-sm btn-ghost"
+                                  onClick={() => setEditChaosLinks((prev) => [...prev, { dimension: 'physical', impact: 50 }])}
+                                  title="Ajouter une seconde zone de chaos"
+                                  style={{ fontSize: '0.75rem' }}
+                                >
+                                  + zone
+                                </button>
+                              )}
+                            </div>
                             <span className="chaos-edit-label">if missed ≥</span>
                             <input type="number" min="1" max="90" value={Number.isFinite(editChaosThreshold) ? editChaosThreshold : ''} onChange={(e) => {
                               const raw = e.target.value;

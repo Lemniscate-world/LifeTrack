@@ -59,7 +59,7 @@ describe('Chaos editor', () => {
     if (select) {
       await user.selectOptions(select, 'physical');
       await user.click(screen.getByText('OK'));
-      expect(getHabits().some((h) => h.chaosDimension === 'physical')).toBe(true);
+      expect(getHabits().some((h) => h.chaosLinks?.some((l) => l.dimension === 'physical'))).toBe(true);
     }
   });
 

@@ -8,9 +8,12 @@ export interface Habit {
   order: number;
   category?: string; // optional grouping: 'health', 'work', 'personal', 'learning', 'finance'
   // Chaos linkage: if the user misses this habit for `thresholdDays` consecutive days,
-  // it contributes `chaosImpact` percentage points to the linked chaos dimension.
-  chaosImpact?: number;        // 0-100, percent added when triggered
-  chaosDimension?: string;     // dimension id: 'physical' | 'financial' | 'social' | 'structural' | 'spiritual'
+  // it contributes `impact` percentage points to each linked chaos dimension.
+  // `chaosLinks` is the canonical form (multiple zones allowed); `chaosDimension`
+  // + `chaosImpact` are the legacy single-zone fields (read via getHabitChaosLinks).
+  chaosLinks?: ChaosLink[];
+  chaosImpact?: number;        // legacy: 0-100, percent added when triggered
+  chaosDimension?: string;     // legacy: dimension id 'physical' | 'financial' | 'social' | 'structural' | 'spiritual' | 'emotional' | 'energy'
   chaosThresholdDays?: number; // consecutive missed days that triggers chaos (e.g. 2 for gym > 2)
   // Persistent personal records (recalculated from check-ins). Surviving a streak
   // break is the whole point — see computeStreakStats() in stats.ts.
@@ -66,6 +69,11 @@ export interface ChaosDimension {
   id: string;
   name: string; // Social, Financial, Physical, Structural, Spiritual
   triggers: ChaosTrigger[];
+}
+
+export interface ChaosLink {
+  dimension: string; // dimension id
+  impact: number;    // 0-100, percent added when triggered
 }
 
 // --- Achievements ---

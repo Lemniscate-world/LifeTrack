@@ -51,6 +51,28 @@ describe('Chaos linkage', () => {
     expect(habits[0].chaosThresholdDays).toBe(2);
   });
 
+  it('links a habit to two chaos zones via chaosLinks and reports both', () => {
+    addHabit('Gym', { chaosLinks: [{ dimension: 'physical', impact: 40 }, { dimension: 'energy', impact: 30 }], chaosThresholdDays: 2 });
+    const habits = getHabits();
+    expect(habits[0].chaosLinks).toEqual([
+      { dimension: 'physical', impact: 40 },
+      { dimension: 'energy', impact: 30 },
+    ]);
+    // No check-ins at all → missed streak reaches threshold on day 2 → both zones triggered.
+    const report = computeChaosReport();
+    const physical = report.dimensions.find((d) => d.id === 'physical');
+    const energy = report.dimensions.find((d) => d.id === 'energy');
+    const social = report.dimensions.find((d) => d.id === 'social');
+    expect(physical?.habits).toHaveLength(1);
+    expect(physical?.habits[0].impact).toBe(40);
+    expect(energy?.habits).toHaveLength(1);
+    expect(energy?.habits[0].impact).toBe(30);
+    // Unlinked zones stay empty.
+    expect(social?.habits).toHaveLength(0);
+    // linkedHabitCount counts the habit once, not per-zone.
+    expect(report.linkedHabitCount).toBe(1);
+  });
+
   it('getChaosTriggersForDimension returns empty when no habits linked', () => {
     const triggers = getChaosTriggersForDimension('physical');
     expect(triggers.length).toBe(0);

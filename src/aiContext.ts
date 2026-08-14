@@ -397,7 +397,14 @@ export function buildAiContext(data: AppData): string {
     const goal = h.goal > 1 ? ` goal:${h.goal}x/day` : '';
     const best = h.bestStreak ? ` best:${h.bestStreak}d` : '';
     const gap = h.longestGap ? ` gap:${h.longestGap}d` : '';
-    const chaos = h.chaosDimension ? ` chaos:${h.chaosDimension}+${h.chaosImpact}% (if missed ${h.chaosThresholdDays}d)` : '';
+    const links = Array.isArray(h.chaosLinks) && h.chaosLinks.length > 0
+      ? h.chaosLinks.filter((l) => l && l.dimension)
+      : h.chaosDimension && h.chaosImpact
+        ? [{ dimension: h.chaosDimension, impact: h.chaosImpact }]
+        : [];
+    const chaos = links.length > 0
+      ? ` chaos:${links.map((l) => `${l.dimension}+${l.impact}%`).join('|')} (if missed ${h.chaosThresholdDays}d)`
+      : '';
     const stack = h.stackParent
       ? ` stack: after ${data.habits.find((p) => p.id === h.stackParent)?.name ?? '?'}${h.stackWhen ? ` (${h.stackWhen})` : ''}`
       : '';

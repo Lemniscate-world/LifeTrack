@@ -1805,6 +1805,18 @@ body {
   color: var(--text-muted);
 }
 
+.chaos-edit-links {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.chaos-edit-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .dark .habit-archive:hover {
   background: #7f1d1d;
 }

@@ -1,4 +1,4 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalThread, JournalPersonality, Challenge, Persona, Lever, PatternTrack, ReflectionEntry, ReflectionKind, Project, Protocol, IngestedSource, Task, FeedConfig, PsychoMessage } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, ChaosLink, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalThread, JournalPersonality, Challenge, Persona, Lever, PatternTrack, ReflectionEntry, ReflectionKind, Project, Protocol, IngestedSource, Task, FeedConfig, PsychoMessage } from './types';
 import { computeStreakStats } from './stats';
 import { computeChallengeProgress } from './challenges';
 import {
@@ -220,6 +220,15 @@ function sanitizeData(raw: unknown): AppData {
       // Unlinked habit — clear other chaos fields
       delete h.chaosImpact;
       delete h.chaosThresholdDays;
+    }
+    if (h.chaosLinks !== undefined && h.chaosLinks !== null) {
+      if (!Array.isArray(h.chaosLinks)) return false;
+      for (const l of h.chaosLinks as unknown[]) {
+        if (!l || typeof l !== 'object') return false;
+        const o = l as Record<string, unknown>;
+        if (typeof o.dimension !== 'string' || o.dimension.length === 0) return false;
+        if (typeof o.impact !== 'number' || !Number.isFinite(o.impact)) return false;
+      }
     }
     if (h.chaosImpact !== undefined && (typeof h.chaosImpact !== 'number' || !Number.isFinite(h.chaosImpact))) return false;
     if (h.chaosThresholdDays !== undefined && (typeof h.chaosThresholdDays !== 'number' || h.chaosThresholdDays < 1 || !Number.isFinite(h.chaosThresholdDays))) return false;
@@ -1646,9 +1655,10 @@ export function getHabits(): Habit[] {
 // --- Habits ---
 export function addHabit(
   name: string,
-  chaosOpts?: { chaosDimension?: string; chaosImpact?: number; chaosThresholdDays?: number },
+  chaosOpts?: { chaosLinks?: ChaosLink[]; chaosDimension?: string; chaosImpact?: number; chaosThresholdDays?: number },
 ): Habit {
   const maxOrder = data.habits.reduce((max, h) => Math.max(max, h.order), -1);
+  const links = chaosOpts?.chaosLinks?.filter((l) => l.dimension && l.impact > 0) ?? [];
   const habit: Habit = {
     id: crypto.randomUUID(),
     name,
@@ -1658,8 +1668,11 @@ export function addHabit(
     archived: false,
     order: maxOrder + 1,
     multiClick: false, // v0.3.2: OFF by default, user opts IN per habit
-    ...(chaosOpts?.chaosDimension ? { chaosDimension: chaosOpts.chaosDimension } : {}),
-    ...(chaosOpts?.chaosImpact !== undefined ? { chaosImpact: chaosOpts.chaosImpact } : {}),
+    ...(links.length > 0
+      ? { chaosLinks: links }
+      : chaosOpts?.chaosDimension
+        ? { chaosDimension: chaosOpts.chaosDimension, ...(chaosOpts.chaosImpact !== undefined ? { chaosImpact: chaosOpts.chaosImpact } : {}) }
+        : {}),
     ...(chaosOpts?.chaosThresholdDays !== undefined ? { chaosThresholdDays: chaosOpts.chaosThresholdDays } : {}),
   };
   // assign pastel color
@@ -1693,6 +1706,27 @@ export function updateHabit(id: string, updates: Partial<Habit>): void {
       cleaned.chaosDimension = undefined;
       cleaned.chaosImpact = undefined;
       cleaned.chaosThresholdDays = undefined;
+    }
+    if ('chaosLinks' in cleaned) {
+      if (Array.isArray(cleaned.chaosLinks)) {
+        cleaned.chaosLinks = cleaned.chaosLinks
+          .filter((l) => l && typeof l.dimension === 'string' && l.dimension.length > 0)
+          .map((l) => ({
+            dimension: l.dimension,
+            impact: typeof l.impact === 'number' && Number.isFinite(l.impact)
+              ? Math.max(0, Math.min(100, Math.round(l.impact)))
+              : 0,
+          }))
+          .filter((l) => l.impact > 0);
+        if (cleaned.chaosLinks.length === 0) cleaned.chaosLinks = undefined;
+      } else {
+        delete cleaned.chaosLinks;
+      }
+      // Multi-zone list is canonical: drop the legacy single fields to avoid drift.
+      if (cleaned.chaosLinks) {
+        delete cleaned.chaosDimension;
+        delete cleaned.chaosImpact;
+      }
     }
     // Validate why/intentions: trim, remove empty, cap at 5
     if ('why' in cleaned) {
@@ -2401,6 +2435,7 @@ interface ImportedHabit {
   name: string;
   goal?: number;
   archived?: boolean;
+  chaosLinks?: ChaosLink[];
   chaosDimension?: string;
   chaosImpact?: number;
   chaosThresholdDays?: number;
@@ -2478,6 +2513,17 @@ function parseImportedHabit(raw: unknown): ImportedHabit | null {
   const name = raw.name.trim();
   if (!name) return null;
   // Clamp chaos fields on import to prevent poison data
+  const links = Array.isArray(raw.chaosLinks)
+    ? (raw.chaosLinks as unknown[])
+        .filter((l): l is Record<string, unknown> => !!l && typeof l === 'object')
+        .map((l) => ({
+          dimension: typeof l.dimension === 'string' ? l.dimension : '',
+          impact: typeof l.impact === 'number' && Number.isFinite(l.impact)
+            ? Math.max(0, Math.min(100, Math.round(l.impact)))
+            : 0,
+        }))
+        .filter((l) => l.dimension.length > 0 && l.impact > 0)
+    : [];
   const dim = typeof raw.chaosDimension === 'string' && raw.chaosDimension.length > 0
     ? raw.chaosDimension : undefined;
   const impact = typeof raw.chaosImpact === 'number' && Number.isFinite(raw.chaosImpact)
@@ -2489,8 +2535,9 @@ function parseImportedHabit(raw: unknown): ImportedHabit | null {
     name,
     goal: typeof raw.goal === 'number' ? raw.goal : undefined,
     archived: typeof raw.archived === 'boolean' ? raw.archived : undefined,
-    chaosDimension: dim,
-    chaosImpact: impact,
+    chaosLinks: links.length > 0 ? links : undefined,
+    chaosDimension: links.length > 0 ? undefined : dim,
+    chaosImpact: links.length > 0 ? undefined : impact,
     chaosThresholdDays: threshold,
     focusMonth: typeof raw.focusMonth === 'string' && /^\d{4}-\d{2}$/.test(raw.focusMonth) ? raw.focusMonth : undefined,
     category: typeof raw.category === 'string' && raw.category.length > 0 ? raw.category : undefined,
@@ -2545,6 +2592,7 @@ function createImportedHabit(source: ImportedHabit): Habit {
     createdAt: new Date().toISOString(),
     archived: source.archived ?? false,
     order: maxOrder + 1,
+    ...(source.chaosLinks && source.chaosLinks.length > 0 ? { chaosLinks: source.chaosLinks } : {}),
     ...(source.chaosDimension ? { chaosDimension: source.chaosDimension } : {}),
     ...(source.chaosImpact !== undefined ? { chaosImpact: source.chaosImpact } : {}),
     ...(source.chaosThresholdDays !== undefined ? { chaosThresholdDays: source.chaosThresholdDays } : {}),
@@ -2565,6 +2613,10 @@ function applyImportedHabitMetadata(target: Habit, source: ImportedHabit): boole
   }
   if (target.archived && source.archived === false) {
     target.archived = false;
+    changed = true;
+  }
+  if (target.chaosLinks === undefined && source.chaosLinks && source.chaosLinks.length > 0) {
+    target.chaosLinks = source.chaosLinks;
     changed = true;
   }
   if (!target.chaosDimension && source.chaosDimension) {
@@ -3252,6 +3304,29 @@ export function getChaosDimensions(): ChaosDimension[] {
   return data.chaosDimensions;
 }
 
+/**
+ * Canonical chaos links for a habit. Prefers the multi-zone `chaosLinks` list;
+ * falls back to the legacy single `chaosDimension`+`chaosImpact` fields so old
+ * data keeps working unchanged.
+ */
+export function getHabitChaosLinks(habit: Habit): ChaosLink[] {
+  if (Array.isArray(habit.chaosLinks) && habit.chaosLinks.length > 0) {
+    return habit.chaosLinks
+      .filter((l) => l && typeof l.dimension === 'string' && l.dimension.length > 0)
+      .map((l) => ({
+        dimension: l.dimension,
+        impact: typeof l.impact === 'number' && Number.isFinite(l.impact)
+          ? Math.max(0, Math.min(100, l.impact))
+          : 0,
+      }))
+      .filter((l) => l.impact > 0);
+  }
+  if (habit.chaosDimension && habit.chaosImpact) {
+    return [{ dimension: habit.chaosDimension, impact: Math.max(0, Math.min(100, habit.chaosImpact)) }];
+  }
+  return [];
+}
+
 // --- Achievements ---
 // Achievements are notes tagged with a category. Defaults reuse the seven
 // chaos dimensions plus a dedicated 'Psychological' category so that life
@@ -3483,20 +3558,24 @@ export function computeChaosReport(asOf?: Date): ChaosReport {
 
   for (const habit of data.habits) {
     if (habit.archived) continue;
-    if (!habit.chaosDimension || !habit.chaosImpact || !habit.chaosThresholdDays) continue;
+    const links = getHabitChaosLinks(habit);
+    if (links.length === 0 || !habit.chaosThresholdDays) continue;
 
     const missedStreak = computeMissedStreak(habit, today);
-    const status: ChaosHabitStatus = {
-      habitId: habit.id,
-      habitName: habit.name,
-      impact: habit.chaosImpact,
-      thresholdDays: habit.chaosThresholdDays,
-      missedStreak,
-      triggered: missedStreak >= habit.chaosThresholdDays,
-      progress: habit.chaosThresholdDays > 0 ? Math.min(1, missedStreak / habit.chaosThresholdDays) : 0,
-    };
-    if (!linkedByDim.has(habit.chaosDimension)) linkedByDim.set(habit.chaosDimension, []);
-    linkedByDim.get(habit.chaosDimension)!.push(status);
+    const triggered = missedStreak >= habit.chaosThresholdDays;
+    for (const link of links) {
+      const status: ChaosHabitStatus = {
+        habitId: habit.id,
+        habitName: habit.name,
+        impact: link.impact,
+        thresholdDays: habit.chaosThresholdDays,
+        missedStreak,
+        triggered,
+        progress: habit.chaosThresholdDays > 0 ? Math.min(1, missedStreak / habit.chaosThresholdDays) : 0,
+      };
+      if (!linkedByDim.has(link.dimension)) linkedByDim.set(link.dimension, []);
+      linkedByDim.get(link.dimension)!.push(status);
+    }
     linkedHabitCount++;
   }
 
@@ -3541,8 +3620,8 @@ export function computeChaosHistory(days: number, asOf?: Date): ChaosDayPoint[] 
       // Scan habits forward from this day only (they must have started by then).
       for (const habit of data.habits) {
         if (habit.archived) continue;
-        if (!habit.chaosDimension || habit.chaosDimension !== dim.id) continue;
-        if (!habit.chaosImpact || !habit.chaosThresholdDays) continue;
+        const links = getHabitChaosLinks(habit);
+        if (!habit.chaosThresholdDays || !links.some((l) => l.dimension === dim.id)) continue;
         const startBoundary = trackingStart(habit);
         const dayOf = new Date(day.getFullYear(), day.getMonth(), day.getDate());
         if (startBoundary && dayOf < startBoundary) continue;
@@ -3551,7 +3630,10 @@ export function computeChaosHistory(days: number, asOf?: Date): ChaosDayPoint[] 
         const then = new Date(day);
         then.setDate(then.getDate() + 1);
         const missed = computeMissedStreak(habit, then);
-        if (missed >= habit.chaosThresholdDays) dimPct += habit.chaosImpact;
+        if (missed >= habit.chaosThresholdDays) {
+          const link = links.find((l) => l.dimension === dim.id);
+          if (link) dimPct += link.impact;
+        }
       }
       if (hasHabit) { dimsWithHabits++; totalImpact += Math.min(100, dimPct); }
     }
