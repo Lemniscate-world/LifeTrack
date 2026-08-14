@@ -1138,6 +1138,7 @@ const DEFAULT_CATEGORIES = [
         </div>
       </div>
 
+      <div className="view-scroll">
       {view === 'today' ? (
         <TodayView
           habits={habits}
@@ -1760,6 +1761,7 @@ const DEFAULT_CATEGORIES = [
       ) : (
         <ChaosView />
       )}
+      </div>
 
       {/* Daily Mantra Banner */}
       {showMantraBanner && dailyEntryMantra && (

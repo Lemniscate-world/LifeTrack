@@ -192,6 +192,40 @@ body {
   overflow: hidden;
 }
 
+/* v0.6.4: the single scrollable region holding the current view. The grid view
+   keeps its own inner .table-scroll, so this only scrolls the rest. */
+.view-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Visible, styled scrollbars (WebView2 hides native ones by default). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-light);
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* ============ NAVBAR ============ */
 .navbar {
   display: flex;
