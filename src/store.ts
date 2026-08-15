@@ -776,9 +776,29 @@ export function deduplicateDataInPlace(d: AppData): { removed: number; remappedC
     }
   }
 
-  if (result.removed > 0 || result.orphanCheckIns > 0 || result.orphanNotes > 0) {
+  // Remap + clear orphaned stack links. A habit whose `stackParent` points to
+  // a habit that no longer exists (deleted, never imported, or dedupe-merged
+  // away) would silently vanish from the Stacks view because roots are only
+  // existing habits with children. Remap to the merged primary, else unlink.
+  let stackCleared = 0;
+  let stackRemapped = 0;
+  for (const habit of survivors) {
+    if (!habit.stackParent) continue;
+    const remapped = idRemap.get(habit.stackParent);
+    if (remapped) {
+      habit.stackParent = remapped;
+      stackRemapped++;
+    } else if (!survivors.find((h) => h.id === habit.stackParent)) {
+      delete habit.stackParent;
+      delete habit.stackWhen;
+      stackCleared++;
+    }
+  }
+  result.removed += stackCleared; // count as cleaned
+
+  if (result.removed > 0 || result.orphanCheckIns > 0 || result.orphanNotes > 0 || stackCleared > 0 || stackRemapped > 0) {
     console.info(
-      `[LifeTrack] Dedupe: removed ${result.removed} duplicate habits, remapped ${result.remappedCheckIns} check-ins, ${result.remappedNotes} notes. Orphaned: ${result.orphanCheckIns} check-ins, ${result.orphanNotes} notes.`
+      `[LifeTrack] Dedupe: removed ${result.removed} duplicate habits, remapped ${result.remappedCheckIns} check-ins, ${result.remappedNotes} notes. Orphaned: ${result.orphanCheckIns} check-ins, ${result.orphanNotes} notes. Stack links: cleared ${stackCleared}, remapped ${stackRemapped}.`
     );
   }
   return result;
@@ -1716,6 +1736,7 @@ export function updateHabit(id: string, updates: Partial<Habit>): void {
             impact: typeof l.impact === 'number' && Number.isFinite(l.impact)
               ? Math.max(0, Math.min(100, Math.round(l.impact)))
               : 0,
+            cause: typeof l.cause === 'string' && l.cause.trim().length > 0 ? l.cause.trim() : undefined,
           }))
           .filter((l) => l.impact > 0);
         if (cleaned.chaosLinks.length === 0) cleaned.chaosLinks = undefined;
@@ -3318,6 +3339,7 @@ export function getHabitChaosLinks(habit: Habit): ChaosLink[] {
         impact: typeof l.impact === 'number' && Number.isFinite(l.impact)
           ? Math.max(0, Math.min(100, l.impact))
           : 0,
+        cause: typeof l.cause === 'string' && l.cause.trim().length > 0 ? l.cause.trim() : undefined,
       }))
       .filter((l) => l.impact > 0);
   }
@@ -3535,6 +3557,8 @@ export interface ChaosHabitStatus {
   triggered: boolean;    // missedStreak >= thresholdDays
   /** 0..1 how close the habit is to triggering (missedStreak/thresholdDays). */
   progress: number;
+  /** Optional user note explaining WHY this habit destabilises this dimension. */
+  cause?: string;
 }
 
 export interface ChaosDimensionReport {
@@ -3572,6 +3596,7 @@ export function computeChaosReport(asOf?: Date): ChaosReport {
         missedStreak,
         triggered,
         progress: habit.chaosThresholdDays > 0 ? Math.min(1, missedStreak / habit.chaosThresholdDays) : 0,
+        cause: link.cause,
       };
       if (!linkedByDim.has(link.dimension)) linkedByDim.set(link.dimension, []);
       linkedByDim.get(link.dimension)!.push(status);

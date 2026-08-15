@@ -1455,6 +1455,74 @@ describe('deduplicateDataInPlace', () => {
     expect(result.removed).toBe(0);
     expect(data.habits).toHaveLength(0);
   });
+
+  it('clears stackParent links whose parent no longer exists (orphaned stacks)', () => {
+    const data = {
+      habits: [
+        { id: 'h1', name: 'Gym', color: '#fff', goal: 0, createdAt: '2026-01-01T00:00:00.000Z', archived: false, order: 0 },
+        { id: 'h2', name: 'Meditation', color: '#fff', goal: 0, createdAt: '2026-01-02T00:00:00.000Z', archived: false, order: 1, stackParent: 'ghost-parent', stackWhen: 'after' as const },
+        { id: 'h3', name: 'Podcast', color: '#fff', goal: 0, createdAt: '2026-01-03T00:00:00.000Z', archived: false, order: 2 },
+      ],
+      checkIns: [],
+      notes: [],
+      chaosDimensions: [], achievementCategories: [],
+      mantras: [],
+      moods: {},
+      mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
+      skills: [],
+      capacities: [],
+      capacityRatings: [], experiments: [], urges: [], customUrgeTypes: [], journalEntries: [], challenges: [], personas: [], levers: [], preferences: { darkMode: false, theme: '' },
+    };
+    deduplicateDataInPlace(data);
+    // Orphaned link cleared so the child no longer silently vanishes from Stacks.
+    expect(data.habits.find((h) => h.id === 'h2')!.stackParent).toBeUndefined();
+    expect(data.habits.find((h) => h.id === 'h2')!.stackWhen).toBeUndefined();
+  });
+
+  it('preserves stackParent links that reference an existing habit', () => {
+    const data = {
+      habits: [
+        { id: 'h1', name: 'Gym', color: '#fff', goal: 0, createdAt: '2026-01-01T00:00:00.000Z', archived: false, order: 0 },
+        { id: 'h2', name: 'Meditation', color: '#fff', goal: 0, createdAt: '2026-01-02T00:00:00.000Z', archived: false, order: 1, stackParent: 'h1', stackWhen: 'after' as const },
+      ],
+      checkIns: [],
+      notes: [],
+      chaosDimensions: [], achievementCategories: [],
+      mantras: [],
+      moods: {},
+      mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
+      skills: [],
+      capacities: [],
+      capacityRatings: [], experiments: [], urges: [], customUrgeTypes: [], journalEntries: [], challenges: [], personas: [], levers: [], preferences: { darkMode: false, theme: '' },
+    };
+    const result = deduplicateDataInPlace(data);
+    expect(result.removed).toBe(0);
+    expect(data.habits.find((h) => h.id === 'h2')!.stackParent).toBe('h1');
+    expect(data.habits.find((h) => h.id === 'h2')!.stackWhen).toBe('after');
+  });
+
+  it('remaps stackParent to the surviving primary after dedupe merge', () => {
+    const data = {
+      habits: [
+        { id: 'gym-1', name: 'Gym', color: '#fff', goal: 0, createdAt: '2026-01-01T00:00:00.000Z', archived: false, order: 0 },
+        { id: 'gym-2', name: 'Gym', color: '#fff', goal: 0, createdAt: '2026-01-02T00:00:00.000Z', archived: false, order: 1 },
+        { id: 'c1', name: 'Stretch', color: '#fff', goal: 0, createdAt: '2026-01-03T00:00:00.000Z', archived: false, order: 2, stackParent: 'gym-2', stackWhen: 'after' as const },
+      ],
+      checkIns: [],
+      notes: [],
+      chaosDimensions: [], achievementCategories: [],
+      mantras: [],
+      moods: {},
+      mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
+      skills: [],
+      capacities: [],
+      capacityRatings: [], experiments: [], urges: [], customUrgeTypes: [], journalEntries: [], challenges: [], personas: [], levers: [], preferences: { darkMode: false, theme: '' },
+    };
+    const result = deduplicateDataInPlace(data);
+    // gym-2 merged into gym-1; Stretch's stackParent should follow to gym-1.
+    expect(data.habits.find((h) => h.id === 'c1')!.stackParent).toBe('gym-1');
+    expect(result.removed).toBeGreaterThanOrEqual(1);
+  });
 });
 
 // ============================================================
