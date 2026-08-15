@@ -176,6 +176,9 @@ const DEFAULT_CATEGORIES = [
   const [monthMoods, setMonthMoods] = useState<Map<number, string>>(new Map());
   // Monthly energy levels (%)
   const [monthEnergies, setMonthEnergies] = useState<Map<number, number>>(new Map());
+  // Energy precision picker (slider + exact % input)
+  const [energyPicker, setEnergyPicker] = useState<{ dateKey: string; label: string; value: number } | null>(null);
+  const [energyPickerInput, setEnergyPickerInput] = useState('');
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editingGoalValue, setEditingGoalValue] = useState('');
   const [editingChaosHabitId, setEditingChaosHabitId] = useState<string | null>(null);
@@ -1660,10 +1663,8 @@ const DEFAULT_CATEGORIES = [
                             className={`col-day mood-cell energy-cell ${isToday ? 'today' : ''}`}
                             onClick={() => {
                               const cur = getEnergy(dateKey);
-                              // empty → 50, +10 each click, at 100 → cleared
-                              const next = cur === undefined ? 50 : cur >= 100 ? null : cur + 10;
-                              setEnergy(dateKey, next);
-                              setMonthEnergies(getMonthEnergies(year, month));
+                              setEnergyPicker({ dateKey, label: `Jour ${h.day}`, value: cur ?? 50 });
+                              setEnergyPickerInput(String(cur ?? 50));
                             }}
                             onContextMenu={(e) => {
                               e.preventDefault();
@@ -1671,7 +1672,7 @@ const DEFAULT_CATEGORIES = [
                               setEnergy(dateKey, cur === undefined || cur <= 10 ? null : cur - 10);
                               setMonthEnergies(getMonthEnergies(year, month));
                             }}
-                            title={energy !== undefined ? `Énergie : ${energy}% (clic +10, clic droit -10)` : 'Définir l’énergie (clic +10, clic droit -10)'}
+                            title={energy !== undefined ? `Énergie : ${energy}% (clic = saisie précise, clic droit -10)` : 'Définir l’énergie (clic = saisie précise, clic droit -10)'}
                           >
                             <div className="day-cell energy-display" style={color ? { background: color + '22', color } : {}}>
                               {energy !== undefined ? `${energy}%` : '·'}
@@ -1692,6 +1693,7 @@ const DEFAULT_CATEGORIES = [
             </>
           )}
         </div>
+
       ) : view === 'stats' ? (
         <>
           {/* Statistics View */}
@@ -1871,6 +1873,81 @@ const DEFAULT_CATEGORIES = [
         <ChaosView />
       )}
       </div>
+
+      {/* Energy precision picker modal */}
+      {energyPicker && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(3px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 300, padding: '1rem' }}
+          onClick={() => setEnergyPicker(null)}
+        >
+          <div
+            className="energy-picker-modal"
+            style={{ background: 'var(--bg-alt)', border: '1px solid var(--border)', borderRadius: '14px', maxWidth: '380px', width: '100%', padding: '1.25rem 1.5rem', position: 'relative' }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-label="Saisie précise de l'énergie"
+          >
+            <button
+              onClick={() => setEnergyPicker(null)}
+              style={{ position: 'absolute', top: '0.75rem', right: '0.9rem', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.1rem', cursor: 'pointer' }}
+              aria-label="Fermer"
+            >✕</button>
+            <h3 style={{ margin: '0 0 0.25rem 0', fontSize: '1rem' }}>⚡ Énergie — {energyPicker.label}</h3>
+            <p style={{ margin: '0 0 1rem 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Niveau d’énergie précis (0-100 %)
+            </p>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={energyPicker.value}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setEnergyPicker({ ...energyPicker, value: v });
+                setEnergyPickerInput(String(v));
+              }}
+              style={{ width: '100%', accentColor: 'var(--primary)' }}
+              aria-label="Slider énergie"
+            />
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginTop: '1rem' }}>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={energyPickerInput}
+                onChange={(e) => {
+                  setEnergyPickerInput(e.target.value);
+                  const v = Number(e.target.value);
+                  if (Number.isFinite(v)) setEnergyPicker({ ...energyPicker, value: Math.max(0, Math.min(100, v)) });
+                }}
+                style={{ width: '80px', padding: '0.4rem 0.6rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: '1rem', fontWeight: 700, textAlign: 'center' }}
+                aria-label="Valeur exacte en pourcent"
+              />
+              <span style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--primary)' }}>{energyPicker.value}%</span>
+              <button
+                className="btn btn-sm"
+                onClick={() => {
+                  setEnergy(energyPicker.dateKey, null);
+                  setMonthEnergies(getMonthEnergies(year, month));
+                  setEnergyPicker(null);
+                }}
+                style={{ marginLeft: 'auto' }}
+              >Effacer</button>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.1rem' }}>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setEnergy(energyPicker.dateKey, energyPicker.value);
+                  setMonthEnergies(getMonthEnergies(year, month));
+                  setEnergyPicker(null);
+                }}
+              >Enregistrer</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Daily Mantra Banner */}
       {showMantraBanner && dailyEntryMantra && (

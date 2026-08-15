@@ -370,7 +370,7 @@ describe('App component', () => {
     expect(document.querySelectorAll('.check-icon')).toHaveLength(1);
   });
 
-  it('shows the energy row and cycles 0-100 with click + right-click', async () => {
+  it('opens a precision picker and stores an exact energy value (37%)', async () => {
     const user = userEvent.setup();
     render(<App />);
 
@@ -381,27 +381,24 @@ describe('App component', () => {
     // Energy label is present
     expect(screen.getByText('Énergie')).toBeInTheDocument();
 
-    // Find the energy row (first day cell, since the grid renders current month day 1)
+    // Click a cell → precision modal opens (defaults to 50)
     const energyCells = document.querySelectorAll('.energy-cell');
     expect(energyCells.length).toBeGreaterThan(0);
     const firstDayCell = energyCells[0];
-
-    // Click sets 50% (default start)
     await user.click(firstDayCell);
-    expect(firstDayCell.textContent).toContain('50%');
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeInTheDocument();
 
-    // Click again → 60%
-    await user.click(firstDayCell);
-    expect(firstDayCell.textContent).toContain('60%');
+    // Type an exact value: 37
+    const numberInput = screen.getByLabelText('Valeur exacte en pourcent');
+    await user.clear(numberInput);
+    await user.type(numberInput, '37');
+    await user.click(screen.getByText('Enregistrer'));
 
-    // Right-click → back to 50%
+    expect(firstDayCell.textContent).toContain('37%');
+
+    // Right-click still works as quick -10 (37 → 27)
     await user.pointer({ keys: '[MouseRight]', target: firstDayCell });
-    expect(firstDayCell.textContent).toContain('50%');
-
-    // Wrap: 100% → click → cleared (null → '·')
-    for (let i = 0; i < 5; i++) await user.click(firstDayCell); // 60→70→80→90→100
-    expect(firstDayCell.textContent).toContain('100%');
-    await user.click(firstDayCell); // wraps to cleared
-    expect(firstDayCell.textContent).toContain('·');
+    expect(firstDayCell.textContent).toContain('27%');
   });
 });
