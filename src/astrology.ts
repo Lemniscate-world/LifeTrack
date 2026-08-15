@@ -130,6 +130,76 @@ function signedAngle(a: number, b: number): number {
   return d;
 }
 
+/**
+ * Find the most recent moment before `fromDate` where the body entered
+ * `signIndex` (rising crossing of its lower boundary). Used when the body is
+ * already inside the sign. Returns null if not found within the horizon.
+ */
+export function findLastIngress(bodyId: TransitBodyId, signIndex: number, fromDate: Date): Date | null {
+  const info = getTransitBody(bodyId);
+  const stepDays = sampleStep(info);
+  const jd0 = makeTime(fromDate).ut;
+  const horizon = info.maxHorizonDays;
+  const offset = (jd: number) => signedAngle(signIndex * 30, planetLongitude(bodyId, dateFromJulian(jd)));
+
+  let t1 = jd0;
+  let o1 = offset(t1);
+  const end = jd0 - horizon;
+  for (let t = t1 - stepDays; t >= end; t -= stepDays) {
+    const o0 = offset(t);
+    if (o0 !== 0 && o1 !== 0 && Math.sign(o0) !== Math.sign(o1)) {
+      const dir = Math.sign(o1 - o0);
+      if (dir > 0) {
+        return dateFromJulian(bissect(offset, t, t1));
+      }
+    }
+    t1 = t;
+    o1 = o0;
+  }
+  return null;
+}
+
+/**
+ * Resolve the current/next window of a body inside a sign, relative to
+ * `fromDate`: if the body is already inside, the window started at the last
+ * ingress; otherwise it starts at the next ingress. The end is the first
+ * exit after the start.
+ */
+export function resolveTransitWindow(
+  bodyId: TransitBodyId,
+  signIndex: number,
+  fromDate: Date,
+): TransitWindow | null {
+  const info = getTransitBody(bodyId);
+  const inside = signIndexOfLongitude(planetLongitude(bodyId, fromDate)) === signIndex;
+  let start: Date | null;
+  if (inside) {
+    start = findLastIngress(bodyId, signIndex, fromDate);
+  } else {
+    start = findBoundaryCrossing(bodyId, signIndex * 30, fromDate, true);
+  }
+  if (!start) return null;
+
+  // Walk forward from the start, detect the first exit (any direction).
+  const stepDays = sampleStep(info);
+  const jd0 = makeTime(start).ut;
+  const horizon = info.maxHorizonDays;
+  let prevJd = jd0;
+  for (let t = jd0 + stepDays; t <= jd0 + horizon; t += stepDays) {
+    const sign = signIndexOfLongitude(planetLongitude(bodyId, dateFromJulian(t)));
+    if (sign !== signIndex) {
+      const exitDate = dateFromJulian(bissect(
+        (jd) => signIndex - signIndexOfLongitude(planetLongitude(bodyId, dateFromJulian(jd))),
+        prevJd,
+        t,
+      ));
+      return { start, end: exitDate, revisit: inside };
+    }
+    prevJd = t;
+  }
+  return null;
+}
+
 /** Bisection over an interval [t0, t1] where f flips sign, up to `iter` passes. */
 function bissect(f: (t: number) => number, t0: number, t1: number, iter = 60): number {
   let lo = t0;

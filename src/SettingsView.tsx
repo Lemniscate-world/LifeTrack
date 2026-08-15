@@ -13,6 +13,7 @@ import {
 import type { MantraSettings, UserPreferences } from './types';
 import { INSIGHT_RULES_COUNT } from './recommendations';
 import { version as APP_VERSION } from '../package.json';
+import { ascendantLongitude, signOfLongitude } from './astrology';
 
 const THEMES = ['', 'theme-ocean', 'theme-forest', 'theme-sunset', 'theme-rose', 'theme-mono', 'theme-midnight', 'theme-emerald'];
 const THEME_LABELS = ['Default', 'Ocean', 'Forest', 'Sunset', 'Rose', 'Mono', 'Midnight', 'Emerald'];
@@ -44,11 +45,29 @@ export default function SettingsView({
   const [mantraSettings, setMantraSettings] = useState<MantraSettings>(getMantraSettings());
   const [storageStatus, setStorageStatus] = useState(getStorageStatus());
   const [lastSaved, setLastSaved] = useState('');
-  const [activeTab, setActiveTab] = useState<'appearance' | 'ai' | 'mantras' | 'data' | 'backups' | 'about'>('appearance');
+  const [activeTab, setActiveTab] = useState<'appearance' | 'ai' | 'mantras' | 'data' | 'backups' | 'astro' | 'about'>('appearance');
   const [confirmReset, setConfirmReset] = useState(false);
   const [aiPrefs, setAiPrefs] = useState<UserPreferences>(getPreferences());
   const [aiTesting, setAiTesting] = useState(false);
   const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  // Natal chart (whole-sign houses) — v0.7.0.
+  const birthInit = getPreferences();
+  const [birthDate, setBirthDate] = useState(birthInit.birthDate ?? '');
+  const [birthTime, setBirthTime] = useState(birthInit.birthTime ?? '');
+  const [birthLat, setBirthLat] = useState(birthInit.birthLat !== undefined ? String(birthInit.birthLat) : '');
+  const [birthLon, setBirthLon] = useState(birthInit.birthLon !== undefined ? String(birthInit.birthLon) : '');
+
+  const saveBirth = () => {
+    const lat = birthLat.trim() === '' ? undefined : Number(birthLat.replace(',', '.'));
+    const lon = birthLon.trim() === '' ? undefined : Number(birthLon.replace(',', '.'));
+    updatePreferences({
+      birthDate: birthDate || undefined,
+      birthTime: birthTime || undefined,
+      birthLat: lat !== undefined && Number.isFinite(lat) ? lat : undefined,
+      birthLon: lon !== undefined && Number.isFinite(lon) ? lon : undefined,
+    });
+  };
 
   useEffect(() => {
     const update = () => {
@@ -88,6 +107,7 @@ export default function SettingsView({
     { id: 'mantras' as const, label: '🧘 Mantras' },
     { id: 'data' as const, label: '💾 Data' },
     { id: 'backups' as const, label: '🛡️ Backups' },
+    { id: 'astro' as const, label: '🔯 Astro' },
     { id: 'about' as const, label: 'ℹ️ About' },
   ];
 
@@ -538,6 +558,55 @@ export default function SettingsView({
                   <span className="backup-tag">30 backups kept · cloud-synced · auto-detected</span>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ASTRO — natal chart for whole-sign transit houses */}
+      {activeTab === 'astro' && (
+        <div className="settings-panel">
+          <div className="settings-group">
+            <h3>🔯 Thème natal (maisons whole sign)</h3>
+            <p className="settings-hint">
+              Renseigne ta date, heure et lieu de naissance pour que LifeTrack calcule ton
+              Ascendant et active les <strong>maisons whole sign</strong> dans les Missions
+              (ex: « Mars en Bélier, maison 7 »). Sans thème, les transits restent
+              « planète en signe ».
+            </p>
+            <div className="settings-row">
+              <span>Date de naissance</span>
+              <input type="date" className="text-input" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
+            </div>
+            <div className="settings-row">
+              <span>Heure de naissance (optionnel, précise l'Ascendant)</span>
+              <input type="time" className="text-input" value={birthTime} onChange={(e) => setBirthTime(e.target.value)} />
+            </div>
+            <div className="settings-row">
+              <span>Latitude (ex: 48.85 pour Paris, 45.76 pour Lyon)</span>
+              <input type="text" inputMode="decimal" className="text-input" placeholder="48.85" value={birthLat} onChange={(e) => setBirthLat(e.target.value)} style={{ width: '140px' }} />
+            </div>
+            <div className="settings-row">
+              <span>Longitude (ex: 2.35 pour Paris — est positif)</span>
+              <input type="text" inputMode="decimal" className="text-input" placeholder="2.35" value={birthLon} onChange={(e) => setBirthLon(e.target.value)} style={{ width: '140px' }} />
+            </div>
+            <div className="settings-row">
+              <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                {(() => {
+                  const lat = Number(birthLat.replace(',', '.'));
+                  const lon = Number(birthLon.replace(',', '.'));
+                  if (!birthDate || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+                    return "⚠️ Il manque la date et le lieu pour calculer l'Ascendant.";
+                  }
+                  try {
+                    const asc = ascendantLongitude(new Date(`${birthDate}T${birthTime || '12:00'}:00`), { lat, lon });
+                    return `♈ Ton Ascendant calculé : ${signOfLongitude(asc).emoji} ${signOfLongitude(asc).name} (${asc.toFixed(1)}°) — les maisons whole sign sont actives.`;
+                  } catch {
+                    return "⚠️ Impossible de calculer l'Ascendant (valeurs invalides).";
+                  }
+                })()}
+              </span>
+              <button className="btn btn-sm btn-primary" onClick={saveBirth}>💾 Enregistrer le thème</button>
             </div>
           </div>
         </div>

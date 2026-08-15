@@ -42,6 +42,11 @@ import {
   getObsidianNotes,
   removeObsidianNote,
   clearObsidianNotes,
+  addMission,
+  updateMission,
+  deleteMission,
+  archiveMission,
+  getMissions,
 } from '../store';
 
 // Reset store state between tests for full isolation
@@ -1768,5 +1773,81 @@ describe('Obsidian notes in store', () => {
     expect(notes.length).toBe(1);
     expect(notes[0].id).toBe('n1');
     expect(notes[0].content.length).toBeLessThanOrEqual(200_000);
+  });
+});
+
+describe('Missions in store', () => {
+  it('adds, updates, archives and deletes missions', () => {
+    const m = addMission({
+      name: 'Sport dans le Bélier',
+      habitIds: ['h1'],
+      window: { kind: 'fixed', startDate: '2026-07-01', endDate: '2026-07-31' },
+      quota: 10,
+    });
+    expect(m.id).toBeTruthy();
+    expect(getMissions().length).toBe(1);
+
+    updateMission(m.id, { quota: 12 });
+    expect(getMissions()[0].quota).toBe(12);
+
+    archiveMission(m.id);
+    expect(getMissions()[0].archived).toBe(true);
+
+    deleteMission(m.id);
+    expect(getMissions().length).toBe(0);
+  });
+
+  it('persists missions through a reload', () => {
+    addMission({
+      name: 'Transit',
+      habitIds: ['h2'],
+      window: { kind: 'transit', body: 'mars', signIndex: 0, startDate: '2026-05-01', endDate: '2026-06-15' },
+    });
+    flushSave();
+    resetStore();
+    const missions = getMissions();
+    expect(missions.length).toBe(1);
+    expect(missions[0].window.kind).toBe('transit');
+    if (missions[0].window.kind === 'transit') {
+      expect(missions[0].window.body).toBe('mars');
+    }
+  });
+
+  it('sanitizes corrupt missions on load', () => {
+    localStorage.setItem('lifetrack-data', JSON.stringify({
+      habits: [],
+      checkIns: [],
+      notes: [],
+      chaosDimensions: [],
+      achievementCategories: [],
+      mantras: [],
+      mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
+      skills: [],
+      capacities: [],
+      capacityRatings: [],
+      moods: {},
+      energies: {},
+      experiments: [],
+      urges: [],
+      customUrgeTypes: [],
+      journalEntries: [],
+      journalThreads: [],
+      challenges: [],
+      personas: [],
+      levers: [],
+      patternTracks: [],
+      reflections: [],
+      preferences: { darkMode: false, theme: '' },
+      missions: [
+        { id: 'ok', name: 'Bonne mission', habitIds: ['h1'], window: { kind: 'fixed', startDate: '2026-07-01', endDate: '2026-07-31' }, quota: 5, createdAt: '2026-06-01T00:00:00Z' },
+        { id: 'bad-window', name: 'Sans fenêtre', habitIds: [] },
+        { id: 'bad-name', window: { kind: 'fixed', startDate: '2026-07-01', endDate: '2026-07-31' }, habitIds: [], createdAt: '2026-06-01T00:00:00Z' },
+      ],
+    }));
+    resetStore();
+    const missions = getMissions();
+    expect(missions.length).toBe(1);
+    expect(missions[0].id).toBe('ok');
+    expect(missions[0].quota).toBe(5);
   });
 });

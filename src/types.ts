@@ -605,4 +605,9 @@ export interface UserPreferences {
   autostartEnabled?: boolean;      // launch LifeTrack at Windows logon
   // v0.7.0: audio feedback
   soundEnabled?: boolean;          // web audio chime feedback on check-in
+  // v0.7.0: natal chart for whole-sign transit houses.
+  birthDate?: string;              // YYYY-MM-DD
+  birthTime?: string;              // "HH:MM" (local time of birth)
+  birthLat?: number;               // decimal degrees, north positive
+  birthLon?: number;               // decimal degrees, east positive
 }

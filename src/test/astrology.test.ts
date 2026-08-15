@@ -14,6 +14,7 @@ import {
   signIndexOfLongitude,
   signOfLongitude,
   signOfPlanet,
+  resolveTransitWindow,
   transitHouse,
   wholeSignHouse,
 } from '../astrology';
@@ -116,6 +117,36 @@ describe('astrology.transit windows', () => {
     expect(crossing).not.toBeNull();
     expect(w).not.toBeNull();
     expect(Math.abs(w!.start.getTime() - crossing!.getTime())).toBeLessThan(3600000);
+  });
+});
+
+describe('astrology.resolveTransitWindow', () => {
+  it('when the body is already inside the sign, starts at the last ingress', () => {
+    // 2026-05-10: Sun is in Taurus (Apr 20 → May 21).
+    const w = resolveTransitWindow('sun', 1, new Date('2026-05-10T00:00:00Z'));
+    expect(w).not.toBeNull();
+    expect(w!.start.getTime()).toBeLessThan(new Date('2026-05-10T00:00:00Z').getTime());
+    expect(Math.abs(w!.start.getTime() - new Date('2026-04-20T00:00:00Z').getTime())).toBeLessThan(2 * 86400000);
+    expect(w!.end.getTime()).toBeGreaterThan(new Date('2026-05-10T00:00:00Z').getTime());
+    expect(w!.revisit).toBe(true);
+  });
+
+  it('when the body is not inside, starts at the next ingress (same as nextTransitWindow)', () => {
+    const w = resolveTransitWindow('sun', 1, new Date('2026-01-01T00:00:00Z'));
+    const w2 = nextTransitWindow('sun', 1, new Date('2026-01-01T00:00:00Z'));
+    expect(w).not.toBeNull();
+    expect(w2).not.toBeNull();
+    expect(Math.abs(w!.start.getTime() - w2!.start.getTime())).toBeLessThan(3600000);
+    expect(w!.revisit).toBe(false);
+  });
+
+  it('Moon: resolves the current 2.5-day visit when inside', () => {
+    const signNow = signOfPlanet('moon', new Date('2026-03-20T00:00:00Z'));
+    const w = resolveTransitWindow('moon', signNow.index, new Date('2026-03-20T00:00:00Z'));
+    expect(w).not.toBeNull();
+    const dur = (w!.end.getTime() - w!.start.getTime()) / 86400000;
+    expect(dur).toBeGreaterThan(1);
+    expect(dur).toBeLessThan(4);
   });
 });
 

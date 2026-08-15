@@ -3429,15 +3429,18 @@ export function importObsidianNotes(notes: Omit<ObsidianNote, 'id'>[]): { added:
     if (existing.length >= 500) break;
   }
   data.obsidianNotes = existing;
+  scheduleSave(data);
   return { added, replaced };
 }
 
 export function removeObsidianNote(id: string): void {
   data.obsidianNotes = (data.obsidianNotes ?? []).filter((n) => n.id !== id);
+  scheduleSave(data);
 }
 
 export function clearObsidianNotes(): void {
   data.obsidianNotes = [];
+  scheduleSave(data);
 }
 
 // --- Missions ---
@@ -3448,19 +3451,23 @@ export function getMissions(): Mission[] {
 export function addMission(m: Omit<Mission, 'id' | 'createdAt'>): Mission {
   const mission: Mission = { ...m, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
   data.missions = [...(data.missions ?? []), mission];
+  scheduleSave(data);
   return mission;
 }
 
 export function updateMission(id: string, patch: Partial<Mission>): void {
   data.missions = (data.missions ?? []).map((m) => (m.id === id ? { ...m, ...patch } : m));
+  scheduleSave(data);
 }
 
 export function deleteMission(id: string): void {
   data.missions = (data.missions ?? []).filter((m) => m.id !== id);
+  scheduleSave(data);
 }
 
 export function archiveMission(id: string): void {
   data.missions = (data.missions ?? []).map((m) => (m.id === id ? { ...m, archived: !m.archived } : m));
+  scheduleSave(data);
 }
 
 export function exportAllData(): AppData {
