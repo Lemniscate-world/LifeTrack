@@ -1,4 +1,4 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, ChaosLink, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalThread, JournalPersonality, Challenge, Persona, Lever, PatternTrack, ReflectionEntry, ReflectionKind, Project, Protocol, IngestedSource, Task, FeedConfig, PsychoMessage } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, ChaosLink, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalThread, JournalPersonality, Challenge, Persona, Lever, PatternTrack, ReflectionEntry, ReflectionKind, Project, Protocol, IngestedSource, Task, FeedConfig, PsychoMessage, ObsidianNote } from './types';
 import { computeStreakStats } from './stats';
 import { computeChallengeProgress } from './challenges';
 import {
@@ -207,6 +207,7 @@ function sanitizeData(raw: unknown): AppData {
     protocols: [],
     ingestedSources: [],
     feeds: [],
+    obsidianNotes: [],
     preferences: { darkMode: false, theme: '' },
   };
   if (!raw || typeof raw !== 'object') return empty;
@@ -377,8 +378,31 @@ function sanitizeData(raw: unknown): AppData {
     protocols: sanitizeProtocols(obj.protocols),
     ingestedSources: Array.isArray(obj.ingestedSources) ? obj.ingestedSources.filter((s: unknown) => s && typeof s === 'object' && 'id' in (s as object) && 'rawText' in (s as object)) as IngestedSource[] : [],
     feeds: sanitizeFeeds(obj.feeds),
+    obsidianNotes: sanitizeObsidianNotes(obj.obsidianNotes),
     preferences: sanitizePreferences(obj.preferences),
   };
+}
+
+/** Sanitize imported Obsidian notes (v0.6.5) — keep well-formed, cap size. */
+function sanitizeObsidianNotes(raw: unknown): ObsidianNote[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ObsidianNote[] = [];
+  for (const x of raw) {
+    if (!x || typeof x !== 'object') continue;
+    const n = x as Record<string, unknown>;
+    if (typeof n.id !== 'string' || !n.id) continue;
+    if (typeof n.fileName !== 'string' || !n.fileName) continue;
+    if (typeof n.content !== 'string') continue;
+    if (typeof n.importedAt !== 'string') continue;
+    out.push({
+      id: n.id,
+      fileName: n.fileName,
+      content: n.content.slice(0, 200_000), // 200 KB per note max
+      importedAt: n.importedAt,
+    });
+    if (out.length >= 500) break; // 500 notes max
+  }
+  return out;
 }
 
 /** Sanitize projects (v0.6.0) — keep well-formed entries, repair the rest. */
@@ -3340,6 +3364,40 @@ export function getAverageEnergy(days: string[] = []): number | null {
     : Object.values(data.energies ?? {});
   if (values.length === 0) return null;
   return Math.round(values.reduce((s, v) => s + v, 0) / values.length);
+}
+
+// --- Obsidian notes ---
+export function getObsidianNotes(): ObsidianNote[] {
+  return data.obsidianNotes ?? [];
+}
+
+/** Import notes from a vault export. Replaces duplicates by fileName+content. */
+export function importObsidianNotes(notes: Omit<ObsidianNote, 'id'>[]): { added: number; replaced: number } {
+  const existing = [...(data.obsidianNotes ?? [])];
+  let added = 0;
+  let replaced = 0;
+  for (const n of notes) {
+    const idx = existing.findIndex((e) => e.fileName === n.fileName);
+    if (idx >= 0) {
+      if (existing[idx].content === n.content) continue;
+      existing[idx] = { ...existing[idx], content: n.content, importedAt: n.importedAt };
+      replaced++;
+    } else {
+      existing.push({ id: crypto.randomUUID(), ...n });
+      added++;
+    }
+    if (existing.length >= 500) break;
+  }
+  data.obsidianNotes = existing;
+  return { added, replaced };
+}
+
+export function removeObsidianNote(id: string): void {
+  data.obsidianNotes = (data.obsidianNotes ?? []).filter((n) => n.id !== id);
+}
+
+export function clearObsidianNotes(): void {
+  data.obsidianNotes = [];
 }
 
 export function exportAllData(): AppData {

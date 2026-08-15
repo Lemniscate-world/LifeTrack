@@ -79,6 +79,7 @@ import JournalView from './JournalView';
 import UrgeSurfingView from './UrgeSurfingView';
 import ProjectsView from './ProjectsView';
 import KnowledgeView from './KnowledgeView';
+import ObsidianView from './ObsidianView';
 import CorrelationsView from './CorrelationsView';
 import GainsView from './GainsView';
 import { playCompletionSound, playLevelUpSound } from './audio';
@@ -191,7 +192,7 @@ const DEFAULT_CATEGORIES = [
   const [editWhyText, setEditWhyText] = useState('');
   // v0.3.2: Toggle to display archived habits in the grid
   const [showArchived, setShowArchived] = useState(false);
-  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'correlations' | 'gains' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'experiments' | 'urges' | 'journal' | 'mantras' | 'achievements' | 'settings' | 'psycho' | 'projects' | 'knowledge'>('grid');
+  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'correlations' | 'gains' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'experiments' | 'urges' | 'journal' | 'mantras' | 'achievements' | 'settings' | 'psycho' | 'projects' | 'knowledge' | 'obsidian'>('grid');
   const [savedMsg, setSavedMsg] = useState('');
   // Shortcuts help + toast
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -509,7 +510,7 @@ const DEFAULT_CATEGORIES = [
       // Tab switching: Ctrl+1..9 + Ctrl+0
       if (ctrl && e.key >= '0' && e.key <= '9') {
         e.preventDefault();
-        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'mantras', 'experiments', 'journal', 'achievements', 'urges', 'psycho', 'projects', 'knowledge'];
+        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'mantras', 'experiments', 'journal', 'achievements', 'urges', 'psycho', 'projects', 'knowledge', 'obsidian'];
         const idx = e.key === '0' ? 0 : parseInt(e.key, 10);
         const viewKey = tabs[idx] as typeof view;
         if (viewKey) setView(viewKey);
@@ -1139,6 +1140,9 @@ const DEFAULT_CATEGORIES = [
           </button>
           <button role="tab" aria-selected={view === 'knowledge'} className={`view-tab ${view === 'knowledge' ? 'active' : ''}`} onClick={() => setView('knowledge')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg> Savoir
+          </button>
+          <button role="tab" aria-selected={view === 'obsidian'} className={`view-tab ${view === 'obsidian' ? 'active' : ''}`} onClick={() => setView('obsidian')}>
+            📓 Obsidian
           </button>
           <button role="tab" aria-selected={view === 'chaos'} className={`view-tab ${view === 'chaos' ? 'active' : ''}`} onClick={() => setView('chaos')}>Chaos</button>
           <button role="tab" aria-selected={view === 'mantras'} className={`view-tab ${view === 'mantras' ? 'active' : ''}`} onClick={() => setView('mantras')}>
@@ -1865,6 +1869,8 @@ const DEFAULT_CATEGORIES = [
         <ProjectsView />
       ) : view === 'knowledge' ? (
         <KnowledgeView />
+      ) : view === 'obsidian' ? (
+        <ObsidianView />
       ) : view === 'correlations' ? (
         <CorrelationsView />
       ) : view === 'gains' ? (

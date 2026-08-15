@@ -15,6 +15,7 @@
 import type { AppData, Habit, CheckIn, CapacityRating, Experiment, UrgeEntry, PatternTrack } from './types';
 import { computeChaosReport, getAchievementCategories, MOODS } from './store';
 import { computeCorrelations } from './correlations';
+import { analyzeNotes } from './obsidian';
 import { computeHabitTrends, moodTrend, WEEKDAY_LABELS } from './timeseries';
 import { computeUrgeInsights } from './urgeInsights';
 import { validateLevers, detectRelapses } from './leverInsights';
@@ -462,6 +463,26 @@ export function buildAiContext(data: AppData): string {
   sections.push(`## JOURNAL MEMORY (past journal entries, newest first)\n${summarizeJournalMemory(data)}`);
   sections.push(`## JOURNAL LEARNINGS (answered self-questions)\n${summarizeJournalLearnings(data)}`);
   sections.push(`## PSYCHO PATTERNS IN WORK (progress toward transcending each detected flaw)\n${summarizePsychoWork(data)}`);
+
+  // v0.6.5: free-form Obsidian notes → qualitative themes + habit mentions.
+  const obsidianNotes = (data.obsidianNotes ?? []).map((n) => ({ fileName: n.fileName, content: n.content }));
+  if (obsidianNotes.length > 0) {
+    const ob = analyzeNotes(obsidianNotes, data.habits);
+    const themeLine = ob.themeTotals.length > 0
+      ? ob.themeTotals.map((t) => `${t.label}×${t.count}${t.valence === 'negative' ? ' (⚠ negative)' : t.valence === 'positive' ? ' (positive)' : ''}`).join(', ')
+      : 'none detected';
+    const mentionLine = ob.mentionTotals.length > 0
+      ? ob.mentionTotals.map((m) => `${m.habitName}×${m.count}`).join(', ')
+      : 'none';
+    sections.push(
+      `## OBSIDIAN NOTES (${ob.notes.length} notes, free-form markdown)\n` +
+      `  overall sentiment: ${ob.sentiment > 0 ? `+${ob.sentiment}` : ob.sentiment} (positive hits minus negative hits)\n` +
+      `  themes: ${themeLine}\n` +
+      `  habits mentioned via [[wikilinks]]: ${mentionLine}` +
+      (ob.hardestNotes.length > 0 ? `\n  hardest notes: ${ob.hardestNotes.join(', ')}` : ''),
+    );
+  }
+
 
   const totalCheckIns = Array.isArray(data.checkIns) ? data.checkIns.length : 0;
   const allCheckIns = Array.isArray(data.checkIns) ? data.checkIns : [];

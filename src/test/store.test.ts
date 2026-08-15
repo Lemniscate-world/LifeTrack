@@ -38,6 +38,10 @@ import {
   getEnergy,
   getMonthEnergies,
   getAverageEnergy,
+  importObsidianNotes,
+  getObsidianNotes,
+  removeObsidianNote,
+  clearObsidianNotes,
 } from '../store';
 
 // Reset store state between tests for full isolation
@@ -1684,5 +1688,85 @@ describe('Energy tracking', () => {
     expect(getEnergy('2026-07-03')).toBeUndefined();
     expect(getEnergy('2026-07-04')).toBeUndefined();
     expect(getEnergy('not-a-date')).toBeUndefined();
+  });
+});
+
+describe('Obsidian notes in store', () => {
+  it('imports new notes and replaces duplicates by fileName', () => {
+    const r1 = importObsidianNotes([
+      { fileName: 'a.md', content: 'fatigue', importedAt: '2026-08-01T00:00:00Z' },
+      { fileName: 'b.md', content: 'victoire', importedAt: '2026-08-01T00:00:00Z' },
+    ]);
+    expect(r1.added).toBe(2);
+    expect(r1.replaced).toBe(0);
+
+    const r2 = importObsidianNotes([
+      { fileName: 'a.md', content: 'fatigue stress', importedAt: '2026-08-02T00:00:00Z' },
+      { fileName: 'c.md', content: 'focus', importedAt: '2026-08-02T00:00:00Z' },
+    ]);
+    expect(r2.added).toBe(1);
+    expect(r2.replaced).toBe(1);
+
+    const notes = getObsidianNotes();
+    expect(notes.length).toBe(3);
+    expect(notes.find((n) => n.fileName === 'a.md')?.content).toBe('fatigue stress');
+    expect(notes.find((n) => n.fileName === 'c.md')).toBeDefined();
+  });
+
+  it('skips notes already present with identical content', () => {
+    importObsidianNotes([{ fileName: 'a.md', content: 'hello', importedAt: '2026-08-01T00:00:00Z' }]);
+    const r = importObsidianNotes([{ fileName: 'a.md', content: 'hello', importedAt: '2026-08-01T00:00:00Z' }]);
+    expect(r.added).toBe(0);
+    expect(r.replaced).toBe(0);
+  });
+
+  it('removes and clears notes', () => {
+    importObsidianNotes([
+      { fileName: 'a.md', content: 'x', importedAt: '2026-08-01T00:00:00Z' },
+      { fileName: 'b.md', content: 'y', importedAt: '2026-08-01T00:00:00Z' },
+    ]);
+    const id = getObsidianNotes()[0].id;
+    removeObsidianNote(id);
+    expect(getObsidianNotes().length).toBe(1);
+    clearObsidianNotes();
+    expect(getObsidianNotes()).toEqual([]);
+  });
+
+  it('sanitizes corrupt obsidianNotes on load and caps note size', () => {
+    localStorage.setItem('lifetrack-data', JSON.stringify({
+      habits: [],
+      checkIns: [],
+      notes: [],
+      chaosDimensions: [],
+      achievementCategories: [],
+      mantras: [],
+      mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
+      skills: [],
+      capacities: [],
+      capacityRatings: [],
+      moods: {},
+      energies: {},
+      experiments: [],
+      urges: [],
+      customUrgeTypes: [],
+      journalEntries: [],
+      journalThreads: [],
+      challenges: [],
+      personas: [],
+      levers: [],
+      patternTracks: [],
+      reflections: [],
+      preferences: { darkMode: false, theme: '' },
+      obsidianNotes: [
+        { id: 'n1', fileName: 'ok.md', content: 'valid'.repeat(50_000), importedAt: '2026-08-01T00:00:00Z' },
+        { id: 'n2', fileName: 'bad-no-content.md', importedAt: '2026-08-01T00:00:00Z' },
+        'not-an-object',
+      ],
+    }));
+    resetStore();
+    const notes = getObsidianNotes();
+    expect(notes.length).toBe(1);
+    expect(notes[0].id).toBe('n1');
+    expect(notes[0].content.length).toBeLessThanOrEqual(200_000);
   });
 });

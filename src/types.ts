@@ -516,7 +516,21 @@ export interface AppData {
   protocols?: Protocol[];
   ingestedSources?: IngestedSource[];
   feeds?: FeedConfig[];
+  /** v0.6.5: imported Obsidian vault notes (free-form markdown) used for
+   * qualitative themes and habit-context insights. */
+  obsidianNotes?: ObsidianNote[];
   preferences: UserPreferences;
+}
+
+/** One imported Obsidian note — raw markdown, kept as-is (free-form). */
+export interface ObsidianNote {
+  id: string;
+  /** File name in the vault, e.g. "2026-08-14.md". */
+  fileName: string;
+  /** Raw markdown content. */
+  content: string;
+  /** ISO timestamp of the import. */
+  importedAt: string;
 }
 
 /** User preferences — survives reinstall via the standard backup chain. */
