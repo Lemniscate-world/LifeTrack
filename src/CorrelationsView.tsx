@@ -7,10 +7,11 @@
 import { useState, useMemo } from 'react';
 import type { CorrelationResult, CorrelationCell } from './types';
 import { computeCorrelations, computeCorrelationAnalysis, isTrustworthy } from './correlations';
+import { topInsights } from './insights';
 import { exportAllData, getHabits } from './store';
 import { computeHabitTrends, moodTrend, WEEKDAY_LABELS } from './timeseries';
 
-type Tab = 'matrix' | 'same' | 'lag' | 'weekend' | 'weekday' | 'trends';
+type Tab = 'matrix' | 'insights' | 'same' | 'lag' | 'lag2' | 'lag3' | 'lag7' | 'weekend' | 'weekday' | 'trends';
 
 function heatColor(coef: number | null): string {
   if (coef === null) return 'var(--border)';
@@ -58,12 +59,21 @@ export default function CorrelationsView() {
   const [poweredOnly, setPoweredOnly] = useState(false);
   const [reliableOnly, setReliableOnly] = useState(false);
   const [selectedPair, setSelectedPair] = useState<CorrelationResult | null>(null);
+  // Matrix controls
+  const [matrixQuery, setMatrixQuery] = useState('');
+  const [matrixSort, setMatrixSort] = useState<'default' | 'strength'>('default');
 
-  const activeList = tab === 'same' ? analysis.sameDay
-    : tab === 'lag' ? analysis.lag1
-    : tab === 'weekend' ? analysis.weekend
-    : tab === 'weekday' ? analysis.weekday
-    : results;
+  const activeList = useMemo(
+    () => tab === 'same' ? analysis.sameDay
+      : tab === 'lag' ? analysis.lag1
+      : tab === 'lag2' ? (analysis.lag2 ?? [])
+      : tab === 'lag3' ? (analysis.lag3 ?? [])
+      : tab === 'lag7' ? (analysis.lag7 ?? [])
+      : tab === 'weekend' ? analysis.weekend
+      : tab === 'weekday' ? analysis.weekday
+      : results,
+    [tab, analysis, results],
+  );
   const filteredResults = useMemo(
     () => activeList.filter((sl) => {
       if (sigOnly && !sl.significant) return false;
@@ -76,18 +86,49 @@ export default function CorrelationsView() {
     [activeList, sigOnly, poweredOnly, reliableOnly, strengthFilter, directionFilter],
   );
 
+  const insights = useMemo(() => {
+    try { return topInsights(analysis, 6); } catch { return []; }
+  }, [analysis]);
+
+  const matrixMetrics = useMemo(() => {
+    let list = analysis.metrics;
+    const q = matrixQuery.trim().toLowerCase();
+    if (q) list = list.filter((m) => m.toLowerCase().includes(q));
+    if (matrixSort === 'strength') {
+      // Total |coefficient| per row across the matrix — most connected first.
+      const strengthOf = new Map<string, number>();
+      for (const c of analysis.matrix) {
+        if (c.coefficient === null) continue;
+        const row = strengthOf.get(c.row) ?? 0;
+        const col = strengthOf.get(c.col) ?? 0;
+        strengthOf.set(c.row, row + Math.abs(c.coefficient));
+        strengthOf.set(c.col, col + Math.abs(c.coefficient));
+      }
+      list = [...list].sort((a, b) => (strengthOf.get(b) ?? 0) - (strengthOf.get(a) ?? 0));
+    }
+    return list;
+  }, [analysis.metrics, analysis.matrix, matrixQuery, matrixSort]);
+
   const headerLabel = tab === 'matrix' ? 'Matrice de Corrélations'
+    : tab === 'insights' ? 'Top Insights'
     : tab === 'same' ? 'Corrélations contemporaines'
     : tab === 'lag' ? 'Corrélations prédictives (lag 1)'
+    : tab === 'lag2' ? 'Corrélations prédictives (lag 2)'
+    : tab === 'lag3' ? 'Corrélations prédictives (lag 3)'
+    : tab === 'lag7' ? 'Corrélations prédictives (lag 7 — hebdo)'
     : tab === 'weekend' ? 'Corrélations — week-ends'
     : tab === 'weekday' ? 'Corrélations — jours ouvrés'
     : 'Tendances (Mann–Kendall)';
 
-  const subLabel = tab === 'lag'
-    ? 'X le jour t → Y le jour t+1 : le lien prédit le lendemain (temporalité, pas causalité).'
-    : tab === 'weekend' || tab === 'weekday'
-      ? 'Même paire mesurée sur un sous-ensemble de jours pour détecter les effets de week-end.'
-      : 'Spearman & Pearson · FDR Benjamini-Hochberg · pairwise deletion · caveats de causalité';
+  const subLabel = tab === 'insights'
+    ? 'Ce qui est suffisamment fiable pour en tenir compte — trié par pertinence, exprimé en clair.'
+    : tab === 'lag'
+      ? 'X le jour t → Y le jour t+1 : le lien prédit le lendemain (temporalité, pas causalité).'
+      : tab === 'lag2' || tab === 'lag3' || tab === 'lag7'
+        ? 'Effets plus lents : X le jour t influence Y plusieurs jours plus tard. Lag 7 capture les cycles hebdomadaires.'
+        : tab === 'weekend' || tab === 'weekday'
+          ? 'Même paire mesurée sur un sous-ensemble de jours pour détecter les effets de week-end.'
+          : 'Spearman & Pearson · FDR Benjamini-Hochberg · pairwise deletion · caveats de causalité';
 
   return (
     <div className="correlations-view" style={{ padding: '1.5rem', maxWidth: '1200px', margin: '0 auto' }}>
@@ -99,7 +140,7 @@ export default function CorrelationsView() {
           </h2>
           <p style={{ color: 'var(--text-muted, #94a3b8)', margin: 0, fontSize: '0.85rem' }}>{subLabel}</p>
         </div>
-        {tab !== 'matrix' && tab !== 'trends' && (
+        {tab !== 'matrix' && tab !== 'insights' && tab !== 'trends' && (
           <span style={{ background: 'var(--bg-alt)', padding: '0.35rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', border: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
             {filteredResults.length} / {activeList.length} paires
           </span>
@@ -110,8 +151,12 @@ export default function CorrelationsView() {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '1rem' }}>
         {([
           ['matrix', '🧮 Matrice'],
+          ['insights', '💡 Top insights'],
           ['same', '🔗 Même jour'],
-          ['lag', '⏭ Lag 1 (prédictif)'],
+          ['lag', '⏭ Lag 1'],
+          ['lag2', '⏭ Lag 2'],
+          ['lag3', '⏭ Lag 3'],
+          ['lag7', '⏭ Lag 7 (hebdo)'],
           ['weekend', '🌙 Week-end'],
           ['weekday', '💼 Semaine'],
           ['trends', '📈 Trends'],
@@ -128,8 +173,8 @@ export default function CorrelationsView() {
         ))}
       </div>
 
-      {/* Filter toolbar (not on matrix/trends) */}
-      {tab !== 'matrix' && tab !== 'trends' && (
+      {/* Filter toolbar (not on matrix/insights/trends) */}
+      {tab !== 'matrix' && tab !== 'insights' && tab !== 'trends' && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', background: 'var(--bg-alt)', padding: '0.85rem 1rem', borderRadius: '12px', marginBottom: '1.5rem', border: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Force :</label>
@@ -175,21 +220,46 @@ export default function CorrelationsView() {
           </div>
         ) : (
           <>
+            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+              <input
+                type="search"
+                value={matrixQuery}
+                onChange={(e) => setMatrixQuery(e.target.value)}
+                placeholder="Rechercher une habitude, mood, énergie…"
+                style={{
+                  flex: '1 1 220px', padding: '0.4rem 0.7rem', borderRadius: '8px',
+                  border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: '0.82rem',
+                }}
+                aria-label="Rechercher dans la matrice"
+              />
+              <select
+                value={matrixSort}
+                onChange={(e) => setMatrixSort(e.target.value as 'default' | 'strength')}
+                style={{ background: 'var(--bg)', color: 'inherit', padding: '0.4rem 0.6rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem' }}
+                aria-label="Tri de la matrice"
+              >
+                <option value="default">Ordre d’origine</option>
+                <option value="strength">Trier par force de liens</option>
+              </select>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                {matrixMetrics.length} / {analysis.metrics.length} métriques
+              </span>
+            </div>
             <div style={{ overflowX: 'auto', background: 'var(--bg-alt)', borderRadius: '12px', border: '1px solid var(--border)', padding: '1rem' }}>
               <table style={{ borderCollapse: 'collapse', fontSize: '0.78rem' }}>
                 <thead>
                   <tr>
                     <th style={{ padding: '0.3rem 0.5rem', textAlign: 'left', color: 'var(--text-muted)' }}></th>
-                    {analysis.metrics.map(m => (
+                    {matrixMetrics.map(m => (
                       <th key={m} style={{ padding: '0.3rem 0.4rem', color: 'var(--text-muted)', fontWeight: 600, maxWidth: '110px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {analysis.metrics.map(row => (
+                  {matrixMetrics.map(row => (
                     <tr key={row}>
                       <td style={{ padding: '0.3rem 0.5rem', fontWeight: 600, whiteSpace: 'nowrap', maxWidth: '110px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row}</td>
-                      {analysis.metrics.map(col => {
+                      {matrixMetrics.map(col => {
                         const cell: CorrelationCell | undefined = row === col
                           ? { row, col, coefficient: 1, sampleSize: 0, significant: false, qValue: 0 }
                           : analysis.matrix.find(c => (c.row === row && c.col === col) || (c.row === col && c.col === row));
@@ -199,7 +269,7 @@ export default function CorrelationsView() {
                         return (
                           <td
                             key={col}
-                            title={cell && cell.coefficient !== null ? `${row} ↔ ${col}: ${cell.coefficient.toFixed(2)} (N=${cell.sampleSize}, q=${cell.qValue.toFixed(3)})` : 'pas assez de données'}
+                            title={cell && cell.coefficient !== null ? `${row} ↔ ${col}: ${cell.coefficient.toFixed(2)} (N=${cell.sampleSize}, q=${cell.qValue.toFixed(3)})${cell.significant ? ' · significatif' : ''}` : 'pas assez de données'}
                             onClick={() => {
                               if (!cell || cell.coefficient === null) return;
                               setSelectedPair({
@@ -234,8 +304,57 @@ export default function CorrelationsView() {
         )
       )}
 
-      {/* RESULTS CARDS (same/lag/weekend/weekday) */}
-      {tab !== 'matrix' && tab !== 'trends' && (
+      {/* TOP INSIGHTS */}
+      {tab === 'insights' && (
+        insights.length === 0 ? (
+          <div style={{ padding: '3rem 1rem', background: 'var(--bg-alt)', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>💡</div>
+            <h3 style={{ margin: '0 0 0.5rem 0' }}>Pas encore d’insight fiable</h3>
+            <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.9rem' }}>
+              Il faut au moins ~8 jours alignés et des corrélations significatives, stables et non pilotées
+              par un outlier. Continue à enregistrer habitudes, mood et énergie — les insights apparaîtront ici.
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+            {insights.map((ins) => (
+              <div
+                key={ins.pairKey}
+                style={{
+                  background: 'var(--bg-alt)', border: '1px solid var(--border)', borderRadius: '12px',
+                  padding: '1rem 1.1rem', borderLeft: `4px solid ${ins.direction === 'positive' ? '#10b981' : '#f59e0b'}`,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}>
+                  <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{ins.label}</span>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 700, padding: '0.15rem 0.45rem', borderRadius: '6px', background: `${ins.direction === 'positive' ? '#10b981' : '#f59e0b'}22`, color: ins.direction === 'positive' ? '#10b981' : '#f59e0b', flexShrink: 0 }}>
+                    {ins.direction === 'positive' ? '+' : ''}{ins.magnitude.toFixed(2)}
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.95rem', lineHeight: 1.45 }}>{ins.sentence}</div>
+                <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.55rem', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.72rem', background: 'var(--border)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>N={ins.n}j</span>
+                  {ins.lag > 0 && <span style={{ fontSize: '0.72rem', background: 'rgba(56,189,248,0.15)', color: '#38bdf8', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>lag {ins.lag}j</span>}
+                  {ins.window && <span style={{ fontSize: '0.72rem', background: 'var(--border)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>{ins.window === 'weekend' ? '🌙 week-end' : '💼 semaine'}</span>}
+                  <span style={{ fontSize: '0.72rem', background: 'rgba(16,185,129,0.18)', color: '#10b981', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>✓ fiable</span>
+                </div>
+                {ins.nuance && (
+                  <div style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: '#f59e0b', background: 'rgba(245,158,11,0.1)', borderLeft: '2px solid #f59e0b', padding: '0.35rem 0.6rem', borderRadius: '4px' }}>
+                    {ins.nuance}
+                  </div>
+                )}
+              </div>
+            ))}
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', margin: '0' }}>
+              Insights calculés uniquement sur des corrélations fiables (significatives FDR, direction stable,
+              non pilotées par un outlier). La corrélation reste une association — pas une preuve de causalité.
+            </p>
+          </div>
+        )
+      )}
+
+      {/* RESULTS CARDS (same/lag/lag2/lag3/lag7/weekend/weekday) */}
+      {tab !== 'matrix' && tab !== 'insights' && tab !== 'trends' && (
         results.length === 0 ? (
           <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
             Pas encore assez de données pour cette analyse.

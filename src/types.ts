@@ -254,6 +254,9 @@ export interface CorrelationCell {
 export interface CorrelationAnalysis {
   sameDay: CorrelationResult[];          // contemporaneous, all days
   lag1: CorrelationResult[];             // X(t) → Y(t+1)
+  lag2?: CorrelationResult[];            // X(t) → Y(t+2) — slower effects
+  lag3?: CorrelationResult[];            // X(t) → Y(t+3)
+  lag7?: CorrelationResult[];            // X(t) → Y(t+7) — weekly cycles
   weekday: CorrelationResult[];          // Mon–Fri only
   weekend: CorrelationResult[];          // Sat–Sun only
   matrix: CorrelationCell[];             // heatmap over all metric pairs

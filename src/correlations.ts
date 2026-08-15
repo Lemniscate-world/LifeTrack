@@ -301,6 +301,9 @@ export function computeCorrelationAnalysis(
   }
   const sameDay = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: undefined }, energies);
   const lag1 = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 1, window: undefined }, energies);
+  const lag2 = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 2, window: undefined }, energies);
+  const lag3 = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 3, window: undefined }, energies);
+  const lag7 = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 7, window: undefined }, energies);
   const weekday = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: 'weekday' }, energies);
   const weekend = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: 'weekend' }, energies);
 
@@ -341,6 +344,9 @@ export function computeCorrelationAnalysis(
   return {
     sameDay,
     lag1,
+    lag2,
+    lag3,
+    lag7,
     weekday,
     weekend,
     matrix,
