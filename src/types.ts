@@ -519,6 +519,9 @@ export interface AppData {
   /** v0.6.5: imported Obsidian vault notes (free-form markdown) used for
    * qualitative themes and habit-context insights. */
   obsidianNotes?: ObsidianNote[];
+  /** v0.7.0: dated missions — a goal bound to a window (fixed date or
+   * astrological whole-sign transit) and tied to the user's habits. */
+  missions?: Mission[];
   preferences: UserPreferences;
 }
 
@@ -531,6 +534,52 @@ export interface ObsidianNote {
   content: string;
   /** ISO timestamp of the import. */
   importedAt: string;
+}
+
+export type MissionWindowKind = 'fixed' | 'transit';
+
+export interface MissionFixedWindow {
+  kind: 'fixed';
+  /** YYYY-MM-DD */
+  startDate: string;
+  /** YYYY-MM-DD (inclusive) */
+  endDate: string;
+}
+
+export interface MissionTransitWindow {
+  kind: 'transit';
+  /** Transit body id (see astrology.ts TRANSIT_BODIES). */
+  body: string;
+  /** Sign index 0-11 — the window = the planet's stay inside this sign. */
+  signIndex: number;
+  /** Optional: filter by whole-sign house (needs natal chart). */
+  house?: number;
+  /** Resolved window start (YYYY-MM-DD). */
+  startDate: string;
+  /** Resolved window end (YYYY-MM-DD). */
+  endDate: string;
+}
+
+export type MissionWindow = MissionFixedWindow | MissionTransitWindow;
+
+export interface Mission {
+  id: string;
+  /** Short name, e.g. "Sport dans le Bélier". */
+  name: string;
+  /** Free-form objective the user wrote. */
+  objective?: string;
+  /** Habit ids tied to this mission. */
+  habitIds: string[];
+  window: MissionWindow;
+  /** Numeric quota to reach within the window (e.g. 30 sessions). */
+  quota?: number;
+  /** Optional milestone date (YYYY-MM-DD) — e.g. retrograde start. */
+  milestoneDate?: string;
+  /** Optional milestone label. */
+  milestoneLabel?: string;
+  createdAt: string;
+  /** True when archived (hidden from the active list). */
+  archived?: boolean;
 }
 
 /** User preferences — survives reinstall via the standard backup chain. */

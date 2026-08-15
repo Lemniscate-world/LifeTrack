@@ -1,4 +1,4 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, ChaosLink, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalThread, JournalPersonality, Challenge, Persona, Lever, PatternTrack, ReflectionEntry, ReflectionKind, Project, Protocol, IngestedSource, Task, FeedConfig, PsychoMessage, ObsidianNote } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, ChaosLink, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalThread, JournalPersonality, Challenge, Persona, Lever, PatternTrack, ReflectionEntry, ReflectionKind, Project, Protocol, IngestedSource, Task, FeedConfig, PsychoMessage, ObsidianNote, Mission, MissionWindow } from './types';
 import { computeStreakStats } from './stats';
 import { computeChallengeProgress } from './challenges';
 import {
@@ -208,6 +208,7 @@ function sanitizeData(raw: unknown): AppData {
     ingestedSources: [],
     feeds: [],
     obsidianNotes: [],
+    missions: [],
     preferences: { darkMode: false, theme: '' },
   };
   if (!raw || typeof raw !== 'object') return empty;
@@ -379,8 +380,47 @@ function sanitizeData(raw: unknown): AppData {
     ingestedSources: Array.isArray(obj.ingestedSources) ? obj.ingestedSources.filter((s: unknown) => s && typeof s === 'object' && 'id' in (s as object) && 'rawText' in (s as object)) as IngestedSource[] : [],
     feeds: sanitizeFeeds(obj.feeds),
     obsidianNotes: sanitizeObsidianNotes(obj.obsidianNotes),
+    missions: sanitizeMissions(obj.missions),
     preferences: sanitizePreferences(obj.preferences),
   };
+}
+
+/** Sanitize missions (v0.7.0) — keep well-formed entries, drop the rest. */
+function sanitizeMissions(raw: unknown): Mission[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Mission[] = [];
+  for (const x of raw) {
+    if (!x || typeof x !== 'object') continue;
+    const m = x as Record<string, unknown>;
+    if (typeof m.id !== 'string' || !m.id) continue;
+    if (typeof m.name !== 'string' || !m.name) continue;
+    if (!Array.isArray(m.habitIds)) continue;
+    if (!m.window || typeof m.window !== 'object') continue;
+    const w = m.window as Record<string, unknown>;
+    if (w.kind === 'fixed') {
+      if (typeof w.startDate !== 'string' || typeof w.endDate !== 'string') continue;
+    } else if (w.kind === 'transit') {
+      if (typeof w.body !== 'string' || typeof w.signIndex !== 'number' ||
+          typeof w.startDate !== 'string' || typeof w.endDate !== 'string') continue;
+    } else {
+      continue;
+    }
+    if (typeof m.createdAt !== 'string') continue;
+    out.push({
+      id: m.id,
+      name: m.name,
+      objective: typeof m.objective === 'string' ? m.objective : undefined,
+      habitIds: (m.habitIds as unknown[]).filter((h): h is string => typeof h === 'string'),
+      window: w as unknown as MissionWindow,
+      quota: typeof m.quota === 'number' && Number.isFinite(m.quota) ? m.quota : undefined,
+      milestoneDate: typeof m.milestoneDate === 'string' ? m.milestoneDate : undefined,
+      milestoneLabel: typeof m.milestoneLabel === 'string' ? m.milestoneLabel : undefined,
+      createdAt: m.createdAt,
+      archived: m.archived === true ? true : undefined,
+    });
+    if (out.length >= 200) break;
+  }
+  return out;
 }
 
 /** Sanitize imported Obsidian notes (v0.6.5) — keep well-formed, cap size. */
@@ -3398,6 +3438,29 @@ export function removeObsidianNote(id: string): void {
 
 export function clearObsidianNotes(): void {
   data.obsidianNotes = [];
+}
+
+// --- Missions ---
+export function getMissions(): Mission[] {
+  return data.missions ?? [];
+}
+
+export function addMission(m: Omit<Mission, 'id' | 'createdAt'>): Mission {
+  const mission: Mission = { ...m, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
+  data.missions = [...(data.missions ?? []), mission];
+  return mission;
+}
+
+export function updateMission(id: string, patch: Partial<Mission>): void {
+  data.missions = (data.missions ?? []).map((m) => (m.id === id ? { ...m, ...patch } : m));
+}
+
+export function deleteMission(id: string): void {
+  data.missions = (data.missions ?? []).filter((m) => m.id !== id);
+}
+
+export function archiveMission(id: string): void {
+  data.missions = (data.missions ?? []).map((m) => (m.id === id ? { ...m, archived: !m.archived } : m));
 }
 
 export function exportAllData(): AppData {
