@@ -164,4 +164,44 @@ describe('correlation engine — lag, windows, matrix, caveats', () => {
     const analysis = computeCorrelationAnalysis([habit('a', 'Sport')], checks, moods, [], []);
     for (const r of analysis.lag1) expect(r.caveat).toContain('prédictive');
   });
+
+  it('correlates energy % with habits (Pearson) and includes it in the matrix', () => {
+    const energies: Record<string, number> = {};
+    const checks: CheckIn[] = [];
+    for (let i = 1; i <= 14; i++) {
+      const k = `2026-06-${String(i).padStart(2, '0')}`;
+      // Energy high on days the habit is done, low on miss days.
+      const done = i % 3 !== 0;
+      energies[k] = done ? 80 : 20;
+      checks.push(ci('a', k, done));
+    }
+    const res = computeCorrelations([habit('a', 'Run')], checks, {}, [], [], energies);
+    const pair = res.find((c) => c.metricA === 'Run' && c.metricB === 'Énergie');
+    expect(pair).toBeDefined();
+    expect(pair!.method).toBe('pearson');
+    expect(pair!.coefficient).toBeGreaterThan(0.9);
+    expect(pair!.significant).toBe(true);
+
+    const analysis = computeCorrelationAnalysis([habit('a', 'Run')], checks, {}, [], [], energies);
+    expect(analysis.metrics).toContain('Énergie');
+    const cell = analysis.matrix.find((c) => c.row === 'Run' && c.col === 'Énergie');
+    expect(cell).toBeDefined();
+    expect(cell!.coefficient).toBeGreaterThan(0.9);
+  });
+
+  it('correlates energy % with mood (both metric → Pearson)', () => {
+    const energies: Record<string, number> = {};
+    const moods: Record<string, string> = {};
+    for (let i = 1; i <= 12; i++) {
+      const k = `2026-07-${String(i).padStart(2, '0')}`;
+      const good = i > 6;
+      energies[k] = good ? 90 : 15;
+      moods[k] = good ? 'great' : 'bad';
+    }
+    const res = computeCorrelations([], [], moods, [], [], energies);
+    const pair = res.find((c) => c.metricA === 'Énergie' && c.metricB === 'Mood');
+    expect(pair).toBeDefined();
+    expect(pair!.method).toBe('pearson');
+    expect(pair!.coefficient).toBeGreaterThan(0.9);
+  });
 });

@@ -43,6 +43,9 @@ import {
   setMood,
   getMood,
   getMonthMoods,
+  setEnergy,
+  getEnergy,
+  getMonthEnergies,
   getPreferences,
   updatePreferences,
   getActiveChallenges,
@@ -171,6 +174,8 @@ const DEFAULT_CATEGORIES = [
   const [checkInNotes, setCheckInNotes] = useState<Map<string, string[]>>(new Map());
   // Monthly moods
   const [monthMoods, setMonthMoods] = useState<Map<number, string>>(new Map());
+  // Monthly energy levels (%)
+  const [monthEnergies, setMonthEnergies] = useState<Map<number, number>>(new Map());
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editingGoalValue, setEditingGoalValue] = useState('');
   const [editingChaosHabitId, setEditingChaosHabitId] = useState<string | null>(null);
@@ -560,6 +565,8 @@ const DEFAULT_CATEGORIES = [
       setCheckInNotes(noteMap);
       // Load moods for current month
       setMonthMoods(getMonthMoods(year, month));
+      // Load energy levels for current month
+      setMonthEnergies(getMonthEnergies(year, month));
     }
     update();
     return subscribe(update);
@@ -1636,6 +1643,45 @@ const DEFAULT_CATEGORIES = [
                       <td className="col-goal"></td>
                       <td className="col-achieved"></td>
                     </tr>
+                    {/* Energy tracker row (% precision) */}
+                    <tr className="energy-row">
+                      <td className="col-drag-handle"></td>
+                      <td className="col-habits">
+                        <span className="mood-label energy-label">Énergie</span>
+                      </td>
+                      {dayHeaders.map((h) => {
+                        const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(h.day).padStart(2, '0')}`;
+                        const energy = monthEnergies.get(h.day);
+                        const isToday = isCurrentMonth && h.day === todayDay;
+                        const color = energy === undefined ? undefined : energy >= 70 ? '#10b981' : energy >= 40 ? '#f59e0b' : '#ef4444';
+                        return (
+                          <td
+                            key={h.day}
+                            className={`col-day mood-cell energy-cell ${isToday ? 'today' : ''}`}
+                            onClick={() => {
+                              const cur = getEnergy(dateKey);
+                              // empty → 50, +10 each click, at 100 → cleared
+                              const next = cur === undefined ? 50 : cur >= 100 ? null : cur + 10;
+                              setEnergy(dateKey, next);
+                              setMonthEnergies(getMonthEnergies(year, month));
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              const cur = getEnergy(dateKey);
+                              setEnergy(dateKey, cur === undefined || cur <= 10 ? null : cur - 10);
+                              setMonthEnergies(getMonthEnergies(year, month));
+                            }}
+                            title={energy !== undefined ? `Énergie : ${energy}% (clic +10, clic droit -10)` : 'Définir l’énergie (clic +10, clic droit -10)'}
+                          >
+                            <div className="day-cell energy-display" style={color ? { background: color + '22', color } : {}}>
+                              {energy !== undefined ? `${energy}%` : '·'}
+                            </div>
+                          </td>
+                        );
+                      })}
+                      <td className="col-goal"></td>
+                      <td className="col-achieved"></td>
+                    </tr>
                     {dropProvided.placeholder}
                   </tbody>
                 )}
@@ -2148,7 +2194,7 @@ function InsightsView({
     try {
       const allData = exportAllData();
       const caps = (allData.capacities ?? []).map(c => ({ id: c.id, name: c.name }));
-      return computeCorrelations(habits, checkIns, allData.moods ?? {}, caps, allData.capacityRatings ?? []);
+      return computeCorrelations(habits, checkIns, allData.moods ?? {}, caps, allData.capacityRatings ?? [], allData.energies ?? {});
     } catch { return []; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [habits, checkIns, storeTick]);

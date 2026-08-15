@@ -191,6 +191,7 @@ function sanitizeData(raw: unknown): AppData {
     capacities: [],
     capacityRatings: [],
     moods: {},
+    energies: {},
     experiments: [],
     urges: [],
     customUrgeTypes: [],
@@ -359,6 +360,7 @@ function sanitizeData(raw: unknown): AppData {
     capacities: validCapacities,
     capacityRatings: validRatings,
     moods: (obj.moods && typeof obj.moods === 'object' && !Array.isArray(obj.moods)) ? obj.moods as Record<string, string> : {},
+    energies: sanitizeEnergies((obj as Record<string, unknown>).energies),
     experiments: Array.isArray(obj.experiments) ? obj.experiments.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'title' in (e as object)) as Experiment[] : [],
     urges: Array.isArray(obj.urges) ? obj.urges.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'type' in (e as object)) as UrgeEntry[] : [],
     customUrgeTypes: Array.isArray(obj.customUrgeTypes) ? obj.customUrgeTypes.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'name' in (e as object)) as CustomUrgeType[] : [],
@@ -392,6 +394,20 @@ function sanitizeProjects(raw: unknown): Project[] {
     if (!Array.isArray(p.tasks)) return false;
     return true;
   });
+}
+
+/** Sanitize the per-day energy map (date YYYY-MM-DD → 0-100). Values out of
+ * range or non-numeric are dropped; dates must be valid calendar keys. */
+function sanitizeEnergies(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [date, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+    if (v < 0 || v > 100) continue;
+    if (!isValidDateKey(date)) continue;
+    out[date] = Math.round(v);
+  }
+  return out;
 }
 
 /** Sanitize protocols (v0.6.0). */
@@ -1013,6 +1029,7 @@ function freshData(): AppData {
     capacities: [],
     capacityRatings: [],
     moods: {},
+    energies: {},
     experiments: [],
     urges: [],
     customUrgeTypes: [],
@@ -2492,6 +2509,7 @@ export interface ImportMergeResult {
   skippedCheckIns: number;
   // New v0.3.2 — ALL data types are now preserved on import
   moodsRestored: number;
+  energiesRestored: number;
   experimentsRestored: number;
   urgesRestored: number;
   mantrasRestored: number;
@@ -2688,6 +2706,7 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
     notesCreated: 0,
     skippedCheckIns: 0,
     moodsRestored: 0,
+    energiesRestored: 0,
     experimentsRestored: 0,
     urgesRestored: 0,
     mantrasRestored: 0,
@@ -2874,6 +2893,20 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
     }
   }
   result.moodsRestored = moodsRestored;
+
+  // --- v0.6.1: Import energies (YYYY-MM-DD → 0-100 %) ---
+  let energiesRestored = 0;
+  if (!data.energies) data.energies = {};
+  const rawEnergies = (raw as Record<string, unknown>).energies;
+  if (rawEnergies && typeof rawEnergies === 'object' && !Array.isArray(rawEnergies)) {
+    for (const [date, v] of Object.entries(rawEnergies as Record<string, unknown>)) {
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 100) continue;
+      if (!isValidDateKey(date) || data.energies[date] !== undefined) continue;
+      data.energies[date] = Math.round(v);
+      energiesRestored++;
+    }
+  }
+  result.energiesRestored = energiesRestored;
 
   // --- v0.3.2: Import experiments ---
   let experimentsRestored = 0;
@@ -3131,7 +3164,7 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
 
   const totalRestored = result.habitsCreated + result.checkInsRestored + result.notesCreated
     + skillsMerged + capacitiesImported + ratingsImported
-    + moodsRestored + experimentsRestored + urgesRestored + mantrasRestored + chaosDimensionsRestored;
+    + moodsRestored + energiesRestored + experimentsRestored + urgesRestored + mantrasRestored + chaosDimensionsRestored;
   if (metadataChanged || totalRestored > 0) {
     notify();
   }
@@ -3272,6 +3305,41 @@ export function getMonthMoods(year: number, month: number): Map<number, string> 
     }
   }
   return map;
+}
+
+// --- Energy tracking (% 0-100 per day, precision beyond the mood emoji) ---
+// Stored as a per-day map (date → 0-100). Surfaced in the grid energy row and
+// usable as a continuous series for correlations.
+
+export function setEnergy(date: string, value: number | null): void {
+  if (!data.energies) data.energies = {};
+  if (value === null) {
+    delete data.energies[date];
+  } else {
+    data.energies[date] = Math.max(0, Math.min(100, Math.round(value)));
+  }
+  notify();
+}
+export function getEnergy(date: string): number | undefined {
+  return data.energies?.[date];
+}
+export function getMonthEnergies(year: number, month: number): Map<number, number> {
+  const map = new Map<number, number>();
+  const prefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
+  for (const [date, v] of Object.entries(data.energies ?? {})) {
+    if (date.startsWith(prefix)) {
+      const day = parseInt(date.split('-')[2], 10);
+      map.set(day, v);
+    }
+  }
+  return map;
+}
+export function getAverageEnergy(days: string[] = []): number | null {
+  const values = days.length > 0
+    ? days.map((d) => data.energies?.[d]).filter((v): v is number => v !== undefined)
+    : Object.values(data.energies ?? {});
+  if (values.length === 0) return null;
+  return Math.round(values.reduce((s, v) => s + v, 0) / values.length);
 }
 
 export function exportAllData(): AppData {

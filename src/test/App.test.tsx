@@ -369,4 +369,39 @@ describe('App component', () => {
     await user.keyboard('{Control>}{Shift>}z{/Shift}{/Control}');
     expect(document.querySelectorAll('.check-icon')).toHaveLength(1);
   });
+
+  it('shows the energy row and cycles 0-100 with click + right-click', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByText('+ New Habit'));
+    await user.type(screen.getByPlaceholderText('Habit name...'), 'Read');
+    await user.click(screen.getByText('Add'));
+
+    // Energy label is present
+    expect(screen.getByText('Énergie')).toBeInTheDocument();
+
+    // Find the energy row (first day cell, since the grid renders current month day 1)
+    const energyCells = document.querySelectorAll('.energy-cell');
+    expect(energyCells.length).toBeGreaterThan(0);
+    const firstDayCell = energyCells[0];
+
+    // Click sets 50% (default start)
+    await user.click(firstDayCell);
+    expect(firstDayCell.textContent).toContain('50%');
+
+    // Click again → 60%
+    await user.click(firstDayCell);
+    expect(firstDayCell.textContent).toContain('60%');
+
+    // Right-click → back to 50%
+    await user.pointer({ keys: '[MouseRight]', target: firstDayCell });
+    expect(firstDayCell.textContent).toContain('50%');
+
+    // Wrap: 100% → click → cleared (null → '·')
+    for (let i = 0; i < 5; i++) await user.click(firstDayCell); // 60→70→80→90→100
+    expect(firstDayCell.textContent).toContain('100%');
+    await user.click(firstDayCell); // wraps to cleared
+    expect(firstDayCell.textContent).toContain('·');
+  });
 });

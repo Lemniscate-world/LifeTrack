@@ -34,6 +34,10 @@ import {
   deleteMantra,
   getMantraSettings,
   updateMantraSettings,
+  setEnergy,
+  getEnergy,
+  getMonthEnergies,
+  getAverageEnergy,
 } from '../store';
 
 // Reset store state between tests for full isolation
@@ -1596,5 +1600,89 @@ describe('Mantras in store', () => {
     // Other settings unchanged
     expect(settings.eveningEnabled).toBe(true);
     expect(settings.eveningTime).toBe('20:00');
+  });
+});
+
+// ============================================================
+// Energy tracking (% 0-100)
+// ============================================================
+describe('Energy tracking', () => {
+  it('stores a rounded 0-100 value per day and clears on null', () => {
+    setEnergy('2026-07-01', 72.4);
+    setEnergy('2026-07-02', 40);
+    expect(getEnergy('2026-07-01')).toBe(72);
+    expect(getEnergy('2026-07-02')).toBe(40);
+    setEnergy('2026-07-01', null);
+    expect(getEnergy('2026-07-01')).toBeUndefined();
+  });
+
+  it('clamps values outside 0-100', () => {
+    setEnergy('2026-07-03', -5);
+    setEnergy('2026-07-04', 250);
+    expect(getEnergy('2026-07-03')).toBe(0);
+    expect(getEnergy('2026-07-04')).toBe(100);
+  });
+
+  it('getMonthEnergies returns only the days of the requested month', () => {
+    setEnergy('2026-06-30', 90);
+    setEnergy('2026-07-01', 80);
+    setEnergy('2026-07-31', 20);
+    const map = getMonthEnergies(2026, 6); // July = month index 6
+    expect(map.get(1)).toBe(80);
+    expect(map.get(31)).toBe(20);
+    expect(map.size).toBe(2);
+    expect(map.get(30)).toBeUndefined();
+  });
+
+  it('getAverageEnergy averages the given days or all days', () => {
+    setEnergy('2026-07-01', 100);
+    setEnergy('2026-07-02', 50);
+    setEnergy('2026-07-03', 75);
+    expect(getAverageEnergy(['2026-07-01', '2026-07-02'])).toBe(75);
+    expect(getAverageEnergy()).toBe(75);
+    expect(getAverageEnergy(['2026-07-01', '2099-01-01'])).toBe(100);
+    resetStore();
+    expect(getAverageEnergy()).toBeNull();
+  });
+
+  it('survives a reload (persisted)', () => {
+    setEnergy('2026-07-10', 65);
+    flushSave();
+    resetStore();
+    expect(getEnergy('2026-07-10')).toBe(65);
+  });
+
+  it('sanitizes corrupt energy maps on load', () => {
+    localStorage.setItem('lifetrack-data', JSON.stringify({
+      habits: [],
+      checkIns: [],
+      notes: [],
+      chaosDimensions: [],
+      achievementCategories: [],
+      mantras: [],
+      mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
+      skills: [],
+      capacities: [],
+      capacityRatings: [],
+      moods: {},
+      energies: { '2026-07-01': 80, '2026-07-02': -5, '2026-07-03': 200, '2026-07-04': 'high', 'not-a-date': 50 },
+      experiments: [],
+      urges: [],
+      customUrgeTypes: [],
+      journalEntries: [],
+      journalThreads: [],
+      challenges: [],
+      personas: [],
+      levers: [],
+      patternTracks: [],
+      reflections: [],
+      preferences: { darkMode: false, theme: '' },
+    }));
+    resetStore();
+    expect(getEnergy('2026-07-01')).toBe(80);
+    expect(getEnergy('2026-07-02')).toBeUndefined();
+    expect(getEnergy('2026-07-03')).toBeUndefined();
+    expect(getEnergy('2026-07-04')).toBeUndefined();
+    expect(getEnergy('not-a-date')).toBeUndefined();
   });
 });

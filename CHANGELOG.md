@@ -37,6 +37,10 @@ All notable changes to LifeTrack are documented in this file.
   p-values. New "Fiables (anti-ambiguïté)" filter shows only results that survive all checks.
 - **Stacks visibility** — when habits are linked as children but no stack renders (archived
   parent/child), the Stacks view now explains why instead of a generic "No stacks yet".
+- **Energy tracker (% 0-100)** — a dedicated grid row under Mood gives a continuous precision
+  energy reading (click +10, right-click −10, 100% → cleared). Persisted per day, sanitized on
+  load, restored on import, and fed into the correlation engine as a metric series (Pearson)
+  alongside habits, Mood and capacities — including the heatmap matrix.
 
 ## [Unreleased]
 

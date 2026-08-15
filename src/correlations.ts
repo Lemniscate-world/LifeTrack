@@ -43,11 +43,12 @@ export function shiftDateKey(date: string, days: number): string {
 }
 
 /** Enumerate every distinct date across all sources, oldest → newest. */
-function allDates(checkIns: CheckIn[], moods: Record<string, string>, ratings: CapacityRating[]): string[] {
+function allDates(checkIns: CheckIn[], moods: Record<string, string>, ratings: CapacityRating[], energies?: Record<string, number>): string[] {
   const set = new Set<string>();
   for (const c of checkIns) if (c.date) set.add(c.date);
   for (const k of Object.keys(moods)) set.add(k);
   for (const r of ratings) if (r.date) set.add(r.date);
+  for (const k of Object.keys(energies ?? {})) set.add(k);
   return [...set].sort();
 }
 
@@ -173,6 +174,7 @@ interface SeriesSet {
   habitSeries: Map<string, Map<string, number>>;
   activeHabits: Habit[];
   moodSeries: Map<string, number>;
+  energySeries: Map<string, number>;
   capSeries: Map<string, Map<string, number>>;
 }
 
@@ -184,6 +186,7 @@ function buildSeries(
   capacities: { id: string; name: string }[],
   ratings: CapacityRating[],
   window?: 'weekday' | 'weekend',
+  energies?: Record<string, number>,
 ): SeriesSet {
   const activeHabits = habits.filter((h) => !h.archived);
   const habitSeries = new Map<string, Map<string, number>>();
@@ -218,7 +221,17 @@ function buildSeries(
     if (cm.size >= 3) capSeries.set(cap.id, cm);
   }
 
-  return { habitSeries, activeHabits, moodSeries, capSeries };
+  let energySeries = new Map<string, number>();
+  for (const [date, v] of Object.entries(energies ?? {})) {
+    if (typeof v === 'number' && Number.isFinite(v)) energySeries.set(date, v);
+  }
+  if (window) {
+    const sub = new Map<string, number>();
+    for (const [date, v] of energySeries) if (weekdayOf(date) !== 0 && weekdayOf(date) !== 6 ? window === 'weekday' : window === 'weekend') sub.set(date, v);
+    energySeries = sub;
+  }
+
+  return { habitSeries, activeHabits, moodSeries, energySeries, capSeries };
 }
 
 function nameOf(id: string, set: SeriesSet, capacities: { id: string; name: string }[]): string {
@@ -265,8 +278,9 @@ export function computeCorrelations(
   moods: Record<string, string>,
   capacities: { id: string; name: string }[],
   ratings: CapacityRating[],
+  energies?: Record<string, number>,
 ): CorrelationResult[] {
-  return runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: undefined });
+  return runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: undefined }, energies);
 }
 
 /**
@@ -279,21 +293,24 @@ export function computeCorrelationAnalysis(
   moods: Record<string, string>,
   capacities: { id: string; name: string }[],
   ratings: CapacityRating[],
+  energies?: Record<string, number>,
 ): CorrelationAnalysis {
-  const dates = allDates(checkIns, moods, ratings);
+  const dates = allDates(checkIns, moods, ratings, energies);
   if (dates.length < 5) {
     return { sameDay: [], lag1: [], weekday: [], weekend: [], matrix: [], metrics: [], caveats: defaultCaveats() };
   }
-  const sameDay = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: undefined });
-  const lag1 = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 1, window: undefined });
-  const weekday = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: 'weekday' });
-  const weekend = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: 'weekend' });
+  const sameDay = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: undefined }, energies);
+  const lag1 = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 1, window: undefined }, energies);
+  const weekday = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: 'weekday' }, energies);
+  const weekend = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: 'weekend' }, energies);
 
-  // Heatmap matrix over all metric pairs (all habits + Mood + capacities).
-  const set = buildSeries(habits, checkIns, moods, capacities, ratings);
+  // Heatmap matrix over all metric pairs (all habits + Mood + Énergie + capacities).
+  const set = buildSeries(habits, checkIns, moods, capacities, ratings, undefined, energies);
+  const hasEnergy = set.energySeries.size >= 3;
   const metrics = [
     ...set.activeHabits.map((h) => h.name),
     ...(Object.keys(moods).length > 0 ? ['Mood'] : []),
+    ...(hasEnergy ? ['Énergie'] : []),
     ...capacities.map((c) => c.name),
   ];
   const matrix: CorrelationCell[] = [];
@@ -348,6 +365,7 @@ function seriesForLabel(
   capacities: { id: string; name: string }[],
 ): Map<string, number> | null {
   if (label === 'Mood') return set.moodSeries;
+  if (label === 'Énergie') return set.energySeries;
   const h = set.activeHabits.find((x) => x.name === label);
   if (h) return set.habitSeries.get(h.id) ?? null;
   const cap = capacities.find((c) => c.name === label);
@@ -367,8 +385,9 @@ function runPairs(
   capacities: { id: string; name: string }[],
   ratings: CapacityRating[],
   opts: RunOptions,
+  energies?: Record<string, number>,
 ): CorrelationResult[] {
-  const set = buildSeries(habits, checkIns, moods, capacities, ratings, opts.window);
+  const set = buildSeries(habits, checkIns, moods, capacities, ratings, opts.window, energies);
   const raw: Raw[] = [];
 
   const habitArr = [...set.habitSeries.entries()];
@@ -397,6 +416,32 @@ function runPairs(
     if (xs.length >= 6) {
       const r = build('Capacité', 'Mood', 'spearman', xs, ys, opts.lag, opts.window);
       if (r) raw.push(r);
+    }
+  }
+
+  // Energy (continuous %) ↔ habits, mood and capacities — Pearson everywhere
+  // (both sides are metric). Lag-1: does today's energy predict tomorrow's habit?
+  if (set.energySeries.size >= 3) {
+    for (const [habitId, hm] of set.habitSeries) {
+      const { xs, ys } = opts.lag > 0 ? alignLag(hm, set.energySeries, opts.lag) : align(hm, set.energySeries);
+      if (xs.length >= 6) {
+        const r = build(nameOf(habitId, set, capacities), 'Énergie', 'pearson', xs, ys, opts.lag, opts.window);
+        if (r) raw.push(r);
+      }
+    }
+    {
+      const { xs, ys } = opts.lag > 0 ? alignLag(set.energySeries, set.moodSeries, opts.lag) : align(set.energySeries, set.moodSeries);
+      if (xs.length >= 6) {
+        const r = build('Énergie', 'Mood', 'pearson', xs, ys, opts.lag, opts.window);
+        if (r) raw.push(r);
+      }
+    }
+    for (const [capId, cm] of set.capSeries) {
+      const { xs, ys } = opts.lag > 0 ? alignLag(cm, set.energySeries, opts.lag) : align(cm, set.energySeries);
+      if (xs.length >= 6) {
+        const r = build(nameOf(capId, set, capacities), 'Énergie', 'pearson', xs, ys, opts.lag, opts.window);
+        if (r) raw.push(r);
+      }
     }
   }
 
