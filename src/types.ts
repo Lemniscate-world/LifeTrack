@@ -74,6 +74,9 @@ export interface ChaosDimension {
 export interface ChaosLink {
   dimension: string; // dimension id
   impact: number;    // 0-100, percent added when triggered
+  /** Optional user note: WHY this habit destabilises that life dimension.
+   * Surfaced in the Chaos dashboard so the reason is never forgotten. */
+  cause?: string;
 }
 
 // --- Achievements ---
@@ -227,6 +230,14 @@ export interface CorrelationResult {
   caveat?: string;
   /** Unique comparison key used to dedupe same pair across windows. */
   pairKey?: string;
+  /** Outlier-robust coefficient (10% tail-winsorized). Null when sample is too small. */
+  winsorizedCoefficient?: number | null;
+  /** Jackknife sign-stability 0..1: fraction of leave-one-out re-estimates keeping the sign. */
+  stability?: number;
+  /** True when the effect is fragile (unstable sign or winsorizing flips direction). */
+  outlierDriven?: boolean;
+  /** True when residuals are autocorrelated → p-values may be inflated (false signal). */
+  autocorrelatedResiduals?: boolean;
 }
 
 /** One cell of the full correlation matrix (heatmap). */
@@ -484,6 +495,7 @@ export interface AppData {
   capacities: Capacity[];
   capacityRatings: CapacityRating[];
   moods: Record<string, string>; // date YYYY-MM-DD -> mood id
+  energies?: Record<string, number>; // date YYYY-MM-DD -> energy 0-100 (precision %)
   experiments: Experiment[];
   urges: UrgeEntry[];
   customUrgeTypes: CustomUrgeType[];

@@ -6,7 +6,7 @@
 
 import { useState, useMemo } from 'react';
 import type { CorrelationResult, CorrelationCell } from './types';
-import { computeCorrelations, computeCorrelationAnalysis } from './correlations';
+import { computeCorrelations, computeCorrelationAnalysis, isTrustworthy } from './correlations';
 import { exportAllData, getHabits } from './store';
 import { computeHabitTrends, moodTrend, WEEKDAY_LABELS } from './timeseries';
 
@@ -55,6 +55,7 @@ export default function CorrelationsView() {
   const [directionFilter, setDirectionFilter] = useState<'all' | 'positive' | 'negative'>('all');
   const [sigOnly, setSigOnly] = useState(false);
   const [poweredOnly, setPoweredOnly] = useState(false);
+  const [reliableOnly, setReliableOnly] = useState(false);
   const [selectedPair, setSelectedPair] = useState<CorrelationResult | null>(null);
 
   const activeList = tab === 'same' ? analysis.sameDay
@@ -63,14 +64,15 @@ export default function CorrelationsView() {
     : tab === 'weekday' ? analysis.weekday
     : results;
   const filteredResults = useMemo(
-    () => activeList.filter(r => {
-      if (sigOnly && !r.significant) return false;
-      if (poweredOnly && r.sampleSize < r.requiredN) return false;
-      if (strengthFilter !== 'all' && r.strength !== strengthFilter) return false;
-      if (directionFilter !== 'all' && r.direction !== directionFilter) return false;
+    () => activeList.filter((sl) => {
+      if (sigOnly && !sl.significant) return false;
+      if (poweredOnly && sl.sampleSize < sl.requiredN) return false;
+      if (reliableOnly && !isTrustworthy(sl)) return false;
+      if (strengthFilter !== 'all' && sl.strength !== strengthFilter) return false;
+      if (directionFilter !== 'all' && sl.direction !== directionFilter) return false;
       return true;
     }),
-    [activeList, sigOnly, poweredOnly, strengthFilter, directionFilter],
+    [activeList, sigOnly, poweredOnly, reliableOnly, strengthFilter, directionFilter],
   );
 
   const headerLabel = tab === 'matrix' ? 'Matrice de Corrélations'
@@ -152,6 +154,10 @@ export default function CorrelationsView() {
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>
             <input type="checkbox" checked={poweredOnly} onChange={e => setPoweredOnly(e.target.checked)} />
             Puissance suffisante (N ≥ requiredN)
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--primary)' }}>
+            <input type="checkbox" checked={reliableOnly} onChange={e => setReliableOnly(e.target.checked)} />
+            Fiables (anti-ambiguïté)
           </label>
         </div>
       )}
@@ -274,6 +280,14 @@ export default function CorrelationsView() {
                     {r.significant && (
                       <span style={{ fontSize: '0.72rem', background: 'rgba(16,185,129,0.15)', color: '#10b981', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>q={r.qValue.toFixed(3)} ✓</span>
                     )}
+                    {r.outlierDriven ? (
+                      <span title="La direction change si l'on retire un seul jour, ou un outlier écrase le résultat — à interpréter avec prudence." style={{ fontSize: '0.72rem', background: 'rgba(245,158,11,0.18)', color: '#f59e0b', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>⚠ fragile</span>
+                    ) : isTrustworthy(r) ? (
+                      <span title="Significatif, direction stable et non piloté par un outlier." style={{ fontSize: '0.72rem', background: 'rgba(16,185,129,0.18)', color: '#10b981', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>✓ fiable</span>
+                    ) : null}
+                    {r.autocorrelatedResiduals && (
+                      <span title="Résidus autocorrélés en série — la p-value peut être gonflée (faux signal de tendance)." style={{ fontSize: '0.72rem', background: 'rgba(148,163,184,0.3)', color: 'var(--text-muted)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>↻ autocorr.</span>
+                    )}
                     <span style={{ fontSize: '0.72rem', background: 'var(--border)', padding: '0.15rem 0.4rem', borderRadius: '4px', color: 'var(--text-muted)' }}>{r.method}</span>
                   </div>
                 </div>
@@ -380,6 +394,38 @@ export default function CorrelationsView() {
                   ? <span style={{ color: '#10b981' }}>✓ Suffisant ({selectedPair.sampleSize}/{selectedPair.requiredN} jours).</span>
                   : <span style={{ color: '#f59e0b' }}>⚠ {selectedPair.sampleSize}/{selectedPair.requiredN} jours requis.</span>}
             </div>
+            {selectedPair.stability !== undefined && (
+              <div
+                style={{
+                  marginTop: '0.75rem', borderRadius: '4px', fontSize: '0.8rem',
+                  background: selectedPair.outlierDriven ? 'rgba(245,158,11,0.1)' : 'rgba(16,185,129,0.08)',
+                  borderLeft: `3px solid ${selectedPair.outlierDriven ? '#f59e0b' : '#10b981'}`,
+                  padding: '0.65rem 0.8rem',
+                }}
+              >
+                <strong>Fiabilité « proche de la réalité » :</strong>{' '}
+                {isTrustworthy(selectedPair)
+                  ? <span style={{ color: '#10b981' }}>✓ fiable — significatif, direction stable (jackknife {Math.round(selectedPair.stability * 100)}%).</span>
+                  : selectedPair.outlierDriven
+                    ? <span style={{ color: '#f59e0b' }}>⚠ fragile — un seul jour (ou un outlier) change la direction (stabilité jackknife {Math.round(selectedPair.stability * 100)}%). À ne pas traiter comme un fait.</span>
+                    : <span style={{ color: 'var(--text-muted)' }}>non significatif — pas de conclusion.</span>}
+                {(() => {
+                  const wc = selectedPair.winsorizedCoefficient;
+                  const st = selectedPair.stability ?? 0;
+                  if (!(st > 0) || wc === null || wc === undefined) return null;
+                  return (
+                    <div style={{ marginTop: '0.35rem', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                      Coeff. robuste (10% winsorisé) : {wc >= 0 ? '+' : ''}{wc.toFixed(3)} · Stabilité jackknife : {st.toFixed(2)}
+                    </div>
+                  );
+                })()}
+                {selectedPair.autocorrelatedResiduals && (
+                  <div style={{ marginTop: '0.35rem', color: '#f59e0b', fontSize: '0.75rem' }}>
+                    ⚠ Résidus autocorrélés en série : la p-value peut être gonflée (effet de dérive temporelle, pas forcément un vrai lien).
+                  </div>
+                )}
+              </div>
+            )}
             {selectedPair.caveat && (
               <div style={{ background: 'rgba(245,158,11,0.08)', borderLeft: '3px solid #f59e0b', padding: '0.65rem 0.8rem', borderRadius: '4px', fontSize: '0.8rem', marginTop: '0.75rem' }}>
                 {selectedPair.caveat}

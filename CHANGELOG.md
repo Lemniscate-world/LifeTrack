@@ -27,6 +27,16 @@ All notable changes to LifeTrack are documented in this file.
 - **"Aujourd'hui, essaie"** — a single focused protocol from the preference engine surfaced in
   Today, so there's always one concrete thing to try.
 - **`weeklySummary` module** (pure, tested) — reusable trailing-7-days digest.
+- **Chaos dashboard: note de cause par liaison** — you can now explain *why* a missed habit
+  destabilises a life dimension (editable in the ⚡ picker per zone) and the reason is shown
+  right under that habit in the Chaos dashboard, so it is never forgotten.
+- **Correlations « proche de la réalité » (anti-trompeuses)** — every correlation now carries
+  anti-artifact diagnostics surfaced in the cards and the inspector:
+  `winsorizedCoefficient` (robust to outliers), a jackknife `stability` score, an
+  `outlierDriven` flag ("⚠ fragile") and an `autocorrelatedResiduals` warning for inflated
+  p-values. New "Fiables (anti-ambiguïté)" filter shows only results that survive all checks.
+- **Stacks visibility** — when habits are linked as children but no stack renders (archived
+  parent/child), the Stacks view now explains why instead of a generic "No stacks yet".
 
 ## [Unreleased]
 

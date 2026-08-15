@@ -32,6 +32,14 @@ export function StacksView({ habits, checkIns, onSetParent }: Props) {
     [habits, checkIns],
   );
 
+  // How many visible (non-archived) habits are anchored into a stack as children.
+  // When > 0 but no stack renders, something is hiding the link (archived parent
+  // or an archived-only relationship) — we surface that instead of a generic message.
+  const linkedChildCount = useMemo(
+    () => habits.filter((h) => h.stackParent).length,
+    [habits],
+  );
+
   const nextSuggestion = useMemo(
     () => getNextStackSuggestion(habits, checkIns),
     [habits, checkIns],
@@ -58,10 +66,21 @@ export function StacksView({ habits, checkIns, onSetParent }: Props) {
       <div className="stacks-container" role="region" aria-label="Habit stacks">
 
         <h2 className="stacks-title">Habit Stacks</h2>
-        <p className="stacks-empty">
-          No stacks yet. In the Grid view, click the link icon on any habit row to anchor it
-          after another — for example, <em>after coffee → meditate</em>.
-        </p>
+        {linkedChildCount > 0 ? (
+          <p className="stacks-empty">
+            {linkedChildCount} habit{linkedChildCount > 1 ? 's' : ''} est lié
+            {linkedChildCount > 1 ? 'e(s)' : ''} dans une stack, mais aucune n’est
+            visible aujourd’hui. Une stack apparaît seulement si <em>le parent et au
+            moins un enfant sont actifs</em> (non archivés). Archivage le parent ou
+            l’enfant masque la stack. Réactive-la ou relie un enfant actif depuis la
+            vue Grid (icône 🔗).
+          </p>
+        ) : (
+          <p className="stacks-empty">
+            No stacks yet. In the Grid view, click the link icon on any habit row to anchor it
+            after another — for example, <em>after coffee → meditate</em>.
+          </p>
+        )}
       </div>
     );
   }

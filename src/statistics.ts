@@ -222,6 +222,102 @@ export function requiredSampleSize(r: number, alpha = 0.05, power = 0.8): number
   return Math.ceil(n);
 }
 
+// --- Correlation robustness (anti-misleading) ------------------------------
+// Adds "close to reality" diagnostics to any correlation:
+//   - a winsorized (tail-trimmed) coefficient so a single outlier can't fake an effect,
+//   - a jackknife sign-stability score (does the direction survive dropping each day?),
+//   - an outlier-driven flag when the effect is fragile,
+//   - an autocorrelation warning for time-series (inflated p-values / spurious trends).
+
+/** Winsorize an array: clamp the `trim`-fraction of extreme values to the nearest
+ * within-sample quantiles. This makes the coefficient robust to outlier leverage
+ * without discarding data. */
+export function winsorize(arr: number[], trim = 0.1): number[] {
+  if (arr.length < 4) return [...arr];
+  const s = [...arr].sort((a, b) => a - b);
+  const lo = s[Math.floor(trim * s.length)];
+  const hi = s[Math.max(0, Math.ceil((1 - trim) * s.length) - 1)];
+  return arr.map((v) => Math.max(lo, Math.min(hi, v)));
+}
+
+export interface RobustnessReport {
+  /** Coefficient recomputed after 10% tail-winsorizing (outlier-robust). */
+  winsorizedCoefficient: number | null;
+  /** Jackknife: fraction of leave-one-out estimates that keep the original sign. 0..1. */
+  stability: number;
+  /** True when the link is fragile: an unstable sign, or winsorizing flips the direction. */
+  outlierDriven: boolean;
+  /** True when residuals are lag-1 autocorrelated → p-values may be inflated. */
+  autocorrelatedResiduals: boolean;
+}
+
+/** Residual AR(1) autocorrelation from the OLS fit of y on x. */
+function residualAutocorr(xs: number[], ys: number[]): number {
+  const n = xs.length;
+  const mx = xs.reduce((s, v) => s + v, 0) / n;
+  const my = ys.reduce((s, v) => s + v, 0) / n;
+  let sxx = 0, sxy = 0;
+  for (let i = 0; i < n; i++) { sxx += (xs[i] - mx) ** 2; sxy += (xs[i] - mx) * (ys[i] - my); }
+  if (sxx === 0) return 0;
+  const b = sxy / sxx;
+  const a = my - b * mx;
+  const res: number[] = ys.map((y, i) => y - (a + b * xs[i]));
+  let num = 0, den = 0;
+  for (let i = 1; i < res.length; i++) { num += res[i] * res[i - 1]; den += res[i - 1] ** 2; }
+  return den === 0 ? 0 : num / den;
+}
+
+function rawCoeff(xs: number[], ys: number[], method: 'pearson' | 'spearman'): number | null {
+  if (xs.length < 3 || xs.length !== ys.length) return null;
+  const t = method === 'pearson' ? pearsonTest(xs, ys) : spearmanTest(xs, ys);
+  if (!t) return null;
+  const v = method === 'pearson' ? (t as { r: number }).r : (t as { rho: number }).rho;
+  return Number.isFinite(v) ? v : null;
+}
+
+export function correlationRobustness(
+  xs: number[],
+  ys: number[],
+  method: 'pearson' | 'spearman',
+): RobustnessReport {
+  const n = xs.length;
+  if (n < 6) {
+    return { winsorizedCoefficient: null, stability: 0, outlierDriven: true, autocorrelatedResiduals: false };
+  }
+  const base = rawCoeff(xs, ys, method);
+  if (base === null) {
+    return { winsorizedCoefficient: null, stability: 0, outlierDriven: true, autocorrelatedResiduals: false };
+  }
+
+  const wins = rawCoeff(winsorize(xs), winsorize(ys), method) ?? base;
+  const signBase = base >= 0 ? 1 : -1;
+
+  // Jackknife: drop each paired observation, re-estimate, track sign agreement.
+  let stable = 0;
+  const usable = n >= 6;
+  for (let i = 0; i < n; i++) {
+    const xr = xs.filter((_, k) => k !== i);
+    const yr = ys.filter((_, k) => k !== i);
+    const c = rawCoeff(xr, yr, method);
+    if (c === null) continue;
+    if ((c >= 0 ? 1 : -1) === signBase) stable++;
+  }
+  const stability = usable ? stable / n : 0;
+
+  const signFlipped = (wins >= 0 ? 1 : -1) !== signBase;
+  const shifted = Math.abs(wins - base) > 0.4;
+  const outlierDriven = stability < 0.7 || signFlipped || shifted;
+
+  const autocorrelatedResiduals = n >= 8 && Math.abs(residualAutocorr(xs, ys)) > 0.3;
+
+  return {
+    winsorizedCoefficient: Number.isFinite(wins) ? wins : null,
+    stability: Math.round(stability * 100) / 100,
+    outlierDriven,
+    autocorrelatedResiduals,
+  };
+}
+
 // --- Proportions -------------------------------------------------------
 
 /** Wilson score interval for a proportion (k successes in n trials). */

@@ -174,7 +174,7 @@ const DEFAULT_CATEGORIES = [
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editingGoalValue, setEditingGoalValue] = useState('');
   const [editingChaosHabitId, setEditingChaosHabitId] = useState<string | null>(null);
-  const [editChaosLinks, setEditChaosLinks] = useState<{ dimension: string; impact: number }[]>([{ dimension: 'physical', impact: 50 }]);
+  const [editChaosLinks, setEditChaosLinks] = useState<{ dimension: string; impact: number; cause?: string }[]>([{ dimension: 'physical', impact: 50 }]);
   const [editChaosThreshold, setEditChaosThreshold] = useState(2);
   // Stack parent picker (which habit triggers this one)
   const [editingStackParentId, setEditingStackParentId] = useState<string | null>(null);
@@ -1419,6 +1419,18 @@ const DEFAULT_CATEGORIES = [
                                       setEditChaosLinks(next);
                                     }}
                                     className="chaos-input-sm" title="Impact %"
+                                  />
+                                  <textarea
+                                    className="chaos-cause-input"
+                                    rows={2}
+                                    placeholder="Pourquoi cette habitude déstabilise ? (ex : je saute un repas → irritabilité le soir)"
+                                    value={link.cause ?? ''}
+                                    onChange={(e) => {
+                                      const next = [...editChaosLinks];
+                                      next[i] = { ...next[i], cause: e.target.value };
+                                      setEditChaosLinks(next);
+                                    }}
+                                    title="Cause / pourquoi"
                                   />
                                   {editChaosLinks.length > 1 && (
                                     <button

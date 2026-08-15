@@ -128,6 +128,11 @@ export default function ChaosView() {
                             style={{ width: `${h.progress * 100}%` }}
                           />
                         </div>
+                        {h.cause && (
+                          <p className="chaos-habit-cause" title="Pourquoi cette habitude déstabilise cette dimension">
+                            {h.cause}
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>

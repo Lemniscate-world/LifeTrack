@@ -17,7 +17,7 @@
 // All functions are pure (input → output) for easy isolated testing.
 
 import type { CheckIn, Habit, CapacityRating, CorrelationResult, CorrelationCell, CorrelationAnalysis } from './types';
-import { pearsonTest, spearmanTest, benjaminiHochberg, requiredSampleSize } from './statistics';
+import { pearsonTest, spearmanTest, benjaminiHochberg, requiredSampleSize, correlationRobustness } from './statistics';
 
 /** Distinct ordinal rank for each mood id (the raw number is irrelevant; Spearman
  * uses relative order). angry and bad are both low; sick slightly above bad. */
@@ -143,6 +143,7 @@ function build(
   const test = method === 'pearson' ? pearsonTest(xs, ys) : spearmanTest(xs, ys);
   if (!test || test.p === 1) return null;
   const coefficient = method === 'pearson' ? (test as { r: number }).r : (test as { rho: number }).rho;
+  const robust = correlationRobustness(xs, ys, method);
   return {
     item: {
       metricA,
@@ -159,6 +160,10 @@ function build(
       lag: lag > 0 ? lag : undefined,
       window,
       caveat: caveatFor(method, lag, window),
+      winsorizedCoefficient: robust.winsorizedCoefficient,
+      stability: robust.stability,
+      outlierDriven: robust.outlierDriven,
+      autocorrelatedResiduals: robust.autocorrelatedResiduals,
     },
     p: test.p,
   };
@@ -224,6 +229,16 @@ function nameOf(id: string, set: SeriesSet, capacities: { id: string; name: stri
 }
 
 interface Raw { item: Omit<CorrelationResult, 'qValue' | 'significant'>; p: number }
+
+/**
+ * A correlation is "trustworthy" (close to reality) only when it survives all
+ * the anti-misleading checks: FDR-significant, not driven by a single outlier,
+ * and its direction is stable under jackknife. Used by the UI to de-emphasise
+ * fragile results instead of treating every star as a real discovery.
+ */
+export function isTrustworthy(r: CorrelationResult): boolean {
+  return Boolean(r.significant && !r.outlierDriven && (r.stability === undefined || r.stability >= 0.7));
+}
 
 /** Attach FDR-adjusted q-values and sort by |coefficient| (strongest first). */
 function finalize(raw: Raw[]): CorrelationResult[] {

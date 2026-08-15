@@ -14,6 +14,7 @@ import {
   getHabits,
   getDefaultChaosDimensions,
   resetStore,
+  updateHabit,
 } from '../store';
 import ChaosView from '../ChaosView';
 
@@ -71,6 +72,20 @@ describe('Chaos linkage', () => {
     expect(social?.habits).toHaveLength(0);
     // linkedHabitCount counts the habit once, not per-zone.
     expect(report.linkedHabitCount).toBe(1);
+  });
+
+  it('persists and reports the optional per-zone "cause" note', () => {
+    addHabit('Snacking', {
+      chaosLinks: [{ dimension: 'physical', impact: 40, cause: '  grignote tard le soir  ' }],
+      chaosThresholdDays: 2,
+    });
+    const h = getHabits()[0];
+    // updateHabit path: re-submit the same link with a cause and verify it survives sanitization.
+    updateHabit(h.id, { chaosLinks: [{ dimension: 'physical', impact: 40, cause: 'Je perds l’appétit le lendemain' }] });
+    expect(getHabits()[0].chaosLinks?.[0].cause).toBe('Je perds l’appétit le lendemain');
+    const report = computeChaosReport();
+    const physical = report.dimensions.find((d) => d.id === 'physical');
+    expect(physical?.habits[0].cause).toBe('Je perds l’appétit le lendemain');
   });
 
   it('getChaosTriggersForDimension returns empty when no habits linked', () => {

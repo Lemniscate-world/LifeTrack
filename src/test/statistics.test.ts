@@ -9,6 +9,8 @@ import {
   tTwoTail,
   invNormCdf,
   arrayRanks,
+  correlationRobustness,
+  winsorize,
 } from '../statistics';
 
 describe('inverse normal CDF / z', () => {
@@ -98,6 +100,34 @@ describe('requiredSampleSize', () => {
   });
   it('r≈0.5 at 80% power needs ~29 pairs', () => {
     expect(requiredSampleSize(0.5, 0.05, 0.8)).toBeGreaterThanOrEqual(28);
+  });
+});
+
+describe('correlationRobustness / anti-misleading', () => {
+  it('winsorize clamps extreme tails', () => {
+    const out = winsorize([1, 2, 3, 4, 5, 6, 7, 8, 9, 100], 0.1);
+    expect(Math.max(...out)).toBeLessThan(100); // 100 is clipped to the hi quantile
+    expect(out.length).toBe(10);
+  });
+
+  it('a clean monotone series is highly stable and not outlier-driven', () => {
+    const xs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const ys = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20];
+    const r = correlationRobustness(xs, ys, 'pearson');
+    expect(r.stability).toBe(1);
+    expect(r.outlierDriven).toBe(false);
+    expect(r.winsorizedCoefficient).toBeCloseTo(1, 2);
+  });
+
+  it('flags a single dominant outlier that drives the link', () => {
+    // Strong negative trend (decreasing ys) with ONE huge spike on the last day:
+    // the spike flips the nominal correlation positive, but drop that single day
+    // (or winsorize the tail) and the sign reverses → fragile, outlier-driven.
+    const xs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const ys = [19, 18, 17, 16, 17, 15, 14, 13, 12, 400];
+    const r = correlationRobustness(xs, ys, 'pearson');
+    expect(r.stability).toBeLessThan(0.95); // at least one leave-one-out flips
+    expect(r.outlierDriven).toBe(true);
   });
 });
 
