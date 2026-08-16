@@ -15,6 +15,9 @@ import {
   detrendedCorrelation,
   fisherZ,
   fisherZInv,
+  partialCorrelation,
+  isBinarySeries,
+  maxAttainableR,
 } from '../statistics';
 
 /** Deterministic PRNG (mulberry32) so tests are reproducible. */
@@ -201,5 +204,96 @@ describe('detrending (spurious shared-trend guard)', () => {
   it('fisherZ / fisherZInv round-trip', () => {
     expect(fisherZInv(fisherZ(0.6))).toBeCloseTo(0.6, 9);
     expect(fisherZ(0)).toBe(0);
+  });
+});
+
+describe('partialCorrelation (confounder guard)', () => {
+  it('kills a spurious link driven by a confounder', () => {
+    // x and y are both driven by z; once z is partialled out, r(x,y) → 0.
+    const rand1 = mulberry32(7);
+    const rand2 = mulberry32(2024);
+    const randZ = mulberry32(99);
+    const zs: number[] = [];
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (let i = 0; i < 120; i++) {
+      const z = randZ();
+      zs.push(z);
+      xs.push(z + (rand1() - 0.5) * 0.3);
+      ys.push(z + (rand2() - 0.5) * 0.3);
+    }
+    const raw = pearsonTest(xs, ys)!;
+    expect(raw.r).toBeGreaterThan(0.85);
+    const partial = partialCorrelation(xs, ys, zs, 'pearson')!;
+    expect(Math.abs(partial.r)).toBeLessThan(0.12);
+  });
+
+  it('preserves a genuine link when the confounder is irrelevant', () => {
+    const rand = mulberry32(99);
+    const zs: number[] = [];
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (let i = 0; i < 60; i++) {
+      zs.push(rand());
+      xs.push(i + (rand() - 0.5) * 4);
+      ys.push(i + (rand() - 0.5) * 4);
+    }
+    const raw = pearsonTest(xs, ys)!;
+    const partial = partialCorrelation(xs, ys, zs, 'pearson')!;
+    expect(partial.r).toBeGreaterThan(raw.r - 0.15);
+  });
+
+  it('returns null for tiny samples', () => {
+    expect(partialCorrelation([1, 2, 3, 4], [1, 2, 3, 4], [1, 1, 1, 1], 'pearson')).toBeNull();
+  });
+
+  it('returns null when the confounder is constant', () => {
+    const xs = [1, 2, 3, 4, 5, 6, 7, 8];
+    const ys = [1, 2, 3, 4, 5, 6, 7, 8];
+    expect(partialCorrelation(xs, ys, xs.map(() => 1), 'pearson')).toBeNull();
+  });
+});
+
+describe('maxAttainableR (base-rate ceiling)', () => {
+  it('detects binary series', () => {
+    expect(isBinarySeries([0, 1, 0, 1, 1])).toBe(true);
+    expect(isBinarySeries([0, 0.5, 1])).toBe(false);
+    expect(isBinarySeries([0, 1, 2])).toBe(false);
+  });
+
+  it('caps binary×binary at the phi ceiling (strictly < 1 when margins differ)', () => {
+    // x done 80% of days (minority 20%), y done 70% (minority 30%): the phi
+    // ceiling with unequal margins can never reach 1.
+    const xs = [1, 1, 1, 1, 0, 1, 1, 1, 0, 1];
+    const ys = [0, 0, 0, 1, 1, 1, 1, 1, 1, 1];
+    const ceiling = maxAttainableR(xs, ys)!;
+    expect(ceiling).toBeGreaterThan(0);
+    expect(ceiling).toBeLessThan(1);
+    // phi ceiling with minority margins p_x=0.2, p_y=0.3.
+    expect(ceiling).toBeCloseTo(Math.sqrt((0.2 * 0.7) / (0.3 * 0.8)), 6);
+  });
+
+  it('allows r=1 when the base rates can align perfectly', () => {
+    // Both done exactly half the time → perfect phi = 1.
+    const xs = [1, 1, 1, 1, 0, 0, 0, 0];
+    const ys = [1, 1, 0, 0, 1, 1, 0, 0];
+    expect(maxAttainableR(xs, ys)!).toBeCloseTo(1, 6);
+  });
+
+  it('caps binary×continuous at the point-biserial ceiling', () => {
+    // x done only 10% of the time: with a binary split, the correlation with a
+    // continuous y can never exceed sqrt(p/(1-p))'s bound for that split.
+    const xs = [0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+    const ys = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const ceiling = maxAttainableR(xs, ys)!;
+    expect(ceiling).toBeGreaterThan(0);
+    expect(ceiling).toBeLessThan(1);
+    expect(ceiling).toBeCloseTo(Math.sqrt(0.1 / 0.9), 6);
+  });
+
+  it('returns null for continuous×continuous (no ceiling concept)', () => {
+    const xs = [1, 2, 3, 4, 5, 6, 7, 8];
+    const ys = [8, 7, 6, 5, 4, 3, 2, 1];
+    expect(maxAttainableR(xs, ys)).toBeNull();
   });
 });

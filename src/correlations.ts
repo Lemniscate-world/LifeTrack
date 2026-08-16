@@ -17,7 +17,8 @@
 // All functions are pure (input → output) for easy isolated testing.
 
 import type { CheckIn, Habit, CapacityRating, CorrelationResult, CorrelationCell, CorrelationAnalysis } from './types';
-import { pearsonTest, spearmanTest, benjaminiHochberg, requiredSampleSize, correlationRobustness, detrendedCorrelation, fisherZ, fisherZInv } from './statistics';
+import { pearsonTest, spearmanTest, benjaminiHochberg, requiredSampleSize, correlationRobustness, detrendedCorrelation, fisherZ, fisherZInv, partialCorrelation, maxAttainableR } from './statistics';
+import { moonPhaseAt } from './astrology';
 
 /** Distinct ordinal rank for each mood id (the raw number is irrelevant; Spearman
  * uses relative order). angry and bad are both low; sick slightly above bad. */
@@ -33,6 +34,12 @@ export function moodRank(moodId: string): number {
 export function weekdayOf(date: string): number {
   const [y, m, d] = date.split('-').map(Number);
   return new Date(y, m - 1, d).getDay();
+}
+
+/** Parse a YYYY-MM-DD key as a local Date. */
+function parseDate(date: string): Date {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(y, m - 1, d);
 }
 
 /** Shift a YYYY-MM-DD key by ±days. */
@@ -182,6 +189,7 @@ function build(
   lag = 0,
   window?: 'weekday' | 'weekend',
   dates?: string[],
+  set?: SeriesSet,
 ): { item: Omit<CorrelationResult, 'qValue' | 'significant'>; p: number } | null {
   const test = method === 'pearson' ? pearsonTest(xs, ys) : spearmanTest(xs, ys);
   if (!test || test.p === 1) return null;
@@ -192,9 +200,20 @@ function build(
   //   1) shared calendar trend — correlation on detrended residuals (applies
   //      to same-day AND lag pairs: a shared drift inflates both).
   //   2) weekday/weekend confound — pooled within-stratum estimate (same-day only).
+  //   3) confounder control — partial correlation vs Mood / Énergie (same-day only).
+  //   4) lunar phase control — mood pairs only (same-day only).
+  //   5) base-rate ceiling — max attainable |r| given the marginal frequencies.
   let detrended: number | null = null;
   let trendDriven = false;
   let weekdayConfounded = false;
+  let partialCoefficient: number | null = null;
+  let confounder: 'Mood' | 'Énergie' | undefined;
+  let confoundDriven = false;
+  let lunarCoefficient: number | null = null;
+  let lunarDriven = false;
+  let maxR: number | null = null;
+  let atCeiling = false;
+
   if (dates && dates.length >= 6 && !window) {
     const dt = detrendedCorrelation(xs, ys, method);
     if (dt) {
@@ -206,7 +225,42 @@ function build(
       if (within !== null && Math.abs(coefficient) >= 0.15) {
         weekdayConfounded = Math.abs(within) < Math.abs(coefficient) - 0.2;
       }
+
+      if (set) {
+        // Confounder control: pick the strongest reducer among Mood / Énergie.
+        const candidates: { label: 'Mood' | 'Énergie'; series: Map<string, number> }[] = [];
+        if (metricA !== 'Mood' && metricB !== 'Mood') candidates.push({ label: 'Mood', series: set.moodSeries });
+        if (metricA !== 'Énergie' && metricB !== 'Énergie') candidates.push({ label: 'Énergie', series: set.energySeries });
+        for (const cand of candidates) {
+          const zs = dates.map((d) => cand.series.get(d)).filter((v): v is number => v !== undefined);
+          if (zs.length !== dates.length || zs.length < 7) continue;
+          const pc = partialCorrelation(xs, ys, zs, method);
+          if (pc && (partialCoefficient === null || Math.abs(pc.r) < Math.abs(partialCoefficient))) {
+            partialCoefficient = pc.r;
+            confounder = cand.label;
+          }
+        }
+        confoundDriven = partialCoefficient !== null
+          && Math.abs(partialCoefficient) < Math.abs(coefficient) - 0.2
+          && Math.abs(partialCoefficient) < 0.35;
+
+        // Lunar phase control (mood pairs): the mood may follow the moon cycle.
+        if (metricA === 'Mood' || metricB === 'Mood') {
+          const zs = dates.map((d) => Math.sin((2 * Math.PI * moonPhaseAt(parseDate(d))) / 360));
+          const pc = partialCorrelation(xs, ys, zs, method);
+          if (pc) {
+            lunarCoefficient = pc.r;
+            lunarDriven = Math.abs(pc.r) < Math.abs(coefficient) - 0.2 && Math.abs(pc.r) < 0.35;
+          }
+        }
+      }
     }
+  }
+
+  const maxRVal = maxAttainableR(xs, ys);
+  if (maxRVal !== null && maxRVal > 0.05) {
+    maxR = maxRVal;
+    atCeiling = maxRVal < 0.5 && Math.abs(coefficient) > 0.85 * maxRVal;
   }
 
   return {
@@ -232,6 +286,13 @@ function build(
       detrendedCoefficient: detrended,
       trendDriven,
       weekdayConfounded,
+      partialCoefficient,
+      confounder,
+      confoundDriven,
+      lunarCoefficient,
+      lunarDriven,
+      maxR,
+      atCeiling,
     },
     p: test.p,
   };
@@ -323,7 +384,8 @@ export function isTrustworthy(r: CorrelationResult): boolean {
   );
 }
 
-/** Attach FDR-adjusted q-values and sort by |coefficient| (strongest first). */
+/** Attach FDR-adjusted q-values and sort by |coefficient| (strongest first).
+ * Single-run version used by the standalone computeCorrelations entry point. */
 function finalize(raw: Raw[]): CorrelationResult[] {
   if (raw.length === 0) return [];
   const qValues = benjaminiHochberg(raw.map((r) => r.p));
@@ -332,6 +394,9 @@ function finalize(raw: Raw[]): CorrelationResult[] {
       ...r.item,
       qValue: qValues[idx],
       significant: qValues[idx] < 0.05,
+      directionSupported: r.item.reversePValue === undefined
+        ? undefined
+        : qValues[idx] < 0.05 && r.item.reversePValue >= 0.05,
       pairKey: `${r.item.metricA}↔${r.item.metricB}${r.item.window ? `@${r.item.window}` : ''}`,
     }))
     .sort((a, b) => Math.abs(b.coefficient) - Math.abs(a.coefficient));
@@ -350,12 +415,15 @@ export function computeCorrelations(
   ratings: CapacityRating[],
   energies?: Record<string, number>,
 ): CorrelationResult[] {
-  return runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: undefined }, energies);
+  return finalize(runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: undefined }, energies));
 }
 
 /**
- * Compute the full correlation analysis: contemporaneous, lag-1, weekday and
- * weekend windows, plus a heatmap matrix and interpretive caveats.
+ * Compute the full correlation analysis: contemporaneous, lag-1..7, weekday and
+ * weekend windows, heatmap matrices (all days + weekday/weekend), interpretive
+ * caveats. The FDR correction is applied ONCE over all windows combined — a
+ * pair significant in same-day is judged against the total number of tests the
+ * user can browse, not the per-tab count (honesty across the whole analysis).
  */
 export function computeCorrelationAnalysis(
   habits: Habit[],
@@ -369,66 +437,23 @@ export function computeCorrelationAnalysis(
   if (dates.length < 5) {
     return { sameDay: [], lag1: [], weekday: [], weekend: [], matrix: [], metrics: [], caveats: defaultCaveats() };
   }
-  const sameDay = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: undefined }, energies);
-  const lag1 = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 1, window: undefined }, energies);
-  const lag2 = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 2, window: undefined }, energies);
-  const lag3 = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 3, window: undefined }, energies);
-  const lag7 = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 7, window: undefined }, energies);
-  const weekday = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: 'weekday' }, energies);
-  const weekend = runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: 'weekend' }, energies);
-
-  // Heatmap matrix over all metric pairs (all habits + Mood + Énergie + capacities).
-  const set = buildSeries(habits, checkIns, moods, capacities, ratings, undefined, energies);
-  const hasEnergy = set.energySeries.size >= 3;
-  const metrics = [
-    ...set.activeHabits.map((h) => h.name),
-    ...(Object.keys(moods).length > 0 ? ['Mood'] : []),
-    ...(hasEnergy ? ['Énergie'] : []),
-    ...capacities.map((c) => c.name),
+  const raws = [
+    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: undefined }, energies),
+    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 1, window: undefined }, energies),
+    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 2, window: undefined }, energies),
+    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 3, window: undefined }, energies),
+    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 7, window: undefined }, energies),
+    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: 'weekday' }, energies),
+    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: 'weekend' }, energies),
   ];
-  const matrix: CorrelationCell[] = [];
-  const matrixPs: number[] = [];
-  const matrixRaw: { row: string; col: string; coefficient: number; sampleSize: number; p: number; detrendedCoefficient: number | null; trendDriven: boolean }[] = [];
-  for (let i = 0; i < metrics.length; i++) {
-    for (let j = i + 1; j < metrics.length; j++) {
-      const a = seriesForLabel(metrics[i], set, capacities);
-      const b = seriesForLabel(metrics[j], set, capacities);
-      if (!a || !b) continue;
-      const { xs, ys } = align(a, b);
-      if (xs.length >= 6) {
-        const usesMood = metrics[i] === 'Mood' || metrics[j] === 'Mood';
-        const method = usesMood ? 'spearman' : 'pearson';
-        const test = method === 'spearman' ? spearmanTest(xs, ys) : pearsonTest(xs, ys);
-        if (test && test.p !== 1) {
-          const coeff = usesMood ? (test as { rho: number }).rho : (test as { r: number }).r;
-          const dt = detrendedCorrelation(xs, ys, method);
-          matrixPs.push(test.p);
-          matrixRaw.push({
-            row: metrics[i],
-            col: metrics[j],
-            coefficient: coeff,
-            sampleSize: xs.length,
-            p: test.p,
-            detrendedCoefficient: dt ? dt.r : null,
-            trendDriven: dt !== null && Math.abs(coeff - dt.r) > 0.2 && Math.abs(dt.r) < 0.35,
-          });
-        }
-      }
-    }
-  }
-  const matrixQs = benjaminiHochberg(matrixPs);
-  matrixRaw.forEach((raw, idx) => {
-    matrix.push({
-      row: raw.row,
-      col: raw.col,
-      coefficient: raw.coefficient,
-      sampleSize: raw.sampleSize,
-      significant: matrixQs[idx] < 0.05,
-      qValue: matrixQs[idx],
-      detrendedCoefficient: raw.detrendedCoefficient,
-      trendDriven: raw.trendDriven,
-    });
-  });
+  const [sameDay, lag1, lag2, lag3, lag7, weekday, weekend] = globalFinalize(raws);
+
+  const set = buildSeries(habits, checkIns, moods, capacities, ratings, undefined, energies);
+  const matrixInfo = buildMatrix(set, capacities);
+  const weekdaySet = buildSeries(habits, checkIns, moods, capacities, ratings, 'weekday', energies);
+  const weekendSet = buildSeries(habits, checkIns, moods, capacities, ratings, 'weekend', energies);
+  const matrixWeekday = buildMatrix(weekdaySet, capacities).cells;
+  const matrixWeekend = buildMatrix(weekendSet, capacities).cells;
 
   return {
     sameDay,
@@ -438,8 +463,10 @@ export function computeCorrelationAnalysis(
     lag7,
     weekday,
     weekend,
-    matrix,
-    metrics,
+    matrix: matrixInfo.cells,
+    matrixWeekday,
+    matrixWeekend,
+    metrics: matrixInfo.metrics,
     caveats: defaultCaveats(),
   };
 }
@@ -481,7 +508,7 @@ function runPairs(
   ratings: CapacityRating[],
   opts: RunOptions,
   energies?: Record<string, number>,
-): CorrelationResult[] {
+): Raw[] {
   const set = buildSeries(habits, checkIns, moods, capacities, ratings, opts.window, energies);
   const raw: Raw[] = [];
 
@@ -492,8 +519,11 @@ function runPairs(
       const [idB, mapB] = habitArr[j];
       const { xs, ys, dates } = opts.lag > 0 ? alignLag(mapA, mapB, opts.lag) : align(mapA, mapB);
       if (xs.length >= 6) {
-        const r = build(nameOf(idA, set, capacities), nameOf(idB, set, capacities), 'pearson', xs, ys, opts.lag, opts.window, dates);
-        if (r) raw.push(r);
+        const r = build(nameOf(idA, set, capacities), nameOf(idB, set, capacities), 'pearson', xs, ys, opts.lag, opts.window, dates, set);
+        if (r) {
+          attachReverse(r.item, mapA, mapB, nameOf(idA, set, capacities), nameOf(idB, set, capacities), opts, set);
+          raw.push(r);
+        }
       }
     }
   }
@@ -501,15 +531,18 @@ function runPairs(
   for (const [id, map] of set.habitSeries) {
     const { xs, ys, dates } = opts.lag > 0 ? alignLag(map, set.moodSeries, opts.lag) : align(map, set.moodSeries);
     if (xs.length >= 6) {
-      const r = build(nameOf(id, set, capacities), 'Mood', 'spearman', xs, ys, opts.lag, opts.window, dates);
-      if (r) raw.push(r);
+      const r = build(nameOf(id, set, capacities), 'Mood', 'spearman', xs, ys, opts.lag, opts.window, dates, set);
+      if (r) {
+        attachReverse(r.item, map, set.moodSeries, nameOf(id, set, capacities), 'Mood', opts, set);
+        raw.push(r);
+      }
     }
   }
 
   for (const [, cm] of set.capSeries) {
     const { xs, ys, dates } = opts.lag > 0 ? alignLag(cm, set.moodSeries, opts.lag) : align(cm, set.moodSeries);
     if (xs.length >= 6) {
-      const r = build('Capacité', 'Mood', 'spearman', xs, ys, opts.lag, opts.window, dates);
+      const r = build('Capacité', 'Mood', 'spearman', xs, ys, opts.lag, opts.window, dates, set);
       if (r) raw.push(r);
     }
   }
@@ -520,21 +553,27 @@ function runPairs(
     for (const [habitId, hm] of set.habitSeries) {
       const { xs, ys, dates } = opts.lag > 0 ? alignLag(hm, set.energySeries, opts.lag) : align(hm, set.energySeries);
       if (xs.length >= 6) {
-        const r = build(nameOf(habitId, set, capacities), 'Énergie', 'pearson', xs, ys, opts.lag, opts.window, dates);
-        if (r) raw.push(r);
+        const r = build(nameOf(habitId, set, capacities), 'Énergie', 'pearson', xs, ys, opts.lag, opts.window, dates, set);
+        if (r) {
+          attachReverse(r.item, hm, set.energySeries, nameOf(habitId, set, capacities), 'Énergie', opts, set);
+          raw.push(r);
+        }
       }
     }
     {
       const { xs, ys, dates } = opts.lag > 0 ? alignLag(set.energySeries, set.moodSeries, opts.lag) : align(set.energySeries, set.moodSeries);
       if (xs.length >= 6) {
-        const r = build('Énergie', 'Mood', 'pearson', xs, ys, opts.lag, opts.window, dates);
-        if (r) raw.push(r);
+        const r = build('Énergie', 'Mood', 'pearson', xs, ys, opts.lag, opts.window, dates, set);
+        if (r) {
+          attachReverse(r.item, set.energySeries, set.moodSeries, 'Énergie', 'Mood', opts, set);
+          raw.push(r);
+        }
       }
     }
     for (const [capId, cm] of set.capSeries) {
       const { xs, ys, dates } = opts.lag > 0 ? alignLag(cm, set.energySeries, opts.lag) : align(cm, set.energySeries);
       if (xs.length >= 6) {
-        const r = build(nameOf(capId, set, capacities), 'Énergie', 'pearson', xs, ys, opts.lag, opts.window, dates);
+        const r = build(nameOf(capId, set, capacities), 'Énergie', 'pearson', xs, ys, opts.lag, opts.window, dates, set);
         if (r) raw.push(r);
       }
     }
@@ -544,11 +583,159 @@ function runPairs(
     for (const [habitId, hm] of set.habitSeries) {
       const { xs, ys, dates } = opts.lag > 0 ? alignLag(hm, cm, opts.lag) : align(hm, cm);
       if (xs.length >= 6) {
-        const r = build(nameOf(habitId, set, capacities), nameOf(capId, set, capacities), 'pearson', xs, ys, opts.lag, opts.window, dates);
+        const r = build(nameOf(habitId, set, capacities), nameOf(capId, set, capacities), 'pearson', xs, ys, opts.lag, opts.window, dates, set);
         if (r) raw.push(r);
       }
     }
   }
 
-  return finalize(raw);
+  return raw;
+}
+
+/**
+ * Granger-lite direction test: for lag-1 pairs, also compute the reverse
+ * (Y(t) → X(t+1)). If only the forward direction is significant, the temporal
+ * order is supported — the link is not just "everything predicts everything".
+ */
+function attachReverse(
+  item: Omit<CorrelationResult, 'qValue' | 'significant'>,
+  mapA: Map<string, number>,
+  mapB: Map<string, number>,
+  nameA: string,
+  nameB: string,
+  opts: RunOptions,
+  set: SeriesSet,
+): void {
+  if (opts.lag !== 1 || opts.window) return;
+  const rev = alignLag(mapB, mapA, 1);
+  if (rev.xs.length < 6) return;
+  const method = nameA === 'Mood' || nameB === 'Mood' ? 'spearman' : 'pearson';
+  const rb = build(nameB, nameA, method, rev.xs, rev.ys, 1, undefined, rev.dates, set);
+  if (rb) {
+    item.reverseLagCoefficient = rb.item.coefficient;
+    item.reversePValue = rb.p;
+  }
+}
+
+/**
+ * Global FDR: all windows are pooled into ONE Benjamini–Hochberg correction,
+ * then split back into the per-window lists (honest across the whole browseable
+ * analysis). Each list is sorted by |coefficient|.
+ */
+function globalFinalize(raws: Raw[][]): CorrelationResult[][] {
+  const all: { raw: Raw; windowIdx: number }[] = [];
+  raws.forEach((list, windowIdx) => list.forEach((raw) => all.push({ raw, windowIdx })));
+  if (all.length === 0) return raws.map(() => []);
+  const qValues = benjaminiHochberg(all.map((e) => e.raw.p));
+  const out: CorrelationResult[][] = raws.map(() => []);
+  all.forEach((e, idx) => {
+    out[e.windowIdx].push({
+      ...e.raw.item,
+      qValue: qValues[idx],
+      significant: qValues[idx] < 0.05,
+      directionSupported: e.raw.item.reversePValue === undefined
+        ? undefined
+        : qValues[idx] < 0.05 && e.raw.item.reversePValue >= 0.05,
+      pairKey: `${e.raw.item.metricA}↔${e.raw.item.metricB}${e.raw.item.window ? `@${e.raw.item.window}` : ''}`,
+    });
+  });
+  return out.map((list) => list.sort((a, b) => Math.abs(b.coefficient) - Math.abs(a.coefficient)));
+}
+
+/** Heatmap matrix over all metric pairs for a (possibly windowed) series set. */
+function buildMatrix(
+  set: SeriesSet,
+  capacities: { id: string; name: string }[],
+  window?: 'weekday' | 'weekend',
+): { cells: CorrelationCell[]; metrics: string[] } {
+  const hasEnergy = set.energySeries.size >= 3;
+  const metrics = [
+    ...set.activeHabits.map((h) => h.name),
+    ...(set.moodSeries.size > 0 ? ['Mood'] : []),
+    ...(hasEnergy ? ['Énergie'] : []),
+    ...capacities.map((c) => c.name),
+  ];
+  const matrixRaw: { row: string; col: string; coefficient: number; sampleSize: number; p: number; detrendedCoefficient: number | null; trendDriven: boolean; weekdayConfounded: boolean; maxR: number | null; atCeiling: boolean }[] = [];
+  const matrixPs: number[] = [];
+  for (let i = 0; i < metrics.length; i++) {
+    for (let j = i + 1; j < metrics.length; j++) {
+      const a = seriesForLabel(metrics[i], set, capacities);
+      const b = seriesForLabel(metrics[j], set, capacities);
+      if (!a || !b) continue;
+      const { xs, ys, dates } = align(a, b);
+      if (xs.length >= 6) {
+        const usesMood = metrics[i] === 'Mood' || metrics[j] === 'Mood';
+        const method = usesMood ? 'spearman' : 'pearson';
+        const test = method === 'spearman' ? spearmanTest(xs, ys) : pearsonTest(xs, ys);
+        if (test && test.p !== 1) {
+          const coeff = usesMood ? (test as { rho: number }).rho : (test as { r: number }).r;
+          const dt = detrendedCorrelation(xs, ys, method);
+          const within = window ? null : withinStratumCoefficient(xs, ys, dates, method);
+          const maxR = maxAttainableR(xs, ys);
+          matrixPs.push(test.p);
+          matrixRaw.push({
+            row: metrics[i],
+            col: metrics[j],
+            coefficient: coeff,
+            sampleSize: xs.length,
+            p: test.p,
+            detrendedCoefficient: dt ? dt.r : null,
+            trendDriven: dt !== null && Math.abs(coeff - dt.r) > 0.2 && Math.abs(dt.r) < 0.35,
+            weekdayConfounded: within !== null && Math.abs(coeff) >= 0.15 && Math.abs(within) < Math.abs(coeff) - 0.2,
+            maxR: maxR !== null && maxR > 0.05 ? maxR : null,
+            atCeiling: maxR !== null && maxR > 0.05 && maxR < 0.5 && Math.abs(coeff) > 0.85 * maxR,
+          });
+        }
+      }
+    }
+  }
+  const matrixQs = benjaminiHochberg(matrixPs);
+  const cells: CorrelationCell[] = matrixRaw.map((raw, idx) => ({
+    row: raw.row,
+    col: raw.col,
+    coefficient: raw.coefficient,
+    sampleSize: raw.sampleSize,
+    significant: matrixQs[idx] < 0.05,
+    qValue: matrixQs[idx],
+    detrendedCoefficient: raw.detrendedCoefficient,
+    trendDriven: raw.trendDriven,
+    weekdayConfounded: raw.weekdayConfounded,
+    maxR: raw.maxR,
+    atCeiling: raw.atCeiling,
+  }));
+  return { cells, metrics };
+}
+
+/**
+ * Average-linkage clustering order for the matrix: metrics that correlate
+ * together become adjacent, so correlated blocks are visible at a glance.
+ * Returns the same labels, reordered (idempotent for ≤2 metrics).
+ */
+export function clusterOrder(metrics: string[], matrix: CorrelationCell[]): string[] {
+  if (metrics.length <= 2) return [...metrics];
+  const r = (a: string, b: string): number => {
+    const c = matrix.find((m) => (m.row === a && m.col === b) || (m.row === b && m.col === a));
+    return c && c.coefficient !== null ? Math.abs(c.coefficient) : 0;
+  };
+  let clusters: string[][] = metrics.map((m) => [m]);
+  const clusterR = (ca: string[], cb: string[]): number => {
+    let s = 0;
+    let n = 0;
+    for (const a of ca) for (const b of cb) { s += r(a, b); n++; }
+    return n > 0 ? s / n : 0;
+  };
+  while (clusters.length > 1) {
+    let bestI = 0;
+    let bestJ = 1;
+    let best = -1;
+    for (let i = 0; i < clusters.length; i++) {
+      for (let j = i + 1; j < clusters.length; j++) {
+        const v = clusterR(clusters[i], clusters[j]);
+        if (v > best) { best = v; bestI = i; bestJ = j; }
+      }
+    }
+    clusters[bestI] = [...clusters[bestI], ...clusters[bestJ]];
+    clusters.splice(bestJ, 1);
+  }
+  return clusters[0];
 }

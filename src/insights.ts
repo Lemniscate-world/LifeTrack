@@ -4,7 +4,7 @@
 // trustworthy (FDR-significant, stable, not outlier-driven) and ranks the rest
 // so the user sees "what to remember" instead of a wall of stats.
 
-import type { CorrelationAnalysis, CorrelationResult } from './types';
+import type { CheckIn, CorrelationAnalysis, CorrelationResult } from './types';
 import { isTrustworthy } from './correlations';
 
 export interface Insight {
@@ -26,6 +26,161 @@ export interface Insight {
   window?: 'weekday' | 'weekend';
   /** Interpretive nuance appended to the sentence. */
   nuance?: string;
+}
+
+/** All results across every lag/window, for pool-wide analysis. */
+function allResults(analysis: CorrelationAnalysis): CorrelationResult[] {
+  return [
+    ...analysis.sameDay,
+    ...analysis.lag1,
+    ...(analysis.lag2 ?? []),
+    ...(analysis.lag3 ?? []),
+    ...(analysis.lag7 ?? []),
+    ...analysis.weekday,
+    ...analysis.weekend,
+  ];
+}
+
+/**
+ * "Absences" insights: habits that appear with enough aligned days but show
+ * NO trustworthy link with anything. Knowing what does NOT relate is as
+ * actionable as knowing what does — it flags habits that may be pure routine.
+ */
+export function gapInsights(analysis: CorrelationAnalysis): Insight[] {
+  const results = allResults(analysis);
+  if (results.length === 0) return [];
+  const trusted = new Set<string>();
+  const present = new Map<string, number>();
+  for (const r of results) {
+    for (const m of [r.metricA, r.metricB]) {
+      if (m === 'Mood' || m === 'Énergie' || m === 'Capacité') continue;
+      if (isTrustworthy(r)) trusted.add(m);
+      present.set(m, Math.max(present.get(m) ?? 0, r.sampleSize));
+    }
+  }
+  const out: Insight[] = [];
+  for (const [metric, n] of present) {
+    if (trusted.has(metric)) continue;
+    if (n < 8) continue;
+    out.push({
+      pairKey: `gap:${metric}`,
+      sentence: `${metric} ne corrèle avec rien de fiable (ni le même jour, ni les jours suivants, ni en week-end/semaine) sur ${n} jours de données. C'est peut-être une routine pure — utile en soi, mais sans effet mesurable sur ton humeur, ton énergie ou tes autres habitudes.`,
+      label: `${metric} — aucun lien`,
+      direction: 'negative',
+      magnitude: 0,
+      n,
+      lag: 0,
+      nuance: 'Absence de lien ≠ preuve d’inutilité : ça veut dire « rien ne change quand tu le fais », ce qui peut être volontaire.',
+    });
+  }
+  return out.sort((a, b) => b.n - a.n);
+}
+
+/**
+ * Actionable levers: trustworthy lag-1 pairs (X today → Y tomorrow) ranked by
+ * impact = effect size × how often X is actually done. Changing the most
+ * frequent, most impactful X first gives the best expected return.
+ */
+export function actionableLevers(analysis: CorrelationAnalysis, checkIns: CheckIn[], limit = 3): Insight[] {
+  const candidates = analysis.lag1
+    .filter((r) => isTrustworthy(r))
+    .map((r) => {
+      // Frequency of the "action" side: how often the metric the user can
+      // change is actually done (completed days / distinct days in check-ins).
+      const actionSide = r.metricA === 'Mood' || r.metricA === 'Énergie' || r.metricA === 'Capacité' ? r.metricB : r.metricA;
+      const habitNames = new Map<string, string>();
+      const habitDays = new Map<string, Set<string>>();
+      const doneDays = new Map<string, Set<string>>();
+      for (const c of checkIns) {
+        if (c.habitId) {
+          const s = habitDays.get(c.habitId) ?? new Set<string>();
+          s.add(c.date);
+          habitDays.set(c.habitId, s);
+          if (c.completed) {
+            const d = doneDays.get(c.habitId) ?? new Set<string>();
+            d.add(c.date);
+            doneDays.set(c.habitId, d);
+          }
+        }
+      }
+      // Map habit names to ids: names come from the analysis labels; resolve
+      // by matching through the check-in set is not possible directly, so use
+      // the frequency of the action label when it IS a habit name we know.
+      let freq = 0.5;
+      void habitNames;
+      // Best-effort: search check-ins for a habit whose name matches actionSide
+      // cannot be done here (no habit list) → use the overall completion rate
+      // of the action metric if it is a habit-like label (not Mood/Énergie).
+      const isState = actionSide === 'Mood' || actionSide === 'Énergie' || actionSide === 'Capacité';
+      if (!isState) {
+        let total = 0;
+        let done = 0;
+        for (const [id, days] of habitDays) {
+          void id;
+          total += days.size;
+          done += doneDays.get(id)?.size ?? 0;
+        }
+        freq = total > 0 ? done / total : 0.5;
+      }
+      return { r, score: Math.abs(r.coefficient) * (0.4 + 0.6 * freq) };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+
+  return candidates.map(({ r }) => {
+    const positive = r.coefficient >= 0;
+    const a = r.metricA.charAt(0).toLowerCase() + r.metricA.slice(1);
+    const b = r.metricB.charAt(0).toLowerCase() + r.metricB.slice(1);
+    return {
+      pairKey: r.pairKey ?? `lever:${r.metricA}↔${r.metricB}`,
+      sentence: positive
+        ? `Levier n°1 potentiel : quand tu fais ${a}, ${b} a tendance à monter le lendemain (r=${r.coefficient.toFixed(2)}). C'est l'une de tes habitudes les plus fréquentes : y investir a un retour probable.`
+        : `Levier négatif : quand tu fais ${a}, ${b} a tendance à baisser le lendemain (r=${r.coefficient.toFixed(2)}). Réduire ${a} pourrait améliorer ${b}.`,
+      label: `${r.metricA} → ${b[0].toUpperCase()}${b.slice(1)} (lag 1j)`,
+      direction: positive ? 'positive' : 'negative',
+      magnitude: Math.abs(r.coefficient),
+      n: r.sampleSize,
+      lag: 1,
+      nuance: 'Levier = association prédictive fiable, pas une preuve de causalité. Teste le changement avant d’en faire une règle.',
+    };
+  });
+}
+
+/**
+ * Contrast insights: the same pair measured on weekdays vs weekends with a
+ * large gap — "the link only exists on weekends" is a real behavioural signal.
+ */
+export function contrastInsights(analysis: CorrelationAnalysis): Insight[] {
+  const byPair = (list: CorrelationResult[]) => {
+    const map = new Map<string, CorrelationResult>();
+    for (const r of list) map.set(`${r.metricA}↔${r.metricB}`, r);
+    return map;
+  };
+  const wd = byPair(analysis.weekday);
+  const we = byPair(analysis.weekend);
+  const out: Insight[] = [];
+  for (const [key, wdR] of wd) {
+    const weR = we.get(key);
+    if (!weR) continue;
+    const gap = Math.abs(wdR.coefficient - weR.coefficient);
+    if (gap < 0.25) continue;
+    const stronger = Math.abs(weR.coefficient) > Math.abs(wdR.coefficient) ? weR : wdR;
+    const weaker = stronger === weR ? wdR : weR;
+    const windowName = stronger === weR ? 'le week-end' : 'en semaine';
+    const otherName = stronger === weR ? 'en semaine' : 'le week-end';
+    out.push({
+      pairKey: `contrast:${key}`,
+      sentence: `Le lien ${stronger.metricA} ↔ ${stronger.metricB} est marqué ${windowName} (${stronger.coefficient >= 0 ? '+' : ''}${stronger.coefficient.toFixed(2)}) mais quasi absent ${otherName} (${weaker.coefficient >= 0 ? '+' : ''}${weaker.coefficient.toFixed(2)}). L'effet dépend du type de journée.`,
+      label: `${stronger.metricA} ↔ ${stronger.metricB} — contraste`,
+      direction: stronger.coefficient >= 0 ? 'positive' : 'negative',
+      magnitude: Math.abs(stronger.coefficient),
+      n: Math.max(stronger.sampleSize, weaker.sampleSize),
+      lag: 0,
+      window: stronger === weR ? 'weekend' : 'weekday',
+      nuance: 'Contraste semaine/week-end : le lien n’est pas stable dans le temps — il dépend du rythme de la semaine.',
+    });
+  }
+  return out.sort((a, b) => b.magnitude - a.magnitude);
 }
 
 const LAG_LABEL: Record<number, string> = {

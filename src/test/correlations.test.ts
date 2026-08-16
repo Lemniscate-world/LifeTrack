@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { CheckIn, Habit } from '../types';
-import { computeCorrelations, computeCorrelationAnalysis, shiftDateKey, weekdayOf } from '../correlations';
+import { computeCorrelations, computeCorrelationAnalysis, shiftDateKey, weekdayOf, clusterOrder } from '../correlations';
+import { moonPhaseAt } from '../astrology';
 
 function habit(id: string, name = id): Habit {
   return { id, name, color: '#fff', goal: 1, createdAt: new Date().toISOString(), archived: false, order: 0 };
@@ -308,5 +309,164 @@ describe('anti-misleading guards ("plus réel")', () => {
       expect(r.detrendedCoefficient === null || typeof r.detrendedCoefficient === 'number').toBe(true);
       expect(typeof r.trendDriven).toBe('boolean');
     }
+  });
+});
+
+describe('truth guards v2 — confounder, lunar, base-rate ceiling, direction', () => {
+  it('flags a Mood-driven link as confoundDriven via partial correlation', () => {
+    // Habit and energy are BOTH driven by mood: done/up on good days, not done/down
+    // on bad days. r(habit, energy) is strong, but partial(controlling Mood) ≈ 0.
+    const moods: Record<string, string> = {};
+    const energies: Record<string, number> = {};
+    const checks: CheckIn[] = [];
+    const rand = mulberry32(55);
+    for (let d = 1; d <= 40; d++) {
+      const k = `2026-05-${String(d).padStart(2, '0')}`;
+      const good = rand() > 0.45;
+      moods[k] = good ? 'great' : 'bad';
+      energies[k] = good ? 80 + rand() * 15 : 20 + rand() * 15;
+      // Habit mostly follows mood, with ~10% of days disagreeing so the
+      // partial correlation is estimable (rxz < 1).
+      checks.push(ci('a', k, rand() > 0.06 ? good : !good));
+    }
+    const res = computeCorrelations([habit('a', 'Sport')], checks, moods, [], [], energies);
+    const pair = res.find((c) => c.metricA === 'Sport' && c.metricB === 'Énergie');
+    expect(pair).toBeDefined();
+    expect(pair!.coefficient).toBeGreaterThan(0.6);
+    expect(pair!.confoundDriven).toBe(true);
+    expect(pair!.confounder).toBe('Mood');
+    expect(pair!.partialCoefficient).not.toBeNull();
+    expect(Math.abs(pair!.partialCoefficient!)).toBeLessThan(0.35);
+  });
+
+  it('keeps a genuine habit↔energy link when mood is irrelevant', () => {
+    // Habit and energy move together; mood is random noise → partial ≈ raw.
+    const moods: Record<string, string> = {};
+    const energies: Record<string, number> = {};
+    const checks: CheckIn[] = [];
+    const rand = mulberry32(123);
+    for (let d = 1; d <= 40; d++) {
+      const k = `2026-05-${String(d).padStart(2, '0')}`;
+      const done = rand() > 0.5;
+      moods[k] = rand() > 0.5 ? 'great' : 'bad';
+      energies[k] = done ? 75 + rand() * 20 : 25 + rand() * 20;
+      checks.push(ci('a', k, done));
+    }
+    const res = computeCorrelations([habit('a', 'Sport')], checks, moods, [], [], energies);
+    const pair = res.find((c) => c.metricA === 'Sport' && c.metricB === 'Énergie');
+    expect(pair).toBeDefined();
+    expect(pair!.coefficient).toBeGreaterThan(0.5);
+    expect(pair!.confoundDriven).toBe(false);
+  });
+
+  it('flags a pair that both follow the lunar cycle as lunarDriven', () => {
+    // Habit and mood are both driven by the REAL moon phase (probabilistic, so
+    // the partial is estimable) → strong same-day link that evaporates once
+    // the lunar sinusoid is partialled out.
+    const moods: Record<string, string> = {};
+    const checks: CheckIn[] = [];
+    const rand1 = mulberry32(7);
+    const rand2 = mulberry32(555);
+    for (let d = 0; d < 55; d++) {
+      const base = new Date(2026, 2, 1);
+      base.setDate(base.getDate() + d);
+      const k = base.toISOString().slice(0, 10);
+      const phase = Math.sin((2 * Math.PI * moonPhaseAt(base)) / 360);
+      const moodVal = phase + (rand2() - 0.5) * 0.4;
+      moods[k] = moodVal > 0.25 ? 'great' : moodVal < -0.25 ? 'bad' : 'ok';
+      checks.push(ci('a', k, rand1() < 0.5 + 0.48 * phase));
+    }
+    const res = computeCorrelations([habit('a', 'Sport')], checks, moods, [], []);
+    const pair = res.find((c) => c.metricB === 'Mood' && c.metricA === 'Sport');
+    expect(pair).toBeDefined();
+    expect(pair!.coefficient).toBeGreaterThan(0.5);
+    expect(pair!.lunarDriven).toBe(true);
+    expect(pair!.lunarCoefficient).not.toBeNull();
+    expect(Math.abs(pair!.lunarCoefficient!)).toBeLessThan(Math.abs(pair!.coefficient) - 0.2);
+  });
+
+  it('flags an effect pinned to the base-rate ceiling (atCeiling)', () => {
+    // Habit A done ~5% of days, habit B ~40%. A's days all fall inside B's days:
+    // phi ≈ 0.28 while the attainable ceiling ≈ 0.28 → the effect is AT the ceiling.
+    const checks: CheckIn[] = [];
+    for (let d = 1; d <= 60; d++) {
+      const k = `2026-08-${String(d).padStart(2, '0')}`;
+      const aDone = d <= 3;
+      const bDone = d <= 24;
+      checks.push(ci('a', k, aDone), ci('b', k, bDone));
+    }
+    const res = computeCorrelations([habit('a', 'Rare'), habit('b', 'Commun')], checks, {}, [], []);
+    const pair = res.find((c) => c.metricA === 'Rare' && c.metricB === 'Commun');
+    expect(pair).toBeDefined();
+    expect(pair!.maxR).not.toBeNull();
+    expect(pair!.maxR!).toBeLessThan(0.5);
+    expect(pair!.atCeiling).toBe(true);
+  });
+
+  it('supports a one-directional lag-1 link (reverse test)', () => {
+    // Mood tomorrow = habit today exactly; habit tomorrow is independent of mood
+    // today → forward significant, reverse not → directionSupported.
+    const moods: Record<string, string> = {};
+    const checks: CheckIn[] = [];
+    const rand = mulberry32(7);
+    const done: boolean[] = [];
+    for (let d = 1; d <= 20; d++) {
+      const k = `2026-09-${String(d).padStart(2, '0')}`;
+      const v = rand() > 0.5;
+      done.push(v);
+      checks.push(ci('a', k, v));
+      const prev = done[d - 2];
+      moods[k] = prev ? 'great' : 'bad';
+    }
+    const analysis = computeCorrelationAnalysis([habit('a', 'Sport')], checks, moods, [], []);
+    const lag = analysis.lag1.find((c) => c.metricA === 'Sport' && c.metricB === 'Mood');
+    expect(lag).toBeDefined();
+    expect(lag!.significant).toBe(true);
+    expect(lag!.reverseLagCoefficient).not.toBeNull();
+    expect(lag!.directionSupported).toBe(true);
+  });
+
+  it('does not claim a direction when the link is reversible', () => {
+    // Bidirectional design: mood today = habit yesterday (forward link perfect)
+    // AND habit tomorrow = inverse of mood today (reverse link also perfect).
+    const moods: Record<string, string> = {};
+    const checks: CheckIn[] = [];
+    const rand = mulberry32(21);
+    const sport: boolean[] = [rand() > 0.5, rand() > 0.5];
+    for (let d = 2; d < 21; d++) sport[d] = !sport[d - 2];
+    for (let d = 1; d <= 21; d++) {
+      const k = `2026-09-${String(d).padStart(2, '0')}`;
+      checks.push(ci('a', k, sport[d - 1]));
+      moods[k] = sport[d - 2] ? 'great' : 'bad';
+    }
+    const analysis = computeCorrelationAnalysis([habit('a', 'Sport')], checks, moods, [], []);
+    const lag = analysis.lag1.find((c) => c.metricA === 'Sport' && c.metricB === 'Mood');
+    expect(lag).toBeDefined();
+    expect(lag!.significant).toBe(true);
+    expect(lag!.directionSupported).toBe(false);
+  });
+
+  it('matrix windows exist and clusterOrder groups correlated metrics', () => {
+    const habits = [habit('a', 'Run'), habit('b', 'Read'), habit('c', 'Eat')];
+    const moods: Record<string, string> = {};
+    const checks: CheckIn[] = [];
+    const rand = mulberry32(5);
+    for (let d = 1; d <= 40; d++) {
+      const k = `2026-10-${String(d).padStart(2, '0')}`;
+      const good = rand() > 0.5;
+      checks.push(ci('a', k, good), ci('b', k, good));
+      checks.push(ci('c', k, rand() > 0.5));
+      moods[k] = rand() > 0.5 ? 'great' : 'bad';
+    }
+    const analysis = computeCorrelationAnalysis(habits, checks, moods, [], []);
+    expect(analysis.matrixWeekday).toBeDefined();
+    expect(analysis.matrixWeekend).toBeDefined();
+    expect(analysis.matrixWeekday!.length).toBeGreaterThan(0);
+    expect(analysis.matrixWeekend!.length).toBeGreaterThan(0);
+    // Run and Read move together → clustering puts them adjacent.
+    const order = clusterOrder(analysis.metrics, analysis.matrix);
+    const idxRun = order.indexOf('Run');
+    const idxRead = order.indexOf('Read');
+    expect(Math.abs(idxRun - idxRead)).toBe(1);
   });
 });

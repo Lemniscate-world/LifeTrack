@@ -244,6 +244,26 @@ export interface CorrelationResult {
   trendDriven?: boolean;
   /** True when the link collapses once weekday/weekend strata are pooled → the association is mostly a weekend/weekday contrast. */
   weekdayConfounded?: boolean;
+  /** Coefficient after controlling the strongest confounder (Mood or Énergie). Null when no confounder series was alignable. */
+  partialCoefficient?: number | null;
+  /** Label of the confounder controlled for the partial coefficient. */
+  confounder?: 'Mood' | 'Énergie';
+  /** True when the raw link collapses once the confounder is controlled. */
+  confoundDriven?: boolean;
+  /** Coefficient after controlling the lunar phase sinusoid (mood pairs). Null when not computable. */
+  lunarCoefficient?: number | null;
+  /** True when the mood link collapses once the lunar phase is controlled. */
+  lunarDriven?: boolean;
+  /** Max |r| attainable given the marginal frequencies (base-rate ceiling). Null for continuous×continuous. */
+  maxR?: number | null;
+  /** True when the coefficient sits near its attainable ceiling — weak-looking but already maximal. */
+  atCeiling?: boolean;
+  /** Reverse lag-1 coefficient (Y → X) used to test temporal direction. */
+  reverseLagCoefficient?: number | null;
+  /** p-value of the reverse lag-1 test. */
+  reversePValue?: number;
+  /** True when only the forward direction is significant → temporal order supported. */
+  directionSupported?: boolean;
 }
 
 /** One cell of the full correlation matrix (heatmap). */
@@ -258,6 +278,12 @@ export interface CorrelationCell {
   detrendedCoefficient?: number | null;
   /** True when the cell's link evaporates after detrending. */
   trendDriven?: boolean;
+  /** True when the cell's link collapses once weekday/weekend strata are pooled. */
+  weekdayConfounded?: boolean;
+  /** Max attainable |r| given the base rates (0 when uncomputable). */
+  maxR?: number | null;
+  /** True when the effect size is near the base-rate ceiling. */
+  atCeiling?: boolean;
 }
 
 /** Full correlation analysis across windows and lags. */
@@ -270,6 +296,8 @@ export interface CorrelationAnalysis {
   weekday: CorrelationResult[];          // Mon–Fri only
   weekend: CorrelationResult[];          // Sat–Sun only
   matrix: CorrelationCell[];             // heatmap over all metric pairs
+  matrixWeekday?: CorrelationCell[];     // heatmap restricted to weekdays
+  matrixWeekend?: CorrelationCell[];     // heatmap restricted to weekends
   metrics: string[];                     // ordered metric labels (row/col headers)
   caveats: string[];                     // "corrélation ≠ causation" interpretive rules
 }

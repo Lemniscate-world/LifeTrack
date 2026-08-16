@@ -273,6 +273,89 @@ export function fisherZInv(z: number): number {
   return Math.tanh(z);
 }
 
+// --- Partial correlation (confounder control) ------------------------------
+// The link X↔Y may be an artifact of a third variable Z (e.g. mood drives both
+// a habit and the energy level). The partial correlation removes the linear
+// (or rank-linear) influence of Z from both sides first.
+
+/**
+ * Partial correlation of X and Y controlling for Z, via the standard formula
+ * on the chosen coefficient (Pearson on raw values, Spearman on ranks).
+ * Returns null when a component cannot be estimated.
+ */
+export function partialCorrelation(
+  xs: number[],
+  ys: number[],
+  zs: number[],
+  method: 'pearson' | 'spearman',
+): { r: number; p: number } | null {
+  if (xs.length < 7 || xs.length !== ys.length || xs.length !== zs.length) return null;
+  const pair = (a: number[], b: number[]) => {
+    const t = method === 'pearson' ? pearsonTest(a, b) : spearmanTest(a, b);
+    if (!t || t.p === 1) return null;
+    return method === 'pearson' ? (t as { r: number }).r : (t as { rho: number }).rho;
+  };
+  const rxy = pair(xs, ys);
+  const rxz = pair(xs, zs);
+  const ryz = pair(ys, zs);
+  if (rxy === null || rxz === null || ryz === null) return null;
+  const denom = Math.sqrt(Math.max(0, 1 - rxz * rxz) * Math.max(0, 1 - ryz * ryz));
+  if (denom < 1e-12) return null;
+  const r = (rxy - rxz * ryz) / denom;
+  const clamped = Math.max(-1, Math.min(1, r));
+  const df = Math.max(1, xs.length - 3);
+  const t = (clamped * Math.sqrt(df)) / Math.sqrt(Math.max(1e-12, 1 - clamped * clamped));
+  return { r: clamped, p: tTwoTail(t, df) };
+}
+
+// --- Base-rate ceiling (achievable correlation bound) ----------------------
+// A habit done 95% of days can never reach r ≈ 1 with anything: the split
+// p/(1−p) caps the attainable coefficient. Reporting "weak" r on such a pair
+// is unfair — the honest question is whether r is near its ceiling.
+
+/** True when the series is binary (exactly two distinct values). */
+export function isBinarySeries(values: number[]): boolean {
+  if (values.length < 2) return false;
+  const first = values[0];
+  let second = NaN;
+  for (let i = 1; i < values.length; i++) {
+    const v = values[i];
+    if (v !== first) {
+      if (Number.isNaN(second)) second = v;
+      else if (v !== second) return false;
+    }
+  }
+  return !Number.isNaN(second);
+}
+
+/**
+ * Maximum |r| attainable between these two series given their marginal
+ * distributions (binary×binary → phi ceiling; binary×continuous → point-biserial
+ * ceiling). Returns null when the bound cannot be estimated (both continuous).
+ */
+export function maxAttainableR(xs: number[], ys: number[]): number | null {
+  const binaryX = isBinarySeries(xs);
+  const binaryY = isBinarySeries(ys);
+  if (!binaryX && !binaryY) return null;
+  const fraction = (arr: number[]) => {
+    const v = arr[0];
+    const p = arr.filter((x) => x === v).length / arr.length;
+    return Math.min(p, 1 - p);
+  };
+  const px = fraction(xs);
+  const py = fraction(ys);
+  const lo = Math.min(px, py);
+  const hi = Math.max(px, py);
+  if (binaryX && binaryY) {
+    // Phi coefficient ceiling with marginals p_lo ≤ p_hi.
+    if (lo === 0 || hi >= 1) return null;
+    return Math.sqrt((lo * (1 - hi)) / (hi * (1 - lo)));
+  }
+  // Point-biserial ceiling: sqrt(p/(1−p)) with p = minority fraction.
+  if (lo === 0) return null;
+  return Math.sqrt(lo / (1 - lo));
+}
+
 // --- Correlation robustness (anti-misleading) ------------------------------
 // Adds "close to reality" diagnostics to any correlation:
 //   - a winsorized (tail-trimmed) coefficient so a single outlier can't fake an effect,

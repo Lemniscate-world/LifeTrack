@@ -6,12 +6,12 @@
 
 import { useState, useMemo } from 'react';
 import type { CorrelationResult, CorrelationCell } from './types';
-import { computeCorrelations, computeCorrelationAnalysis, isTrustworthy } from './correlations';
-import { topInsights } from './insights';
+import { computeCorrelations, computeCorrelationAnalysis, isTrustworthy, clusterOrder } from './correlations';
+import { topInsights, gapInsights, actionableLevers, contrastInsights, type Insight } from './insights';
 import { exportAllData, getHabits } from './store';
 import { computeHabitTrends, moodTrend, WEEKDAY_LABELS } from './timeseries';
 
-type Tab = 'matrix' | 'insights' | 'same' | 'lag' | 'lag2' | 'lag3' | 'lag7' | 'weekend' | 'weekday' | 'trends';
+type Tab = 'matrix' | 'insights' | 'gaps' | 'levers' | 'contrasts' | 'same' | 'lag' | 'lag2' | 'lag3' | 'lag7' | 'weekend' | 'weekday' | 'trends';
 
 function heatColor(coef: number | null): string {
   if (coef === null) return 'var(--border)';
@@ -21,6 +21,57 @@ function heatColor(coef: number | null): string {
   }
   const r = Math.round(200 + (55 * abs));
   return `rgba(${r},80,20,${0.15 + 0.5 * abs})`;
+}
+
+function InsightCard({ ins }: { ins: Insight }) {
+  return (
+    <div
+      style={{
+        background: 'var(--bg-alt)', border: '1px solid var(--border)', borderRadius: '12px',
+        padding: '1rem 1.1rem', borderLeft: `4px solid ${ins.direction === 'positive' ? '#10b981' : '#f59e0b'}`,
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}>
+        <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{ins.label}</span>
+        <span style={{ fontSize: '0.78rem', fontWeight: 700, padding: '0.15rem 0.45rem', borderRadius: '6px', background: `${ins.direction === 'positive' ? '#10b981' : '#f59e0b'}22`, color: ins.direction === 'positive' ? '#10b981' : '#f59e0b', flexShrink: 0 }}>
+          {ins.direction === 'positive' ? '+' : ''}{ins.magnitude.toFixed(2)}
+        </span>
+      </div>
+      <div style={{ fontSize: '0.95rem', lineHeight: 1.45 }}>{ins.sentence}</div>
+      <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.55rem', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '0.72rem', background: 'var(--border)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>N={ins.n}j</span>
+        {ins.lag > 0 && <span style={{ fontSize: '0.72rem', background: 'rgba(56,189,248,0.15)', color: '#38bdf8', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>lag {ins.lag}j</span>}
+        {ins.window && <span style={{ fontSize: '0.72rem', background: 'var(--border)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>{ins.window === 'weekend' ? '🌙 week-end' : '💼 semaine'}</span>}
+        <span style={{ fontSize: '0.72rem', background: 'rgba(16,185,129,0.18)', color: '#10b981', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>✓ fiable</span>
+      </div>
+      {ins.nuance && (
+        <div style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: '#f59e0b', background: 'rgba(245,158,11,0.1)', borderLeft: '2px solid #f59e0b', padding: '0.35rem 0.6rem', borderRadius: '4px' }}>
+          {ins.nuance}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InsightList({ list, emptyTitle, emptyText }: { list: Insight[]; emptyTitle: string; emptyText: string }) {
+  if (list.length === 0) {
+    return (
+      <div style={{ padding: '3rem 1rem', background: 'var(--bg-alt)', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border)' }}>
+        <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>💡</div>
+        <h3 style={{ margin: '0 0 0.5rem 0' }}>{emptyTitle}</h3>
+        <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.9rem' }}>{emptyText}</p>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+      {list.map((ins) => <InsightCard key={ins.pairKey} ins={ins} />)}
+      <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', margin: '0' }}>
+        Insights calculés uniquement sur des corrélations fiables (significatives FDR, direction stable,
+        non pilotées par un outlier). La corrélation reste une association — pas une preuve de causalité.
+      </p>
+    </div>
+  );
 }
 
 export default function CorrelationsView() {
@@ -33,6 +84,7 @@ export default function CorrelationsView() {
   const ratings = useMemo(() => data.capacityRatings ?? [], [data]);
 
   const [tab, setTab] = useState<Tab>('matrix');
+  const isResultsTab = tab === 'same' || tab === 'lag' || tab === 'lag2' || tab === 'lag3' || tab === 'lag7' || tab === 'weekend' || tab === 'weekday';
 
   const analysis = useMemo(() => {
     try {
@@ -59,9 +111,6 @@ export default function CorrelationsView() {
   const [poweredOnly, setPoweredOnly] = useState(false);
   const [reliableOnly, setReliableOnly] = useState(false);
   const [selectedPair, setSelectedPair] = useState<CorrelationResult | null>(null);
-  // Matrix controls
-  const [matrixQuery, setMatrixQuery] = useState('');
-  const [matrixSort, setMatrixSort] = useState<'default' | 'strength'>('default');
 
   const activeList = useMemo(
     () => tab === 'same' ? analysis.sameDay
@@ -89,15 +138,38 @@ export default function CorrelationsView() {
   const insights = useMemo(() => {
     try { return topInsights(analysis, 6); } catch { return []; }
   }, [analysis]);
+  const gapList = useMemo(() => {
+    try { return gapInsights(analysis); } catch { return []; }
+  }, [analysis]);
+  const leverList = useMemo(() => {
+    try { return actionableLevers(analysis, checkIns, 3); } catch { return []; }
+  }, [analysis, checkIns]);
+  const contrastList = useMemo(() => {
+    try { return contrastInsights(analysis); } catch { return []; }
+  }, [analysis]);
+
+  // Matrix controls
+  const [matrixQuery, setMatrixQuery] = useState('');
+  const [matrixSort, setMatrixSort] = useState<'cluster' | 'default' | 'strength'>('cluster');
+  const [matrixWindow, setMatrixWindow] = useState<'all' | 'weekday' | 'weekend'>('all');
+
+  const matrixData = useMemo(() => {
+    const cells = matrixWindow === 'weekday' ? analysis.matrixWeekday ?? []
+      : matrixWindow === 'weekend' ? analysis.matrixWeekend ?? []
+      : analysis.matrix;
+    return { cells, metrics: analysis.metrics };
+  }, [analysis, matrixWindow]);
 
   const matrixMetrics = useMemo(() => {
-    let list = analysis.metrics;
+    let list = matrixData.metrics;
     const q = matrixQuery.trim().toLowerCase();
     if (q) list = list.filter((m) => m.toLowerCase().includes(q));
-    if (matrixSort === 'strength') {
+    if (matrixSort === 'cluster') {
+      list = clusterOrder(matrixData.metrics, matrixData.cells).filter((m) => list.includes(m));
+    } else if (matrixSort === 'strength') {
       // Total |coefficient| per row across the matrix — most connected first.
       const strengthOf = new Map<string, number>();
-      for (const c of analysis.matrix) {
+      for (const c of matrixData.cells) {
         if (c.coefficient === null) continue;
         const row = strengthOf.get(c.row) ?? 0;
         const col = strengthOf.get(c.col) ?? 0;
@@ -107,10 +179,13 @@ export default function CorrelationsView() {
       list = [...list].sort((a, b) => (strengthOf.get(b) ?? 0) - (strengthOf.get(a) ?? 0));
     }
     return list;
-  }, [analysis.metrics, analysis.matrix, matrixQuery, matrixSort]);
+  }, [matrixData, matrixQuery, matrixSort]);
 
   const headerLabel = tab === 'matrix' ? 'Matrice de Corrélations'
     : tab === 'insights' ? 'Top Insights'
+    : tab === 'gaps' ? 'Absences — habitudes sans lien'
+    : tab === 'levers' ? 'Leviers d’action'
+    : tab === 'contrasts' ? 'Contrastes semaine / week-end'
     : tab === 'same' ? 'Corrélations contemporaines'
     : tab === 'lag' ? 'Corrélations prédictives (lag 1)'
     : tab === 'lag2' ? 'Corrélations prédictives (lag 2)'
@@ -122,13 +197,19 @@ export default function CorrelationsView() {
 
   const subLabel = tab === 'insights'
     ? 'Ce qui est suffisamment fiable pour en tenir compte — trié par pertinence, exprimé en clair.'
-    : tab === 'lag'
-      ? 'X le jour t → Y le jour t+1 : le lien prédit le lendemain (temporalité, pas causalité).'
-      : tab === 'lag2' || tab === 'lag3' || tab === 'lag7'
-        ? 'Effets plus lents : X le jour t influence Y plusieurs jours plus tard. Lag 7 capture les cycles hebdomadaires.'
-        : tab === 'weekend' || tab === 'weekday'
-          ? 'Même paire mesurée sur un sous-ensemble de jours pour détecter les effets de week-end.'
-          : 'Spearman & Pearson · FDR Benjamini-Hochberg · pairwise deletion · caveats de causalité';
+    : tab === 'gaps'
+      ? 'Les habitudes que tu pratiques mais qui ne corrèlent avec rien : savoir ce qui ne change rien est aussi un résultat.'
+      : tab === 'levers'
+        ? 'Habitudes prédictives du lendemain (lag 1 fiable), triées par effet × fréquence : où investir ton énergie.'
+        : tab === 'contrasts'
+          ? 'Paires dont le lien n’existe qu’en semaine ou qu’au week-end — l’effet dépend du type de journée.'
+          : tab === 'lag'
+            ? 'X le jour t → Y le jour t+1 : le lien prédit le lendemain (temporalité, pas causalité).'
+            : tab === 'lag2' || tab === 'lag3' || tab === 'lag7'
+              ? 'Effets plus lents : X le jour t influence Y plusieurs jours plus tard. Lag 7 capture les cycles hebdomadaires.'
+              : tab === 'weekend' || tab === 'weekday'
+                ? 'Même paire mesurée sur un sous-ensemble de jours pour détecter les effets de week-end.'
+                : 'Spearman & Pearson · FDR global (toutes fenêtres) · pairwise deletion · caveats de causalité';
 
   return (
     <div className="correlations-view" style={{ padding: '1.5rem', maxWidth: '1200px', margin: '0 auto' }}>
@@ -140,7 +221,7 @@ export default function CorrelationsView() {
           </h2>
           <p style={{ color: 'var(--text-muted, #94a3b8)', margin: 0, fontSize: '0.85rem' }}>{subLabel}</p>
         </div>
-        {tab !== 'matrix' && tab !== 'insights' && tab !== 'trends' && (
+        {!isResultsTab && (
           <span style={{ background: 'var(--bg-alt)', padding: '0.35rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', border: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
             {filteredResults.length} / {activeList.length} paires
           </span>
@@ -152,6 +233,9 @@ export default function CorrelationsView() {
         {([
           ['matrix', '🧮 Matrice'],
           ['insights', '💡 Top insights'],
+          ['gaps', '🔍 Absences'],
+          ['levers', '🎯 Leviers'],
+          ['contrasts', '⚖️ Contrastes'],
           ['same', '🔗 Même jour'],
           ['lag', '⏭ Lag 1'],
           ['lag2', '⏭ Lag 2'],
@@ -174,7 +258,7 @@ export default function CorrelationsView() {
       </div>
 
       {/* Filter toolbar (not on matrix/insights/trends) */}
-      {tab !== 'matrix' && tab !== 'insights' && tab !== 'trends' && (
+      {!isResultsTab && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', background: 'var(--bg-alt)', padding: '0.85rem 1rem', borderRadius: '12px', marginBottom: '1.5rem', border: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Force :</label>
@@ -234,12 +318,23 @@ export default function CorrelationsView() {
               />
               <select
                 value={matrixSort}
-                onChange={(e) => setMatrixSort(e.target.value as 'default' | 'strength')}
+                onChange={(e) => setMatrixSort(e.target.value as 'cluster' | 'default' | 'strength')}
                 style={{ background: 'var(--bg)', color: 'inherit', padding: '0.4rem 0.6rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem' }}
                 aria-label="Tri de la matrice"
               >
+                <option value="cluster">🗂 Groupes liés (clustering)</option>
                 <option value="default">Ordre d’origine</option>
                 <option value="strength">Trier par force de liens</option>
+              </select>
+              <select
+                value={matrixWindow}
+                onChange={(e) => setMatrixWindow(e.target.value as 'all' | 'weekday' | 'weekend')}
+                style={{ background: 'var(--bg)', color: 'inherit', padding: '0.4rem 0.6rem', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.82rem' }}
+                aria-label="Fenêtre de la matrice"
+              >
+                <option value="all">Tous les jours</option>
+                <option value="weekday">💼 Semaine seulement</option>
+                <option value="weekend">🌙 Week-end seulement</option>
               </select>
               <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                 {matrixMetrics.length} / {analysis.metrics.length} métriques
@@ -262,7 +357,7 @@ export default function CorrelationsView() {
                       {matrixMetrics.map(col => {
                         const cell: CorrelationCell | undefined = row === col
                           ? { row, col, coefficient: 1, sampleSize: 0, significant: false, qValue: 0 }
-                          : analysis.matrix.find(c => (c.row === row && c.col === col) || (c.row === col && c.col === row));
+                          : matrixData.cells.find(c => (c.row === row && c.col === col) || (c.row === col && c.col === row));
                         if (row === col) {
                           return <td key={col} style={{ padding: '0.3rem 0.4rem', background: 'var(--border)', textAlign: 'center', color: 'var(--text-muted)' }}>—</td>;
                         }
@@ -270,7 +365,7 @@ export default function CorrelationsView() {
                           <td
                             key={col}
                             title={cell && cell.coefficient !== null
-                              ? `${row} ↔ ${col}: ${cell.coefficient.toFixed(2)} (N=${cell.sampleSize}, q=${cell.qValue.toFixed(3)})${cell.significant ? ' · significatif' : ''}${cell.trendDriven ? ` · ⏱ tendance partagée (après détendance : ${cell.detrendedCoefficient?.toFixed(2) ?? '?'})` : ''}`
+                              ? `${row} ↔ ${col}: ${cell.coefficient.toFixed(2)} (N=${cell.sampleSize}, q=${cell.qValue.toFixed(3)})${cell.significant ? ' · significatif' : ''}${cell.trendDriven ? ` · ⏱ tendance partagée (après détendance : ${cell.detrendedCoefficient?.toFixed(2) ?? '?'})` : ''}${cell.weekdayConfounded ? ' · 🗓 effet semaine/week-end' : ''}${cell.atCeiling ? ` · ⛔ au plafond (max atteignable r≈${cell.maxR?.toFixed(2) ?? '?'})` : ''}`
                               : 'pas assez de données'}
                             onClick={() => {
                               if (!cell || cell.coefficient === null) return;
@@ -284,6 +379,9 @@ export default function CorrelationsView() {
                                 caveat: 'Matrice de corrélations — lien statistique, pas causal. Vérifier N avant de conclure.',
                                 detrendedCoefficient: cell.detrendedCoefficient ?? null,
                                 trendDriven: cell.trendDriven,
+                                weekdayConfounded: cell.weekdayConfounded,
+                                maxR: cell.maxR ?? null,
+                                atCeiling: cell.atCeiling,
                               });
                             }}
                             style={{
@@ -293,7 +391,10 @@ export default function CorrelationsView() {
                               position: 'relative',
                             }}
                           >
-                            {cell && cell.coefficient !== null ? cell.coefficient.toFixed(2) : '·'}
+                            <span>{cell && cell.coefficient !== null ? cell.coefficient.toFixed(2) : '·'}</span>
+                            {cell && cell.sampleSize > 0 && (
+                              <span style={{ display: 'block', fontSize: '0.55rem', opacity: 0.75, lineHeight: 1 }}>N={cell.sampleSize}</span>
+                            )}
                             {cell && cell.trendDriven && cell.coefficient !== null && (
                               <span
                                 title="Lien surtout dû à une tendance partagée — s'évapore après détendance."
@@ -302,6 +403,24 @@ export default function CorrelationsView() {
                                   color: '#fbbf24', fontWeight: 700, pointerEvents: 'none',
                                 }}
                               >⏱</span>
+                            )}
+                            {cell && cell.weekdayConfounded && (
+                              <span
+                                title="Lien surtout dû au contraste semaine/week-end — disparaît dans les sous-fenêtres."
+                                style={{
+                                  position: 'absolute', bottom: 0, left: 2, fontSize: '0.6rem', lineHeight: 1,
+                                  color: '#a78bfa', fontWeight: 700, pointerEvents: 'none',
+                                }}
+                              >🗓</span>
+                            )}
+                            {cell && cell.atCeiling && (
+                              <span
+                                title="La taille d'effet est au plafond permis par la fréquence d'exécution (r max ≈ base rate)."
+                                style={{
+                                  position: 'absolute', bottom: 0, right: 2, fontSize: '0.6rem', lineHeight: 1,
+                                  color: '#f59e0b', fontWeight: 700, pointerEvents: 'none',
+                                }}
+                              >⛔</span>
                             )}
                           </td>
                         );
@@ -312,7 +431,7 @@ export default function CorrelationsView() {
               </table>
             </div>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: '0.75rem 0 0 0' }}>
-              Vert = positif · Orange = négatif · bordure claire = significatif (q&lt;0.05 FDR) · ⏱ = lien surtout dû à une tendance partagée (peu fiable) · « · » = pas assez de données. Clique une cellule pour l’inspecter.
+              Vert = positif · Orange = négatif · bordure claire = significatif (q&lt;0.05 FDR) · ⏱ = tendance partagée · 🗓 = effet semaine/week-end · ⛔ = au plafond du base rate · « · » = pas assez de données. Clique une cellule pour l’inspecter.
             </p>
           </>
         )
@@ -320,55 +439,42 @@ export default function CorrelationsView() {
 
       {/* TOP INSIGHTS */}
       {tab === 'insights' && (
-        insights.length === 0 ? (
-          <div style={{ padding: '3rem 1rem', background: 'var(--bg-alt)', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border)' }}>
-            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>💡</div>
-            <h3 style={{ margin: '0 0 0.5rem 0' }}>Pas encore d’insight fiable</h3>
-            <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.9rem' }}>
-              Il faut au moins ~8 jours alignés et des corrélations significatives, stables et non pilotées
-              par un outlier. Continue à enregistrer habitudes, mood et énergie — les insights apparaîtront ici.
-            </p>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-            {insights.map((ins) => (
-              <div
-                key={ins.pairKey}
-                style={{
-                  background: 'var(--bg-alt)', border: '1px solid var(--border)', borderRadius: '12px',
-                  padding: '1rem 1.1rem', borderLeft: `4px solid ${ins.direction === 'positive' ? '#10b981' : '#f59e0b'}`,
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}>
-                  <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{ins.label}</span>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 700, padding: '0.15rem 0.45rem', borderRadius: '6px', background: `${ins.direction === 'positive' ? '#10b981' : '#f59e0b'}22`, color: ins.direction === 'positive' ? '#10b981' : '#f59e0b', flexShrink: 0 }}>
-                    {ins.direction === 'positive' ? '+' : ''}{ins.magnitude.toFixed(2)}
-                  </span>
-                </div>
-                <div style={{ fontSize: '0.95rem', lineHeight: 1.45 }}>{ins.sentence}</div>
-                <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.55rem', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '0.72rem', background: 'var(--border)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>N={ins.n}j</span>
-                  {ins.lag > 0 && <span style={{ fontSize: '0.72rem', background: 'rgba(56,189,248,0.15)', color: '#38bdf8', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>lag {ins.lag}j</span>}
-                  {ins.window && <span style={{ fontSize: '0.72rem', background: 'var(--border)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>{ins.window === 'weekend' ? '🌙 week-end' : '💼 semaine'}</span>}
-                  <span style={{ fontSize: '0.72rem', background: 'rgba(16,185,129,0.18)', color: '#10b981', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>✓ fiable</span>
-                </div>
-                {ins.nuance && (
-                  <div style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: '#f59e0b', background: 'rgba(245,158,11,0.1)', borderLeft: '2px solid #f59e0b', padding: '0.35rem 0.6rem', borderRadius: '4px' }}>
-                    {ins.nuance}
-                  </div>
-                )}
-              </div>
-            ))}
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', margin: '0' }}>
-              Insights calculés uniquement sur des corrélations fiables (significatives FDR, direction stable,
-              non pilotées par un outlier). La corrélation reste une association — pas une preuve de causalité.
-            </p>
-          </div>
-        )
+        <InsightList
+          list={insights}
+          emptyTitle="Pas encore d’insight fiable"
+          emptyText="Il faut au moins ~8 jours alignés et des corrélations significatives, stables et non pilotées par un outlier. Continue à enregistrer habitudes, mood et énergie — les insights apparaîtront ici."
+        />
+      )}
+
+      {/* GAPS — habits with no trustworthy link */}
+      {tab === 'gaps' && (
+        <InsightList
+          list={gapList}
+          emptyTitle="Aucune absence détectée 🎉"
+          emptyText="Toutes tes habitudes avec assez de données entretiennent au moins un lien fiable avec le reste. Le tableau est cohérent."
+        />
+      )}
+
+      {/* LEVERS — trustworthy lag-1 actionable pairs */}
+      {tab === 'levers' && (
+        <InsightList
+          list={leverList}
+          emptyTitle="Pas encore de levier fiable"
+          emptyText="Il faut une corrélation lag-1 significative et stable (fiabilité anti-ambiguïté) pour proposer un levier. Continue à enregistrer — les leviers apparaîtront ici."
+        />
+      )}
+
+      {/* CONTRASTS — weekday vs weekend gaps */}
+      {tab === 'contrasts' && (
+        <InsightList
+          list={contrastList}
+          emptyTitle="Aucun contraste marqué"
+          emptyText="Aucune paire n'a un écart de |r| ≥ 0.25 entre semaine et week-end. Les liens éventuels sont stables quel que soit le type de journée."
+        />
       )}
 
       {/* RESULTS CARDS (same/lag/lag2/lag3/lag7/weekend/weekday) */}
-      {tab !== 'matrix' && tab !== 'insights' && tab !== 'trends' && (
+      {!isResultsTab && (
         results.length === 0 ? (
           <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
             Pas encore assez de données pour cette analyse.
@@ -427,6 +533,18 @@ export default function CorrelationsView() {
                     )}
                     {r.weekdayConfounded && (
                       <span title="Le lien disparaît quand on compare des jours du même type : c'est surtout le contraste semaine/week-end qui crée l'association." style={{ fontSize: '0.72rem', background: 'rgba(139,92,246,0.15)', color: '#a78bfa', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>🗓 effet week-end</span>
+                    )}
+                    {r.confoundDriven && (
+                      <span title={`Le lien s'évapore quand on contrôle pour ${r.confounder ?? 'le confondu'} (r partiel = ${r.partialCoefficient?.toFixed(2) ?? '?'}). C'est ${r.confounder ?? 'le confondu'} qui porte l'association.`} style={{ fontSize: '0.72rem', background: 'rgba(14,165,233,0.15)', color: '#38bdf8', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>🧲 contrôlé par {r.confounder ?? '?'}</span>
+                    )}
+                    {r.lunarDriven && (
+                      <span title="L'association suit surtout le cycle lunaire (sinusoïde) : quand on retire la phase de la lune, le lien s'évapore." style={{ fontSize: '0.72rem', background: 'rgba(168,85,247,0.15)', color: '#c084fc', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>🌙 cycle lunaire</span>
+                    )}
+                    {r.atCeiling && (
+                      <span title={`La taille d'effet est au plafond permis par la fréquence : r max atteignable ≈ ${r.maxR?.toFixed(2) ?? '?'}. Ne cherche pas un effet plus fort que ce que le base rate permet.`} style={{ fontSize: '0.72rem', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>⛔ au plafond</span>
+                    )}
+                    {r.directionSupported && (
+                      <span title="Test directionnel : seul le sens X→Y est significatif (Y→X ne l'est pas). La temporalité du lien est soutenue." style={{ fontSize: '0.72rem', background: 'rgba(16,185,129,0.15)', color: '#10b981', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>→ sens soutenu</span>
                     )}
                     <span style={{ fontSize: '0.72rem', background: 'var(--border)', padding: '0.15rem 0.4rem', borderRadius: '4px', color: 'var(--text-muted)' }}>{r.method}</span>
                   </div>
@@ -572,6 +690,31 @@ export default function CorrelationsView() {
                 {selectedPair.weekdayConfounded && (
                   <div style={{ marginTop: '0.35rem', color: '#a78bfa', fontSize: '0.75rem' }}>
                     🗓 Effet semaine/week-end : quand on compare des jours du même type, l'association disparaît. Le lien reflète surtout le contraste des jours de semaine vs week-ends.
+                  </div>
+                )}
+                {selectedPair.confoundDriven && (
+                  <div style={{ marginTop: '0.35rem', color: '#38bdf8', fontSize: '0.75rem' }}>
+                    🧲 Confondu par {selectedPair.confounder ?? '?'} : une fois {selectedPair.confounder ?? 'le confondu'} contrôlé (corrélation partielle), le lien passe de {selectedPair.coefficient >= 0 ? '+' : ''}{selectedPair.coefficient.toFixed(2)} à {selectedPair.partialCoefficient !== null && selectedPair.partialCoefficient !== undefined ? `${selectedPair.partialCoefficient >= 0 ? '+' : ''}${selectedPair.partialCoefficient.toFixed(2)}` : '?'}. {selectedPair.confounder ?? 'Le confondu'} est le vrai porteur de l'association.
+                  </div>
+                )}
+                {selectedPair.lunarDriven && (
+                  <div style={{ marginTop: '0.35rem', color: '#c084fc', fontSize: '0.75rem' }}>
+                    🌙 Cycle lunaire : l'association suit une sinusoïde calée sur la phase de la lune ({selectedPair.lunarCoefficient !== null && selectedPair.lunarCoefficient !== undefined ? `${selectedPair.lunarCoefficient >= 0 ? '+' : ''}${selectedPair.lunarCoefficient.toFixed(2)}` : '?'} après retrait de la phase). L'effet lunaire est le moteur, pas le lien direct.
+                  </div>
+                )}
+                {selectedPair.atCeiling && selectedPair.maxR !== null && selectedPair.maxR !== undefined && (
+                  <div style={{ marginTop: '0.35rem', color: '#f59e0b', fontSize: '0.75rem' }}>
+                    ⛔ Plafond du base rate : avec la fréquence d'exécution observée, r max atteignable ≈ {selectedPair.maxR.toFixed(2)}. Le coefficient observé ({selectedPair.coefficient >= 0 ? '+' : ''}{selectedPair.coefficient.toFixed(2)}) est déjà ~{Math.round((Math.abs(selectedPair.coefficient) / selectedPair.maxR) * 100)}% du maximum physique possible. Ne cherche pas un effet plus fort.
+                  </div>
+                )}
+                {selectedPair.directionSupported && (
+                  <div style={{ marginTop: '0.35rem', color: '#10b981', fontSize: '0.75rem' }}>
+                    → Sens soutenu : le lien X→Y est significatif alors que Y→X ne l'est pas (p_reverse = {selectedPair.reversePValue !== undefined ? selectedPair.reversePValue.toFixed(3) : '?'}). La temporalité annoncée est plausible.
+                  </div>
+                )}
+                {selectedPair.directionSupported === false && (
+                  <div style={{ marginTop: '0.35rem', color: '#f59e0b', fontSize: '0.75rem' }}>
+                    ↔ Sens réversible : Y→X est aussi significatif. Le lien est bidirectionnel — difficile d'affirmer que X « cause » Y.
                   </div>
                 )}
               </div>

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { CheckIn, Habit, CorrelationAnalysis } from '../types';
 import { computeCorrelationAnalysis } from '../correlations';
-import { topInsights } from '../insights';
+import { topInsights, gapInsights, actionableLevers, contrastInsights } from '../insights';
 
 function habit(id: string, name = id): Habit {
   return { id, name, color: '#fff', goal: 1, createdAt: new Date().toISOString(), archived: false, order: 0 };
@@ -113,5 +113,83 @@ describe('topInsights', () => {
     expect(pair!.trendDriven).toBe(true);
     const insights = topInsights(analysis, 10);
     expect(insights.find((i) => i.label.startsWith('Sport → Lecture'))).toBeUndefined();
+  });
+});
+
+describe('gapInsights (habits with no trustworthy link)', () => {
+  it('flags a habit that correlates with nothing despite enough data', () => {
+    // Sport ↔ Mood strong and clean; "Meditation" is random noise → only
+    // Sport is "covered", Meditation gets a gap insight (≥8 aligned days).
+    const habits = [habit('a', 'Sport'), habit('b', 'Meditation')];
+    const moods: Record<string, string> = {};
+    const checks: CheckIn[] = [];
+    const rand = mulberry32(3);
+    for (let d = 1; d <= 30; d++) {
+      const k = `2026-02-${String(d).padStart(2, '0')}`;
+      const good = rand() > 0.5;
+      checks.push(ci('a', k, good));
+      checks.push(ci('b', k, rand() > 0.5));
+      moods[k] = good ? 'great' : 'bad';
+    }
+    const analysis = computeCorrelationAnalysis(habits, checks, moods, [], []);
+    const gaps = gapInsights(analysis);
+    expect(gaps.some((g) => g.label.startsWith('Meditation'))).toBe(true);
+    expect(gaps.some((g) => g.label.startsWith('Sport'))).toBe(false);
+    expect(gaps[0].n).toBeGreaterThanOrEqual(8);
+  });
+
+  it('returns empty when every habit has a trustworthy link', () => {
+    const analysis = lag1Signal(); // Sport ↔ Énergie lag-1 is trustworthy
+    expect(gapInsights(analysis)).toEqual([]);
+  });
+});
+
+describe('actionableLevers (trustworthy lag-1, ranked by effect × frequency)', () => {
+  it('picks the clean Sport → Énergie lag-1 link as a lever', () => {
+    const analysis = lag1Signal();
+    const checks: CheckIn[] = [];
+    for (let d = 1; d <= 30; d++) {
+      const k = `2026-01-${String(d).padStart(2, '0')}`;
+      const done = d <= 10 || (d >= 12 && d <= 20);
+      checks.push(ci('a', k, done));
+    }
+    const leversReal = actionableLevers(analysis, checks, 3);
+    expect(leversReal.length).toBeGreaterThan(0);
+    expect(leversReal[0].label).toContain('Sport');
+    expect(leversReal[0].lag).toBe(1);
+    expect(leversReal[0].magnitude).toBeGreaterThan(0.5);
+  });
+
+  it('returns empty when no lag-1 pair is trustworthy', () => {
+    const analysis = computeCorrelationAnalysis([habit('a')], [ci('a', '2026-01-01')], {}, [], []);
+    expect(actionableLevers(analysis, [], 3)).toEqual([]);
+  });
+});
+
+describe('contrastInsights (weekday vs weekend gap)', () => {
+  it('detects a pair whose link only exists on weekends', () => {
+    // On weekends: habit done AND mood great always together (r=1). On weekdays:
+    // independent random (r≈0) → |Δr| > 0.25 → contrast insight.
+    const habits = [habit('a', 'Sport')];
+    const moods: Record<string, string> = {};
+    const checks: CheckIn[] = [];
+    const rand = mulberry32(77);
+    for (let d = 1; d <= 28; d++) {
+      const k = `2026-03-${String(d).padStart(2, '0')}`;
+      const date = new Date(2026, 2, d);
+      const weekend = date.getDay() === 0 || date.getDay() === 6;
+      const done = weekend ? rand() > 0.2 : rand() > 0.5;
+      checks.push(ci('a', k, done));
+      moods[k] = weekend ? (done ? 'great' : 'bad') : (rand() > 0.5 ? 'great' : 'bad');
+    }
+    const analysis = computeCorrelationAnalysis(habits, checks, moods, [], []);
+    const contrasts = contrastInsights(analysis);
+    expect(contrasts.some((c) => c.label.startsWith('Sport'))).toBe(true);
+    expect(contrasts[0].magnitude).toBeGreaterThan(0.4);
+  });
+
+  it('returns empty when weekday and weekend agree', () => {
+    const analysis = lag1Signal();
+    expect(contrastInsights(analysis)).toEqual([]);
   });
 });
