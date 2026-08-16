@@ -10,6 +10,17 @@ function ci(habitId: string, date: string, completed = true): CheckIn {
   return { habitId, date, completed, count: 1 };
 }
 
+/** Deterministic PRNG (mulberry32) so tests are reproducible. */
+function mulberry32(seed: number): () => number {
+  let a = seed | 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 /** Build a strong clean signal: habit done on days 1..10 → energy high the NEXT
  * day (lag-1). Same-day energy is random, so only the lag-1 pair should shine. */
 function lag1Signal(): CorrelationAnalysis {
@@ -82,5 +93,25 @@ describe('topInsights', () => {
   it('returns empty when nothing is trustworthy', () => {
     const analysis = computeCorrelationAnalysis([habit('a')], [ci('a', '2026-01-01')], {}, [], []);
     expect(topInsights(analysis)).toEqual([]);
+  });
+
+  it('excludes trend-driven and weekday-confounded pairs from insights', () => {
+    // A and B ramp up linearly together (shared trend) → raw r ≈ 1 but the
+    // link evaporates once detrended: must NOT produce an insight.
+    const habits = [habit('a', 'Sport'), habit('b', 'Lecture')];
+    const checks: CheckIn[] = [];
+    const randA = mulberry32(11);
+    const randB = mulberry32(23);
+    for (let d = 1; d <= 30; d++) {
+      const k = `2026-03-${String(d).padStart(2, '0')}`;
+      checks.push({ habitId: 'a', date: k, completed: true, count: d + Math.round(randA() * 4 - 2) });
+      checks.push({ habitId: 'b', date: k, completed: true, count: d + Math.round(randB() * 4 - 2) });
+    }
+    const analysis = computeCorrelationAnalysis(habits, checks, {}, [], []);
+    const pair = analysis.sameDay.find((c) => c.metricA === 'Sport' && c.metricB === 'Lecture');
+    expect(pair).toBeDefined();
+    expect(pair!.trendDriven).toBe(true);
+    const insights = topInsights(analysis, 10);
+    expect(insights.find((i) => i.label.startsWith('Sport → Lecture'))).toBeUndefined();
   });
 });

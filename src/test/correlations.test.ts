@@ -8,6 +8,16 @@ function habit(id: string, name = id): Habit {
 function ci(habitId: string, date: string, completed = true): CheckIn {
   return { habitId, date, completed, count: 1 };
 }
+/** Deterministic PRNG (mulberry32) so tests are reproducible. */
+function mulberry32(seed: number): () => number {
+  let a = seed | 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 describe('computeCorrelations', () => {
   it('returns an empty list when there are too few paired days', () => {
@@ -203,5 +213,100 @@ describe('correlation engine — lag, windows, matrix, caveats', () => {
     expect(pair).toBeDefined();
     expect(pair!.method).toBe('pearson');
     expect(pair!.coefficient).toBeGreaterThan(0.9);
+  });
+});
+
+describe('anti-misleading guards ("plus réel")', () => {
+  it('flags a link driven by a shared time trend (trendDriven + detrended coefficient)', () => {
+    // Both habits ramp up LINEARLY over time (count grows day by day) with
+    // independent daily wobbles: raw correlation ≈ perfect, detrended ≈ 0.
+    const habits = [habit('a', 'Sport'), habit('b', 'Lecture')];
+    const checks: CheckIn[] = [];
+    const randA = mulberry32(11);
+    const randB = mulberry32(23);
+    for (let d = 1; d <= 30; d++) {
+      const k = `2026-03-${String(d).padStart(2, '0')}`;
+      checks.push({ habitId: 'a', date: k, completed: true, count: d + Math.round(randA() * 4 - 2) });
+      checks.push({ habitId: 'b', date: k, completed: true, count: d + Math.round(randB() * 4 - 2) });
+    }
+    const res = computeCorrelations(habits, checks, {}, [], []);
+    const pair = res.find((c) => c.metricA === 'Sport' && c.metricB === 'Lecture');
+    expect(pair).toBeDefined();
+    expect(pair!.coefficient).toBeGreaterThan(0.9);
+    expect(pair!.trendDriven).toBe(true);
+    expect(pair!.detrendedCoefficient).not.toBeNull();
+    expect(Math.abs(pair!.detrendedCoefficient!)).toBeLessThan(0.35);
+    expect(pair!.sampleSize).toBe(30);
+  });
+
+  it('does not flag an alternating link as trend-driven', () => {
+    // No time drift: A and B are done together on odd days, missed together on
+    // even days. Raw and detrended correlations must both be high.
+    const habits = [habit('a', 'Sport'), habit('b', 'Lecture')];
+    const checks: CheckIn[] = [];
+    for (let d = 1; d <= 24; d++) {
+      const k = `2026-04-${String(d).padStart(2, '0')}`;
+      const done = d % 2 === 1;
+      checks.push(ci('a', k, done), ci('b', k, done));
+    }
+    const res = computeCorrelations(habits, checks, {}, [], []);
+    const pair = res.find((c) => c.metricA === 'Sport' && c.metricB === 'Lecture');
+    expect(pair).toBeDefined();
+    expect(pair!.coefficient).toBeCloseTo(1, 3);
+    expect(pair!.trendDriven).toBe(false);
+    expect(pair!.detrendedCoefficient!).toBeGreaterThan(0.5);
+  });
+
+  it('exposes a weekend contrast as weekdayConfounded', () => {
+    // Habit more often done on weekends, mood systematically better on
+    // weekends → strong raw link. But WITHIN each stratum the two are
+    // independent → pooled within-stratum correlation collapses.
+    const moods: Record<string, string> = {};
+    const checks: CheckIn[] = [];
+    const rand = mulberry32(7);
+    for (let i = 0; i < 61; i++) {
+      const k = i < 30
+        ? `2026-06-${String(i + 1).padStart(2, '0')}`
+        : `2026-07-${String(i - 29).padStart(2, '0')}`;
+      const weekend = weekdayOf(k) === 0 || weekdayOf(k) === 6;
+      const done = weekend ? rand() < 0.9 : rand() < 0.3;
+      checks.push(ci('a', k, done));
+      moods[k] = weekend
+        ? (rand() > 0.5 ? 'great' : 'amazing')
+        : (rand() > 0.5 ? 'bad' : 'angry');
+    }
+    const res = computeCorrelations([habit('a', 'Sport')], checks, moods, [], []);
+    const pair = res.find((c) => c.metricA === 'Sport' && c.metricB === 'Mood');
+    expect(pair).toBeDefined();
+    expect(pair!.coefficient).toBeGreaterThan(0.3);
+    expect(pair!.weekdayConfounded).toBe(true);
+  });
+
+  it('matrix cells are FDR-adjusted and carry detrended diagnostics', () => {
+    // Two habits + mood: only one real signal. Multiple-testing correction must
+    // be applied to cell significance, and cells keep trend metadata.
+    const habits = [habit('a', 'Run'), habit('b', 'Meditation')];
+    const moods: Record<string, string> = {};
+    const checks: CheckIn[] = [];
+    const rand = mulberry32(99);
+    for (let d = 1; d <= 20; d++) {
+      const k = `2026-06-${String(d).padStart(2, '0')}`;
+      const done = rand() > 0.5;
+      checks.push(ci('a', k, done), ci('b', k, !done));
+      moods[k] = rand() > 0.5 ? 'great' : 'bad';
+    }
+    const analysis = computeCorrelationAnalysis(habits, checks, moods, [], []);
+    for (const cell of analysis.matrix) {
+      expect(cell.qValue).toBeGreaterThanOrEqual(0);
+      expect(cell.qValue).toBeLessThanOrEqual(1);
+      if (cell.significant) expect(cell.qValue).toBeLessThan(0.05);
+    }
+    // Cells whose series are near-constant share no variance → excluded.
+    expect(analysis.matrix.every((c) => c.sampleSize >= 6)).toBe(true);
+    // The full same-day list also carries the trend guard fields.
+    for (const r of analysis.sameDay) {
+      expect(r.detrendedCoefficient === null || typeof r.detrendedCoefficient === 'number').toBe(true);
+      expect(typeof r.trendDriven).toBe('boolean');
+    }
   });
 });

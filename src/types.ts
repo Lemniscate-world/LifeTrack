@@ -238,6 +238,12 @@ export interface CorrelationResult {
   outlierDriven?: boolean;
   /** True when residuals are autocorrelated → p-values may be inflated (false signal). */
   autocorrelatedResiduals?: boolean;
+  /** Coefficient recomputed after removing each series' linear time trend (shared-trend guard). Null when too few points. */
+  detrendedCoefficient?: number | null;
+  /** True when the raw link largely evaporates once both series are detrended → the "link" is mostly a shared calendar trend, not a day-to-day association. */
+  trendDriven?: boolean;
+  /** True when the link collapses once weekday/weekend strata are pooled → the association is mostly a weekend/weekday contrast. */
+  weekdayConfounded?: boolean;
 }
 
 /** One cell of the full correlation matrix (heatmap). */
@@ -248,6 +254,10 @@ export interface CorrelationCell {
   sampleSize: number;
   significant: boolean;
   qValue: number;
+  /** Coefficient on detrended residuals (shared-trend guard). Null when too few points. */
+  detrendedCoefficient?: number | null;
+  /** True when the cell's link evaporates after detrending. */
+  trendDriven?: boolean;
 }
 
 /** Full correlation analysis across windows and lags. */

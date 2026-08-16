@@ -17,7 +17,7 @@
 // All functions are pure (input → output) for easy isolated testing.
 
 import type { CheckIn, Habit, CapacityRating, CorrelationResult, CorrelationCell, CorrelationAnalysis } from './types';
-import { pearsonTest, spearmanTest, benjaminiHochberg, requiredSampleSize, correlationRobustness } from './statistics';
+import { pearsonTest, spearmanTest, benjaminiHochberg, requiredSampleSize, correlationRobustness, detrendedCorrelation, fisherZ, fisherZInv } from './statistics';
 
 /** Distinct ordinal rank for each mood id (the raw number is irrelevant; Spearman
  * uses relative order). angry and bad are both low; sick slightly above bad. */
@@ -73,21 +73,26 @@ function habitSeriesByDate(habitId: string, checkIns: CheckIn[]): Map<string, nu
 
 /**
  * Align two data sources on the days where BOTH have an entry, returning
- * numeric x/y arrays with pairwise deletion (no 0-imputation).
+ * numeric x/y arrays with pairwise deletion (no 0-imputation). Pairs are
+ * returned in chronological order so time-based diagnostics (detrending,
+ * weekday strata) see a true calendar sequence.
  */
 function align(
   a: Map<string, number>,
   b: Map<string, number>,
-): { xs: number[]; ys: number[] } {
+): { xs: number[]; ys: number[]; dates: string[] } {
+  const dates: string[] = [];
+  for (const date of a.keys()) {
+    if (b.has(date)) dates.push(date);
+  }
+  dates.sort();
   const xs: number[] = [];
   const ys: number[] = [];
-  for (const date of a.keys()) {
-    if (b.has(date)) {
-      xs.push(a.get(date)!);
-      ys.push(b.get(date)!);
-    }
+  for (const date of dates) {
+    xs.push(a.get(date)!);
+    ys.push(b.get(date)!);
   }
-  return { xs, ys };
+  return { xs, ys, dates };
 }
 
 /**
@@ -99,17 +104,53 @@ function alignLag(
   a: Map<string, number>,
   b: Map<string, number>,
   lag: number,
-): { xs: number[]; ys: number[] } {
+): { xs: number[]; ys: number[]; dates: string[] } {
+  const dates: string[] = [];
+  for (const date of a.keys()) {
+    if (b.has(shiftDateKey(date, lag))) dates.push(date);
+  }
+  dates.sort();
   const xs: number[] = [];
   const ys: number[] = [];
-  for (const date of a.keys()) {
-    const target = shiftDateKey(date, lag);
-    if (b.has(target)) {
-      xs.push(a.get(date)!);
-      ys.push(b.get(target)!);
-    }
+  for (const date of dates) {
+    xs.push(a.get(date)!);
+    ys.push(b.get(shiftDateKey(date, lag))!);
   }
-  return { xs, ys };
+  return { xs, ys, dates };
+}
+
+/**
+ * Pooled within-stratum correlation (weekday vs weekend), via Fisher-z
+ * n-weighted averaging. Returns the estimate when BOTH strata have enough
+ * paired days, otherwise null. Used to expose weekday/weekend confounds:
+ * if the pooled estimate collapses vs the raw correlation, the "link" is
+ * really a weekday/weekend contrast.
+ */
+function withinStratumCoefficient(
+  xs: number[],
+  ys: number[],
+  dates: string[],
+  method: 'pearson' | 'spearman',
+): number | null {
+  const strata: { xs: number[]; ys: number[] }[] = [{ xs: [], ys: [] }, { xs: [], ys: [] }];
+  for (let i = 0; i < dates.length; i++) {
+    const isWeekend = weekdayOf(dates[i]) === 0 || weekdayOf(dates[i]) === 6;
+    strata[isWeekend ? 1 : 0].xs.push(xs[i]);
+    strata[isWeekend ? 1 : 0].ys.push(ys[i]);
+  }
+  const zs: { z: number; n: number }[] = [];
+  for (const s of strata) {
+    if (s.xs.length < 5) continue;
+    const test = method === 'pearson' ? pearsonTest(s.xs, s.ys) : spearmanTest(s.xs, s.ys);
+    if (!test || test.p === 1) continue;
+    const r = method === 'pearson' ? (test as { r: number }).r : (test as { rho: number }).rho;
+    zs.push({ z: fisherZ(r), n: s.xs.length });
+  }
+  if (zs.length < 2) return null;
+  const weight = zs.reduce((s, z) => s + (z.n - 3), 0);
+  if (weight <= 0) return null;
+  const pooled = zs.reduce((s, z) => s + (z.n - 3) * z.z, 0) / weight;
+  return fisherZInv(pooled);
 }
 
 /** Classify effect-size strength by |coefficient|. */
@@ -140,11 +181,34 @@ function build(
   ys: number[],
   lag = 0,
   window?: 'weekday' | 'weekend',
+  dates?: string[],
 ): { item: Omit<CorrelationResult, 'qValue' | 'significant'>; p: number } | null {
   const test = method === 'pearson' ? pearsonTest(xs, ys) : spearmanTest(xs, ys);
   if (!test || test.p === 1) return null;
   const coefficient = method === 'pearson' ? (test as { r: number }).r : (test as { rho: number }).rho;
   const robust = correlationRobustness(xs, ys, method);
+
+  // "Close to reality" guards (only meaningful on non-windowed pairs):
+  //   1) shared calendar trend — correlation on detrended residuals (applies
+  //      to same-day AND lag pairs: a shared drift inflates both).
+  //   2) weekday/weekend confound — pooled within-stratum estimate (same-day only).
+  let detrended: number | null = null;
+  let trendDriven = false;
+  let weekdayConfounded = false;
+  if (dates && dates.length >= 6 && !window) {
+    const dt = detrendedCorrelation(xs, ys, method);
+    if (dt) {
+      detrended = dt.r;
+      trendDriven = Math.abs(coefficient - dt.r) > 0.2 && Math.abs(dt.r) < 0.35;
+    }
+    if (lag === 0) {
+      const within = withinStratumCoefficient(xs, ys, dates, method);
+      if (within !== null && Math.abs(coefficient) >= 0.15) {
+        weekdayConfounded = Math.abs(within) < Math.abs(coefficient) - 0.2;
+      }
+    }
+  }
+
   return {
     item: {
       metricA,
@@ -165,6 +229,9 @@ function build(
       stability: robust.stability,
       outlierDriven: robust.outlierDriven,
       autocorrelatedResiduals: robust.autocorrelatedResiduals,
+      detrendedCoefficient: detrended,
+      trendDriven,
+      weekdayConfounded,
     },
     p: test.p,
   };
@@ -250,7 +317,10 @@ interface Raw { item: Omit<CorrelationResult, 'qValue' | 'significant'>; p: numb
  * fragile results instead of treating every star as a real discovery.
  */
 export function isTrustworthy(r: CorrelationResult): boolean {
-  return Boolean(r.significant && !r.outlierDriven && (r.stability === undefined || r.stability >= 0.7));
+  return Boolean(
+    r.significant && !r.outlierDriven && (r.stability === undefined || r.stability >= 0.7)
+    && !r.trendDriven && !r.weekdayConfounded,
+  );
 }
 
 /** Attach FDR-adjusted q-values and sort by |coefficient| (strongest first). */
@@ -317,6 +387,8 @@ export function computeCorrelationAnalysis(
     ...capacities.map((c) => c.name),
   ];
   const matrix: CorrelationCell[] = [];
+  const matrixPs: number[] = [];
+  const matrixRaw: { row: string; col: string; coefficient: number; sampleSize: number; p: number; detrendedCoefficient: number | null; trendDriven: boolean }[] = [];
   for (let i = 0; i < metrics.length; i++) {
     for (let j = i + 1; j < metrics.length; j++) {
       const a = seriesForLabel(metrics[i], set, capacities);
@@ -325,21 +397,38 @@ export function computeCorrelationAnalysis(
       const { xs, ys } = align(a, b);
       if (xs.length >= 6) {
         const usesMood = metrics[i] === 'Mood' || metrics[j] === 'Mood';
-        const test = usesMood ? spearmanTest(xs, ys) : pearsonTest(xs, ys);
+        const method = usesMood ? 'spearman' : 'pearson';
+        const test = method === 'spearman' ? spearmanTest(xs, ys) : pearsonTest(xs, ys);
         if (test && test.p !== 1) {
           const coeff = usesMood ? (test as { rho: number }).rho : (test as { r: number }).r;
-          matrix.push({
+          const dt = detrendedCorrelation(xs, ys, method);
+          matrixPs.push(test.p);
+          matrixRaw.push({
             row: metrics[i],
             col: metrics[j],
             coefficient: coeff,
             sampleSize: xs.length,
-            significant: test.p < 0.05,
-            qValue: test.p,
+            p: test.p,
+            detrendedCoefficient: dt ? dt.r : null,
+            trendDriven: dt !== null && Math.abs(coeff - dt.r) > 0.2 && Math.abs(dt.r) < 0.35,
           });
         }
       }
     }
   }
+  const matrixQs = benjaminiHochberg(matrixPs);
+  matrixRaw.forEach((raw, idx) => {
+    matrix.push({
+      row: raw.row,
+      col: raw.col,
+      coefficient: raw.coefficient,
+      sampleSize: raw.sampleSize,
+      significant: matrixQs[idx] < 0.05,
+      qValue: matrixQs[idx],
+      detrendedCoefficient: raw.detrendedCoefficient,
+      trendDriven: raw.trendDriven,
+    });
+  });
 
   return {
     sameDay,
@@ -401,26 +490,26 @@ function runPairs(
     for (let j = i + 1; j < habitArr.length; j++) {
       const [idA, mapA] = habitArr[i];
       const [idB, mapB] = habitArr[j];
-      const { xs, ys } = opts.lag > 0 ? alignLag(mapA, mapB, opts.lag) : align(mapA, mapB);
+      const { xs, ys, dates } = opts.lag > 0 ? alignLag(mapA, mapB, opts.lag) : align(mapA, mapB);
       if (xs.length >= 6) {
-        const r = build(nameOf(idA, set, capacities), nameOf(idB, set, capacities), 'pearson', xs, ys, opts.lag, opts.window);
+        const r = build(nameOf(idA, set, capacities), nameOf(idB, set, capacities), 'pearson', xs, ys, opts.lag, opts.window, dates);
         if (r) raw.push(r);
       }
     }
   }
 
   for (const [id, map] of set.habitSeries) {
-    const { xs, ys } = opts.lag > 0 ? alignLag(map, set.moodSeries, opts.lag) : align(map, set.moodSeries);
+    const { xs, ys, dates } = opts.lag > 0 ? alignLag(map, set.moodSeries, opts.lag) : align(map, set.moodSeries);
     if (xs.length >= 6) {
-      const r = build(nameOf(id, set, capacities), 'Mood', 'spearman', xs, ys, opts.lag, opts.window);
+      const r = build(nameOf(id, set, capacities), 'Mood', 'spearman', xs, ys, opts.lag, opts.window, dates);
       if (r) raw.push(r);
     }
   }
 
   for (const [, cm] of set.capSeries) {
-    const { xs, ys } = opts.lag > 0 ? alignLag(cm, set.moodSeries, opts.lag) : align(cm, set.moodSeries);
+    const { xs, ys, dates } = opts.lag > 0 ? alignLag(cm, set.moodSeries, opts.lag) : align(cm, set.moodSeries);
     if (xs.length >= 6) {
-      const r = build('Capacité', 'Mood', 'spearman', xs, ys, opts.lag, opts.window);
+      const r = build('Capacité', 'Mood', 'spearman', xs, ys, opts.lag, opts.window, dates);
       if (r) raw.push(r);
     }
   }
@@ -429,23 +518,23 @@ function runPairs(
   // (both sides are metric). Lag-1: does today's energy predict tomorrow's habit?
   if (set.energySeries.size >= 3) {
     for (const [habitId, hm] of set.habitSeries) {
-      const { xs, ys } = opts.lag > 0 ? alignLag(hm, set.energySeries, opts.lag) : align(hm, set.energySeries);
+      const { xs, ys, dates } = opts.lag > 0 ? alignLag(hm, set.energySeries, opts.lag) : align(hm, set.energySeries);
       if (xs.length >= 6) {
-        const r = build(nameOf(habitId, set, capacities), 'Énergie', 'pearson', xs, ys, opts.lag, opts.window);
+        const r = build(nameOf(habitId, set, capacities), 'Énergie', 'pearson', xs, ys, opts.lag, opts.window, dates);
         if (r) raw.push(r);
       }
     }
     {
-      const { xs, ys } = opts.lag > 0 ? alignLag(set.energySeries, set.moodSeries, opts.lag) : align(set.energySeries, set.moodSeries);
+      const { xs, ys, dates } = opts.lag > 0 ? alignLag(set.energySeries, set.moodSeries, opts.lag) : align(set.energySeries, set.moodSeries);
       if (xs.length >= 6) {
-        const r = build('Énergie', 'Mood', 'pearson', xs, ys, opts.lag, opts.window);
+        const r = build('Énergie', 'Mood', 'pearson', xs, ys, opts.lag, opts.window, dates);
         if (r) raw.push(r);
       }
     }
     for (const [capId, cm] of set.capSeries) {
-      const { xs, ys } = opts.lag > 0 ? alignLag(cm, set.energySeries, opts.lag) : align(cm, set.energySeries);
+      const { xs, ys, dates } = opts.lag > 0 ? alignLag(cm, set.energySeries, opts.lag) : align(cm, set.energySeries);
       if (xs.length >= 6) {
-        const r = build(nameOf(capId, set, capacities), 'Énergie', 'pearson', xs, ys, opts.lag, opts.window);
+        const r = build(nameOf(capId, set, capacities), 'Énergie', 'pearson', xs, ys, opts.lag, opts.window, dates);
         if (r) raw.push(r);
       }
     }
@@ -453,9 +542,9 @@ function runPairs(
 
   for (const [capId, cm] of set.capSeries) {
     for (const [habitId, hm] of set.habitSeries) {
-      const { xs, ys } = opts.lag > 0 ? alignLag(hm, cm, opts.lag) : align(hm, cm);
+      const { xs, ys, dates } = opts.lag > 0 ? alignLag(hm, cm, opts.lag) : align(hm, cm);
       if (xs.length >= 6) {
-        const r = build(nameOf(habitId, set, capacities), nameOf(capId, set, capacities), 'pearson', xs, ys, opts.lag, opts.window);
+        const r = build(nameOf(habitId, set, capacities), nameOf(capId, set, capacities), 'pearson', xs, ys, opts.lag, opts.window, dates);
         if (r) raw.push(r);
       }
     }

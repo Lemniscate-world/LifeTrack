@@ -74,7 +74,11 @@ function buildInsight(r: CorrelationResult, lag: number): Insight {
   }
 
   let nuance: string | undefined;
-  if (r.winsorizedCoefficient !== null && r.winsorizedCoefficient !== undefined) {
+  if (r.trendDriven) {
+    nuance = '⚠ Ce lien est surtout une tendance partagée (tout évolue dans le même sens au fil du temps) : une fois les tendances retirées, l’association s’évapore. Ne pas traiter comme un vrai lien quotidien.';
+  } else if (r.weekdayConfounded) {
+    nuance = '⚠ Ce lien vient surtout du contraste semaine/week-end : quand on compare des jours du même type, l’association disparaît.';
+  } else if (r.winsorizedCoefficient !== null && r.winsorizedCoefficient !== undefined) {
     const robust = Math.abs(r.winsorizedCoefficient);
     if (robust < Math.abs(r.coefficient) * 0.7) {
       nuance = 'Le lien s’affaiblit sans les valeurs extrêmes — solide mais à surveiller.';

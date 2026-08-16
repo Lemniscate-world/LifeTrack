@@ -222,6 +222,57 @@ export function requiredSampleSize(r: number, alpha = 0.05, power = 0.8): number
   return Math.ceil(n);
 }
 
+// --- Detrending (spurious shared-trend guard) ------------------------------
+// Two series that both drift upward over time (a habit getting more regular,
+// a mood improving) correlate even when there is NO day-to-day link. The honest
+// number is the correlation of the residuals after regressing each series on
+// time: "once the shared calendar trend is removed, does X still track Y?"
+
+/** OLS residualize a series on its time index (0..n-1). Input order must be
+ * chronological — the caller is responsible for sorting by date. */
+export function residualizeOnTime(values: number[]): number[] {
+  const n = values.length;
+  if (n < 3) return [...values];
+  const t = Array.from({ length: n }, (_, i) => i);
+  const mt = (n - 1) / 2;
+  const my = values.reduce((s, v) => s + v, 0) / n;
+  let stt = 0, sty = 0;
+  for (let i = 0; i < n; i++) { stt += (t[i] - mt) ** 2; sty += (t[i] - mt) * (values[i] - my); }
+  if (stt === 0) return [...values];
+  const slope = sty / stt;
+  const intercept = my - slope * mt;
+  return values.map((v, i) => v - (intercept + slope * i));
+}
+
+/**
+ * Correlation of the residuals after removing each series' linear time trend.
+ * Returns the raw test outcome (same shape as pearsonTest/spearmanTest) or
+ * null when the sample is too small. `method` must match the caller's choice.
+ */
+export function detrendedCorrelation(
+  xs: number[],
+  ys: number[],
+  method: 'pearson' | 'spearman',
+): { r: number; p: number; ci: [number, number] } | null {
+  if (xs.length < 6 || xs.length !== ys.length) return null;
+  const rx = residualizeOnTime(xs);
+  const ry = residualizeOnTime(ys);
+  const test = method === 'pearson' ? pearsonTest(rx, ry) : spearmanTest(rx, ry);
+  if (!test) return null;
+  const coeff = method === 'pearson' ? (test as { r: number }).r : (test as { rho: number }).rho;
+  return { r: coeff, p: test.p, ci: test.ci };
+}
+
+/** Fisher z-transform of a correlation (used to pool within-stratum estimates). */
+export function fisherZ(r: number): number {
+  return Math.atanh(Math.max(-0.999999, Math.min(0.999999, r)));
+}
+
+/** Inverse Fisher z. */
+export function fisherZInv(z: number): number {
+  return Math.tanh(z);
+}
+
 // --- Correlation robustness (anti-misleading) ------------------------------
 // Adds "close to reality" diagnostics to any correlation:
 //   - a winsorized (tail-trimmed) coefficient so a single outlier can't fake an effect,

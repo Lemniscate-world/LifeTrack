@@ -269,26 +269,40 @@ export default function CorrelationsView() {
                         return (
                           <td
                             key={col}
-                            title={cell && cell.coefficient !== null ? `${row} ↔ ${col}: ${cell.coefficient.toFixed(2)} (N=${cell.sampleSize}, q=${cell.qValue.toFixed(3)})${cell.significant ? ' · significatif' : ''}` : 'pas assez de données'}
+                            title={cell && cell.coefficient !== null
+                              ? `${row} ↔ ${col}: ${cell.coefficient.toFixed(2)} (N=${cell.sampleSize}, q=${cell.qValue.toFixed(3)})${cell.significant ? ' · significatif' : ''}${cell.trendDriven ? ` · ⏱ tendance partagée (après détendance : ${cell.detrendedCoefficient?.toFixed(2) ?? '?'})` : ''}`
+                              : 'pas assez de données'}
                             onClick={() => {
                               if (!cell || cell.coefficient === null) return;
                               setSelectedPair({
                                 metricA: row, metricB: col, coefficient: cell.coefficient,
                                 strength: Math.abs(cell.coefficient) >= 0.6 ? 'strong' : Math.abs(cell.coefficient) >= 0.3 ? 'moderate' : Math.abs(cell.coefficient) >= 0.1 ? 'weak' : 'none',
                                 direction: cell.coefficient >= 0 ? 'positive' : 'negative',
-                                sampleSize: cell.sampleSize, method: 'spearman', pValue: cell.qValue, qValue: cell.qValue,
+                                sampleSize: cell.sampleSize, method: 'pearson', pValue: cell.qValue, qValue: cell.qValue,
                                 significant: cell.significant, ciLow: cell.coefficient, ciHigh: cell.coefficient,
                                 requiredN: Math.abs(cell.coefficient) < 0.05 ? Infinity : Math.ceil(Math.pow(1.96 + 0.842, 2) / Math.pow(Math.atanh(Math.min(0.999999, Math.abs(cell.coefficient))), 2)) + 4,
                                 caveat: 'Matrice de corrélations — lien statistique, pas causal. Vérifier N avant de conclure.',
+                                detrendedCoefficient: cell.detrendedCoefficient ?? null,
+                                trendDriven: cell.trendDriven,
                               });
                             }}
                             style={{
                               padding: '0.3rem 0.4rem', background: heatColor(cell ? cell.coefficient : null), textAlign: 'center',
                               color: cell && cell.coefficient !== null ? '#fff' : 'var(--text-muted)', cursor: cell && cell.coefficient !== null ? 'pointer' : 'default',
                               border: cell && cell.significant ? '1px solid var(--border)' : '1px solid transparent',
+                              position: 'relative',
                             }}
                           >
-                            {cell && cell.coefficient !== null ? (cell.coefficient >= 0 ? '' : '') + cell.coefficient.toFixed(2) : '·'}
+                            {cell && cell.coefficient !== null ? cell.coefficient.toFixed(2) : '·'}
+                            {cell && cell.trendDriven && cell.coefficient !== null && (
+                              <span
+                                title="Lien surtout dû à une tendance partagée — s'évapore après détendance."
+                                style={{
+                                  position: 'absolute', top: 0, right: 2, fontSize: '0.6rem', lineHeight: 1,
+                                  color: '#fbbf24', fontWeight: 700, pointerEvents: 'none',
+                                }}
+                              >⏱</span>
+                            )}
                           </td>
                         );
                       })}
@@ -298,7 +312,7 @@ export default function CorrelationsView() {
               </table>
             </div>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: '0.75rem 0 0 0' }}>
-              Vert = positif · Orange = négatif · bordure claire = significatif (p&lt;0.05) · « · » = pas assez de données. Clique une cellule pour l’inspecter.
+              Vert = positif · Orange = négatif · bordure claire = significatif (q&lt;0.05 FDR) · ⏱ = lien surtout dû à une tendance partagée (peu fiable) · « · » = pas assez de données. Clique une cellule pour l’inspecter.
             </p>
           </>
         )
@@ -407,6 +421,12 @@ export default function CorrelationsView() {
                     ) : null}
                     {r.autocorrelatedResiduals && (
                       <span title="Résidus autocorrélés en série — la p-value peut être gonflée (faux signal de tendance)." style={{ fontSize: '0.72rem', background: 'rgba(148,163,184,0.3)', color: 'var(--text-muted)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>↻ autocorr.</span>
+                    )}
+                    {r.trendDriven && (
+                      <span title="La corrélation s'évapore une fois les tendances temporelles retirées : c'est une tendance partagée (tout s'améliore en parallèle), pas un vrai lien quotidien." style={{ fontSize: '0.72rem', background: 'rgba(99,102,241,0.15)', color: '#818cf8', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>⏱ tendance partagée</span>
+                    )}
+                    {r.weekdayConfounded && (
+                      <span title="Le lien disparaît quand on compare des jours du même type : c'est surtout le contraste semaine/week-end qui crée l'association." style={{ fontSize: '0.72rem', background: 'rgba(139,92,246,0.15)', color: '#a78bfa', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>🗓 effet week-end</span>
                     )}
                     <span style={{ fontSize: '0.72rem', background: 'var(--border)', padding: '0.15rem 0.4rem', borderRadius: '4px', color: 'var(--text-muted)' }}>{r.method}</span>
                   </div>
@@ -542,6 +562,16 @@ export default function CorrelationsView() {
                 {selectedPair.autocorrelatedResiduals && (
                   <div style={{ marginTop: '0.35rem', color: '#f59e0b', fontSize: '0.75rem' }}>
                     ⚠ Résidus autocorrélés en série : la p-value peut être gonflée (effet de dérive temporelle, pas forcément un vrai lien).
+                  </div>
+                )}
+                {selectedPair.trendDriven && (
+                  <div style={{ marginTop: '0.35rem', color: '#818cf8', fontSize: '0.75rem' }}>
+                    ⏱ Tendance partagée : la corrélation brute ({selectedPair.coefficient >= 0 ? '+' : ''}{selectedPair.coefficient.toFixed(2)}) s'effondre à {selectedPair.detrendedCoefficient !== null && selectedPair.detrendedCoefficient !== undefined ? `${selectedPair.detrendedCoefficient >= 0 ? '+' : ''}${selectedPair.detrendedCoefficient.toFixed(2)}` : '?'} une fois les tendances temporelles retirées. C'est une évolution parallèle au fil du temps, pas une vraie association quotidienne.
+                  </div>
+                )}
+                {selectedPair.weekdayConfounded && (
+                  <div style={{ marginTop: '0.35rem', color: '#a78bfa', fontSize: '0.75rem' }}>
+                    🗓 Effet semaine/week-end : quand on compare des jours du même type, l'association disparaît. Le lien reflète surtout le contraste des jours de semaine vs week-ends.
                   </div>
                 )}
               </div>
