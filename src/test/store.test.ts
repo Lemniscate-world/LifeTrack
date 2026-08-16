@@ -38,6 +38,10 @@ import {
   getEnergy,
   getMonthEnergies,
   getAverageEnergy,
+  setConcentration,
+  getConcentration,
+  getMonthConcentrations,
+  getAverageConcentration,
   importObsidianNotes,
   getObsidianNotes,
   removeObsidianNote,
@@ -379,6 +383,20 @@ describe('Persistence and fallbacks', () => {
 
     expect(result.checkInsRestored).toBe(1);
     expect(getCheckIn(existing.id, '2026-06-01')).toMatchObject({ completed: true, count: 3, notes: ['Three sets'] });
+  });
+
+  it('restores imported concentration values and reports the count', () => {
+    const result = mergeImportedData({
+      habits: [],
+      checkIns: [],
+      notes: [],
+      concentrations: { '2026-07-05': 92, '2026-07-06': -10, '2026-07-07': 150, '2026-07-08': 'x' },
+    });
+    expect(result.concentrationsRestored).toBe(1);
+    expect(getConcentration('2026-07-05')).toBe(92);
+    expect(getConcentration('2026-07-06')).toBeUndefined();
+    expect(getConcentration('2026-07-07')).toBeUndefined();
+    expect(getConcentration('2026-07-08')).toBeUndefined();
   });
 
   it('rejects invalid imported check-in dates', () => {
@@ -1693,6 +1711,86 @@ describe('Energy tracking', () => {
     expect(getEnergy('2026-07-03')).toBeUndefined();
     expect(getEnergy('2026-07-04')).toBeUndefined();
     expect(getEnergy('not-a-date')).toBeUndefined();
+  });
+});
+
+describe('Concentration tracking', () => {
+  it('stores a rounded 0-100 value per day and clears on null', () => {
+    setConcentration('2026-07-01', 88.6);
+    setConcentration('2026-07-02', 40);
+    expect(getConcentration('2026-07-01')).toBe(89);
+    expect(getConcentration('2026-07-02')).toBe(40);
+    setConcentration('2026-07-01', null);
+    expect(getConcentration('2026-07-01')).toBeUndefined();
+  });
+
+  it('clamps values outside 0-100', () => {
+    setConcentration('2026-07-03', -5);
+    setConcentration('2026-07-04', 250);
+    expect(getConcentration('2026-07-03')).toBe(0);
+    expect(getConcentration('2026-07-04')).toBe(100);
+  });
+
+  it('getMonthConcentrations returns only the days of the requested month', () => {
+    setConcentration('2026-06-30', 90);
+    setConcentration('2026-07-01', 80);
+    setConcentration('2026-07-31', 20);
+    const map = getMonthConcentrations(2026, 6); // July = month index 6
+    expect(map.get(1)).toBe(80);
+    expect(map.get(31)).toBe(20);
+    expect(map.size).toBe(2);
+    expect(map.get(30)).toBeUndefined();
+  });
+
+  it('getAverageConcentration averages the given days or all days', () => {
+    setConcentration('2026-07-01', 100);
+    setConcentration('2026-07-02', 50);
+    setConcentration('2026-07-03', 75);
+    expect(getAverageConcentration(['2026-07-01', '2026-07-02'])).toBe(75);
+    expect(getAverageConcentration()).toBe(75);
+    resetStore();
+    expect(getAverageConcentration()).toBeNull();
+  });
+
+  it('survives a reload (persisted)', () => {
+    setConcentration('2026-07-10', 65);
+    flushSave();
+    resetStore();
+    expect(getConcentration('2026-07-10')).toBe(65);
+  });
+
+  it('sanitizes corrupt concentration maps on load', () => {
+    localStorage.setItem('lifetrack-data', JSON.stringify({
+      habits: [],
+      checkIns: [],
+      notes: [],
+      chaosDimensions: [],
+      achievementCategories: [],
+      mantras: [],
+      mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
+      skills: [],
+      capacities: [],
+      capacityRatings: [],
+      moods: {},
+      concentrations: { '2026-07-01': 80, '2026-07-02': -5, '2026-07-03': 200, '2026-07-04': 'high', 'not-a-date': 50 },
+      experiments: [],
+      urges: [],
+      customUrgeTypes: [],
+      journalEntries: [],
+      journalThreads: [],
+      challenges: [],
+      personas: [],
+      levers: [],
+      patternTracks: [],
+      reflections: [],
+      preferences: { darkMode: false, theme: '' },
+    }));
+    resetStore();
+    expect(getConcentration('2026-07-01')).toBe(80);
+    expect(getConcentration('2026-07-02')).toBeUndefined();
+    expect(getConcentration('2026-07-03')).toBeUndefined();
+    expect(getConcentration('2026-07-04')).toBeUndefined();
+    expect(getConcentration('not-a-date')).toBeUndefined();
   });
 });
 

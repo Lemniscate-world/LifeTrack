@@ -537,6 +537,7 @@ export interface AppData {
   capacityRatings: CapacityRating[];
   moods: Record<string, string>; // date YYYY-MM-DD -> mood id
   energies?: Record<string, number>; // date YYYY-MM-DD -> energy 0-100 (precision %)
+  concentrations?: Record<string, number>; // date YYYY-MM-DD -> focus/concentration 0-100 %
   experiments: Experiment[];
   urges: UrgeEntry[];
   customUrgeTypes: CustomUrgeType[];

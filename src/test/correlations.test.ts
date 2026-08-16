@@ -470,3 +470,60 @@ describe('truth guards v2 — confounder, lunar, base-rate ceiling, direction', 
     expect(Math.abs(idxRun - idxRead)).toBe(1);
   });
 });
+
+describe('concentration series (daily focus %)', () => {
+  it('appears as its own metric in the matrix and correlates with a habit', () => {
+    // Deep-work habit done on days with high concentration (and not on others).
+    const concentrations: Record<string, number> = {};
+    const checks: CheckIn[] = [];
+    for (let d = 1; d <= 20; d++) {
+      const k = `2026-11-${String(d).padStart(2, '0')}`;
+      const deep = d % 3 !== 0; // ~2/3 of days done
+      checks.push(ci('a', k, deep));
+      concentrations[k] = deep ? 75 + (d % 20) : 25;
+    }
+    const analysis = computeCorrelationAnalysis([habit('a', 'Deep Work')], checks, {}, [], [], undefined, concentrations);
+    expect(analysis.metrics).toContain('Concentration');
+    const cell = analysis.matrix.find((c) => (c.row === 'Deep Work' && c.col === 'Concentration') || (c.row === 'Concentration' && c.col === 'Deep Work'));
+    expect(cell).toBeDefined();
+    expect(cell!.sampleSize).toBe(20);
+    expect(Math.abs(cell!.coefficient!)).toBeGreaterThan(0.6);
+    // Same-day result list carries the pair too.
+    const pair = analysis.sameDay.find((c) => c.metricB === 'Concentration');
+    expect(pair).toBeDefined();
+    expect(pair!.method).toBe('pearson');
+  });
+
+  it('correlates concentration ↔ mood with Spearman', () => {
+    const concentrations: Record<string, number> = {};
+    const moods: Record<string, string> = {};
+    for (let d = 1; d <= 14; d++) {
+      const k = `2026-11-${String(d).padStart(2, '0')}`;
+      const good = d % 2 === 1;
+      concentrations[k] = good ? 90 : 10;
+      moods[k] = good ? 'great' : 'bad';
+    }
+    const res = computeCorrelations([], [], moods, [], [], undefined, concentrations);
+    const pair = res.find((c) => c.metricA === 'Concentration' && c.metricB === 'Mood');
+    expect(pair).toBeDefined();
+    expect(pair!.method).toBe('spearman');
+    expect(pair!.coefficient).toBeGreaterThan(0.5);
+  });
+
+  it('supports lag-1: habit today → concentration tomorrow', () => {
+    const concentrations: Record<string, number> = {};
+    const checks: CheckIn[] = [];
+    for (let d = 1; d <= 21; d++) {
+      const k = `2026-11-${String(d).padStart(2, '0')}`;
+      const done = d % 2 === 1;
+      checks.push(ci('a', k, done));
+      const prevDone = d > 1 && d % 2 === 0;
+      concentrations[k] = prevDone ? 85 : 20;
+    }
+    const analysis = computeCorrelationAnalysis([habit('a', 'Sport')], checks, {}, [], [], undefined, concentrations);
+    const lag = analysis.lag1.find((c) => c.metricA === 'Sport' && c.metricB === 'Concentration');
+    expect(lag).toBeDefined();
+    expect(lag!.coefficient).toBeGreaterThan(0.4);
+    expect(lag!.lag).toBe(1);
+  });
+});

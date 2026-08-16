@@ -192,6 +192,7 @@ function sanitizeData(raw: unknown): AppData {
     capacityRatings: [],
     moods: {},
     energies: {},
+    concentrations: {},
     experiments: [],
     urges: [],
     customUrgeTypes: [],
@@ -363,6 +364,7 @@ function sanitizeData(raw: unknown): AppData {
     capacityRatings: validRatings,
     moods: (obj.moods && typeof obj.moods === 'object' && !Array.isArray(obj.moods)) ? obj.moods as Record<string, string> : {},
     energies: sanitizeEnergies((obj as Record<string, unknown>).energies),
+    concentrations: sanitizeEnergies((obj as Record<string, unknown>).concentrations),
     experiments: Array.isArray(obj.experiments) ? obj.experiments.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'title' in (e as object)) as Experiment[] : [],
     urges: Array.isArray(obj.urges) ? obj.urges.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'type' in (e as object)) as UrgeEntry[] : [],
     customUrgeTypes: Array.isArray(obj.customUrgeTypes) ? obj.customUrgeTypes.filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'name' in (e as object)) as CustomUrgeType[] : [],
@@ -460,7 +462,7 @@ function sanitizeProjects(raw: unknown): Project[] {
   });
 }
 
-/** Sanitize the per-day energy map (date YYYY-MM-DD → 0-100). Values out of
+/** Sanitize a per-day percentage map (date YYYY-MM-DD → 0-100). Values out of
  * range or non-numeric are dropped; dates must be valid calendar keys. */
 function sanitizeEnergies(raw: unknown): Record<string, number> {
   const out: Record<string, number> = {};
@@ -1094,6 +1096,7 @@ function freshData(): AppData {
     capacityRatings: [],
     moods: {},
     energies: {},
+    concentrations: {},
     experiments: [],
     urges: [],
     customUrgeTypes: [],
@@ -2574,6 +2577,7 @@ export interface ImportMergeResult {
   // New v0.3.2 — ALL data types are now preserved on import
   moodsRestored: number;
   energiesRestored: number;
+  concentrationsRestored: number;
   experimentsRestored: number;
   urgesRestored: number;
   mantrasRestored: number;
@@ -2771,6 +2775,7 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
     skippedCheckIns: 0,
     moodsRestored: 0,
     energiesRestored: 0,
+    concentrationsRestored: 0,
     experimentsRestored: 0,
     urgesRestored: 0,
     mantrasRestored: 0,
@@ -2971,6 +2976,20 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
     }
   }
   result.energiesRestored = energiesRestored;
+
+  // --- v0.6.2: Import concentrations (YYYY-MM-DD → 0-100 %) ---
+  let concentrationsRestored = 0;
+  if (!data.concentrations) data.concentrations = {};
+  const rawConcs = (raw as Record<string, unknown>).concentrations;
+  if (rawConcs && typeof rawConcs === 'object' && !Array.isArray(rawConcs)) {
+    for (const [date, v] of Object.entries(rawConcs as Record<string, unknown>)) {
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 100) continue;
+      if (!isValidDateKey(date) || data.concentrations[date] !== undefined) continue;
+      data.concentrations[date] = Math.round(v);
+      concentrationsRestored++;
+    }
+  }
+  result.concentrationsRestored = concentrationsRestored;
 
   // --- v0.3.2: Import experiments ---
   let experimentsRestored = 0;
@@ -3228,7 +3247,7 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
 
   const totalRestored = result.habitsCreated + result.checkInsRestored + result.notesCreated
     + skillsMerged + capacitiesImported + ratingsImported
-    + moodsRestored + energiesRestored + experimentsRestored + urgesRestored + mantrasRestored + chaosDimensionsRestored;
+    + moodsRestored + energiesRestored + concentrationsRestored + experimentsRestored + urgesRestored + mantrasRestored + chaosDimensionsRestored;
   if (metadataChanged || totalRestored > 0) {
     notify();
   }
@@ -3402,6 +3421,41 @@ export function getAverageEnergy(days: string[] = []): number | null {
   const values = days.length > 0
     ? days.map((d) => data.energies?.[d]).filter((v): v is number => v !== undefined)
     : Object.values(data.energies ?? {});
+  if (values.length === 0) return null;
+  return Math.round(values.reduce((s, v) => s + v, 0) / values.length);
+}
+
+// --- Concentration tracking (% 0-100 per day) ---
+// Same per-day map pattern as energy: surfaced in the grid concentration row,
+// used as a continuous series for correlations (the "focus" axis of the day).
+
+export function setConcentration(date: string, value: number | null): void {
+  if (!data.concentrations) data.concentrations = {};
+  if (value === null) {
+    delete data.concentrations[date];
+  } else {
+    data.concentrations[date] = Math.max(0, Math.min(100, Math.round(value)));
+  }
+  notify();
+}
+export function getConcentration(date: string): number | undefined {
+  return data.concentrations?.[date];
+}
+export function getMonthConcentrations(year: number, month: number): Map<number, number> {
+  const map = new Map<number, number>();
+  const prefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
+  for (const [date, v] of Object.entries(data.concentrations ?? {})) {
+    if (date.startsWith(prefix)) {
+      const day = parseInt(date.split('-')[2], 10);
+      map.set(day, v);
+    }
+  }
+  return map;
+}
+export function getAverageConcentration(days: string[] = []): number | null {
+  const values = days.length > 0
+    ? days.map((d) => data.concentrations?.[d]).filter((v): v is number => v !== undefined)
+    : Object.values(data.concentrations ?? {});
   if (values.length === 0) return null;
   return Math.round(values.reduce((s, v) => s + v, 0) / values.length);
 }

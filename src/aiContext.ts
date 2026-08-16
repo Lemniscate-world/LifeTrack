@@ -427,7 +427,7 @@ export function buildAiContext(data: AppData): string {
   const correlations = (() => {
     try {
       const caps = (data.capacities ?? []).map((c) => ({ id: c.id, name: c.name }));
-      return computeCorrelations(data.habits, data.checkIns, data.moods ?? {}, caps, data.capacityRatings ?? [], data.energies ?? {});
+      return computeCorrelations(data.habits, data.checkIns, data.moods ?? {}, caps, data.capacityRatings ?? [], data.energies ?? {}, data.concentrations ?? {});
     } catch { return []; }
   })();
   if (correlations.length > 0) {

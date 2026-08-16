@@ -80,6 +80,7 @@ export default function CorrelationsView() {
   const checkIns = useMemo(() => data.checkIns ?? [], [data]);
   const moods = useMemo(() => data.moods ?? {}, [data]);
   const energies = useMemo(() => data.energies ?? {}, [data]);
+  const concentrations = useMemo(() => data.concentrations ?? {}, [data]);
   const capacities = useMemo(() => (data.capacities ?? []).map(c => ({ id: c.id, name: c.name })), [data]);
   const ratings = useMemo(() => data.capacityRatings ?? [], [data]);
 
@@ -88,13 +89,13 @@ export default function CorrelationsView() {
 
   const analysis = useMemo(() => {
     try {
-      return computeCorrelationAnalysis(habits, checkIns, moods, capacities, ratings, energies);
+      return computeCorrelationAnalysis(habits, checkIns, moods, capacities, ratings, energies, concentrations);
     } catch {
       return { sameDay: [], lag1: [], weekday: [], weekend: [], matrix: [], metrics: [], caveats: [] };
     }
-  }, [habits, checkIns, moods, capacities, ratings, energies]);
+  }, [habits, checkIns, moods, capacities, ratings, energies, concentrations]);
 
-  const results = useMemo(() => computeCorrelations(habits, checkIns, moods, capacities, ratings, energies), [habits, checkIns, moods, capacities, ratings, energies]);
+  const results = useMemo(() => computeCorrelations(habits, checkIns, moods, capacities, ratings, energies, concentrations), [habits, checkIns, moods, capacities, ratings, energies, concentrations]);
 
   // Time-series trends consolidated here (single analysis hub).
   const habitTrends = useMemo(() => {

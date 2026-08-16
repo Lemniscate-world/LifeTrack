@@ -50,12 +50,13 @@ export function shiftDateKey(date: string, days: number): string {
 }
 
 /** Enumerate every distinct date across all sources, oldest → newest. */
-function allDates(checkIns: CheckIn[], moods: Record<string, string>, ratings: CapacityRating[], energies?: Record<string, number>): string[] {
+function allDates(checkIns: CheckIn[], moods: Record<string, string>, ratings: CapacityRating[], energies?: Record<string, number>, concentrations?: Record<string, number>): string[] {
   const set = new Set<string>();
   for (const c of checkIns) if (c.date) set.add(c.date);
   for (const k of Object.keys(moods)) set.add(k);
   for (const r of ratings) if (r.date) set.add(r.date);
   for (const k of Object.keys(energies ?? {})) set.add(k);
+  for (const k of Object.keys(concentrations ?? {})) set.add(k);
   return [...set].sort();
 }
 
@@ -303,6 +304,7 @@ interface SeriesSet {
   activeHabits: Habit[];
   moodSeries: Map<string, number>;
   energySeries: Map<string, number>;
+  concentrationSeries: Map<string, number>;
   capSeries: Map<string, Map<string, number>>;
 }
 
@@ -315,6 +317,7 @@ function buildSeries(
   ratings: CapacityRating[],
   window?: 'weekday' | 'weekend',
   energies?: Record<string, number>,
+  concentrations?: Record<string, number>,
 ): SeriesSet {
   const activeHabits = habits.filter((h) => !h.archived);
   const habitSeries = new Map<string, Map<string, number>>();
@@ -359,7 +362,17 @@ function buildSeries(
     energySeries = sub;
   }
 
-  return { habitSeries, activeHabits, moodSeries, energySeries, capSeries };
+  let concentrationSeries = new Map<string, number>();
+  for (const [date, v] of Object.entries(concentrations ?? {})) {
+    if (typeof v === 'number' && Number.isFinite(v)) concentrationSeries.set(date, v);
+  }
+  if (window) {
+    const sub = new Map<string, number>();
+    for (const [date, v] of concentrationSeries) if (weekdayOf(date) !== 0 && weekdayOf(date) !== 6 ? window === 'weekday' : window === 'weekend') sub.set(date, v);
+    concentrationSeries = sub;
+  }
+
+  return { habitSeries, activeHabits, moodSeries, energySeries, concentrationSeries, capSeries };
 }
 
 function nameOf(id: string, set: SeriesSet, capacities: { id: string; name: string }[]): string {
@@ -414,8 +427,9 @@ export function computeCorrelations(
   capacities: { id: string; name: string }[],
   ratings: CapacityRating[],
   energies?: Record<string, number>,
+  concentrations?: Record<string, number>,
 ): CorrelationResult[] {
-  return finalize(runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: undefined }, energies));
+  return finalize(runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: undefined }, energies, concentrations));
 }
 
 /**
@@ -432,26 +446,27 @@ export function computeCorrelationAnalysis(
   capacities: { id: string; name: string }[],
   ratings: CapacityRating[],
   energies?: Record<string, number>,
+  concentrations?: Record<string, number>,
 ): CorrelationAnalysis {
-  const dates = allDates(checkIns, moods, ratings, energies);
+  const dates = allDates(checkIns, moods, ratings, energies, concentrations);
   if (dates.length < 5) {
     return { sameDay: [], lag1: [], weekday: [], weekend: [], matrix: [], metrics: [], caveats: defaultCaveats() };
   }
   const raws = [
-    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: undefined }, energies),
-    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 1, window: undefined }, energies),
-    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 2, window: undefined }, energies),
-    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 3, window: undefined }, energies),
-    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 7, window: undefined }, energies),
-    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: 'weekday' }, energies),
-    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: 'weekend' }, energies),
+    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: undefined }, energies, concentrations),
+    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 1, window: undefined }, energies, concentrations),
+    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 2, window: undefined }, energies, concentrations),
+    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 3, window: undefined }, energies, concentrations),
+    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 7, window: undefined }, energies, concentrations),
+    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: 'weekday' }, energies, concentrations),
+    runPairs(habits, checkIns, moods, capacities, ratings, { lag: 0, window: 'weekend' }, energies, concentrations),
   ];
   const [sameDay, lag1, lag2, lag3, lag7, weekday, weekend] = globalFinalize(raws);
 
-  const set = buildSeries(habits, checkIns, moods, capacities, ratings, undefined, energies);
+  const set = buildSeries(habits, checkIns, moods, capacities, ratings, undefined, energies, concentrations);
   const matrixInfo = buildMatrix(set, capacities);
-  const weekdaySet = buildSeries(habits, checkIns, moods, capacities, ratings, 'weekday', energies);
-  const weekendSet = buildSeries(habits, checkIns, moods, capacities, ratings, 'weekend', energies);
+  const weekdaySet = buildSeries(habits, checkIns, moods, capacities, ratings, 'weekday', energies, concentrations);
+  const weekendSet = buildSeries(habits, checkIns, moods, capacities, ratings, 'weekend', energies, concentrations);
   const matrixWeekday = buildMatrix(weekdaySet, capacities).cells;
   const matrixWeekend = buildMatrix(weekendSet, capacities).cells;
 
@@ -488,6 +503,7 @@ function seriesForLabel(
 ): Map<string, number> | null {
   if (label === 'Mood') return set.moodSeries;
   if (label === 'Énergie') return set.energySeries;
+  if (label === 'Concentration') return set.concentrationSeries;
   const h = set.activeHabits.find((x) => x.name === label);
   if (h) return set.habitSeries.get(h.id) ?? null;
   const cap = capacities.find((c) => c.name === label);
@@ -508,8 +524,9 @@ function runPairs(
   ratings: CapacityRating[],
   opts: RunOptions,
   energies?: Record<string, number>,
+  concentrations?: Record<string, number>,
 ): Raw[] {
-  const set = buildSeries(habits, checkIns, moods, capacities, ratings, opts.window, energies);
+  const set = buildSeries(habits, checkIns, moods, capacities, ratings, opts.window, energies, concentrations);
   const raw: Raw[] = [];
 
   const habitArr = [...set.habitSeries.entries()];
@@ -570,14 +587,53 @@ function runPairs(
         }
       }
     }
+  }
+
+  // Concentration (continuous %) ↔ habits, mood, capacities and energy.
+  if (set.concentrationSeries.size >= 3) {
+    for (const [habitId, hm] of set.habitSeries) {
+      const { xs, ys, dates } = opts.lag > 0 ? alignLag(hm, set.concentrationSeries, opts.lag) : align(hm, set.concentrationSeries);
+      if (xs.length >= 6) {
+        const r = build(nameOf(habitId, set, capacities), 'Concentration', 'pearson', xs, ys, opts.lag, opts.window, dates, set);
+        if (r) {
+          attachReverse(r.item, hm, set.concentrationSeries, nameOf(habitId, set, capacities), 'Concentration', opts, set);
+          raw.push(r);
+        }
+      }
+    }
+    {
+      const { xs, ys, dates } = opts.lag > 0 ? alignLag(set.concentrationSeries, set.moodSeries, opts.lag) : align(set.concentrationSeries, set.moodSeries);
+      if (xs.length >= 6) {
+        const r = build('Concentration', 'Mood', 'spearman', xs, ys, opts.lag, opts.window, dates, set);
+        if (r) {
+          attachReverse(r.item, set.concentrationSeries, set.moodSeries, 'Concentration', 'Mood', opts, set);
+          raw.push(r);
+        }
+      }
+    }
     for (const [capId, cm] of set.capSeries) {
-      const { xs, ys, dates } = opts.lag > 0 ? alignLag(cm, set.energySeries, opts.lag) : align(cm, set.energySeries);
+      const { xs, ys, dates } = opts.lag > 0 ? alignLag(cm, set.concentrationSeries, opts.lag) : align(cm, set.concentrationSeries);
+      if (xs.length >= 6) {
+        const r = build(nameOf(capId, set, capacities), 'Concentration', 'pearson', xs, ys, opts.lag, opts.window, dates, set);
+        if (r) raw.push(r);
+      }
+    }
+    if (set.energySeries.size >= 3) {
+      const { xs, ys, dates } = opts.lag > 0 ? alignLag(set.energySeries, set.concentrationSeries, opts.lag) : align(set.energySeries, set.concentrationSeries);
+      if (xs.length >= 6) {
+        const r = build('Énergie', 'Concentration', 'pearson', xs, ys, opts.lag, opts.window, dates, set);
+        if (r) raw.push(r);
+      }
+    }
+  }
+
+  for (const [capId, cm] of set.capSeries) {
+const { xs, ys, dates } = opts.lag > 0 ? alignLag(cm, set.energySeries, opts.lag) : align(cm, set.energySeries);
       if (xs.length >= 6) {
         const r = build(nameOf(capId, set, capacities), 'Énergie', 'pearson', xs, ys, opts.lag, opts.window, dates, set);
         if (r) raw.push(r);
       }
     }
-  }
 
   for (const [capId, cm] of set.capSeries) {
     for (const [habitId, hm] of set.habitSeries) {
@@ -649,10 +705,12 @@ function buildMatrix(
   window?: 'weekday' | 'weekend',
 ): { cells: CorrelationCell[]; metrics: string[] } {
   const hasEnergy = set.energySeries.size >= 3;
+  const hasConcentration = set.concentrationSeries.size >= 3;
   const metrics = [
     ...set.activeHabits.map((h) => h.name),
     ...(set.moodSeries.size > 0 ? ['Mood'] : []),
     ...(hasEnergy ? ['Énergie'] : []),
+    ...(hasConcentration ? ['Concentration'] : []),
     ...capacities.map((c) => c.name),
   ];
   const matrixRaw: { row: string; col: string; coefficient: number; sampleSize: number; p: number; detrendedCoefficient: number | null; trendDriven: boolean; weekdayConfounded: boolean; maxR: number | null; atCeiling: boolean }[] = [];
