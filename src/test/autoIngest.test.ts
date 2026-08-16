@@ -1,7 +1,7 @@
 // src/test/autoIngest.test.ts
 import { describe, it, expect } from 'vitest';
 import type { FeedConfig } from '../types';
-import { runFeedCycle, DEFAULT_FEEDS } from '../autoIngest';
+import { runFeedCycle, DEFAULT_FEEDS, enrichWithAi } from '../autoIngest';
 
 const XML = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel><title>Neuro</title>
@@ -79,5 +79,26 @@ describe('runFeedCycle', () => {
       expect(f.url).toMatch(/^https:\/\//);
       expect(f.enabled).toBe(true);
     }
+  });
+});
+
+describe('enrichWithAi', () => {
+  it('is a no-op when AI enrichment is disabled', async () => {
+    const outcome = await runFeedCycle([feed()], [], [], async () => XML, new Date(2026, 5, 1));
+    const { outcome: out, aiAdded } = await enrichWithAi(outcome, { enabled: false });
+    expect(aiAdded).toBe(0);
+    expect(out.protocols).toBe(outcome.protocols);
+  });
+
+  it('never throws without Tauri/network (offline extraction stands)', async () => {
+    const outcome = await runFeedCycle([feed()], [], [], async () => XML, new Date(2026, 5, 1));
+    const { outcome: out, aiAdded } = await enrichWithAi(outcome, {
+      enabled: true,
+      provider: 'auto',
+      apiKey: '',
+    });
+    expect(aiAdded).toBe(0);
+    expect(out.protocols.length).toBe(outcome.protocols.length);
+    expect(out.protocols.length).toBeGreaterThan(0);
   });
 });

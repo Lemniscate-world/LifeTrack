@@ -28,10 +28,10 @@ import {
 import { buildPreferenceReport, type RankedProtocol } from './preferences';
 import type { ChallengeSuggestion } from './challengeSuggestions';
 import type { ExperimentDraft } from './experimentFactory';
-import { extractProtocolsFromText, mergeProtocols, aiExtractProtocols } from './ingest';
+import { extractProtocolsFromText, mergeProtocols } from './ingest';
 import { DOMAIN_LABEL, adoptProtocol, SEED_PROTOCOLS } from './protocols';
 import { getHabits, addHabit } from './store';
-import { runFeedCycle, pickFetcher, DEFAULT_FEEDS } from './autoIngest';
+import { runFeedCycle, pickFetcher, enrichWithAi, DEFAULT_FEEDS } from './autoIngest';
 import type { AppData, IngestedSource, FeedConfig, Protocol } from './types';
 
 const EVIDENCE_META: Record<Protocol['evidenceLevel'], { label: string; cls: string }> = {
@@ -129,27 +129,14 @@ const refreshFeedsNow = async () => {
 
       // Optional AI enrichment (DeepSeek V4 Flash): structure the newest sources
       // more precisely than the offline heuristic. Best-effort, batched to 3.
-      let lib = outcome.protocols;
-      let aiAdded = 0;
-      if (getPreferences().ingestAiEnabled) {
-        for (const src of outcome.sources.slice(0, 3)) {
-          try {
-            const ai = await aiExtractProtocols(src.rawText, src.title, {
-              model: getPreferences().aiModel ?? undefined,
-              provider: getPreferences().aiProvider || 'auto',
-              apiKey: getPreferences().aiApiKey || '',
-            });
-            const before = lib.length;
-            lib = mergeProtocols(lib, ai);
-            aiAdded += lib.length - before;
-          } catch { /* best-effort */ }
-        }
-      }
-      if (aiAdded > 0) {
-        applyFeedIngest({ ...outcome, protocols: lib });
-      } else {
-        applyFeedIngest(outcome);
-      }
+      const prefsNow = getPreferences();
+      const { outcome: enriched, aiAdded } = await enrichWithAi(outcome, {
+        enabled: prefsNow.ingestAiEnabled !== false,
+        model: prefsNow.aiModel ?? undefined,
+        provider: prefsNow.aiProvider || 'auto',
+        apiKey: prefsNow.aiApiKey || '',
+      });
+      applyFeedIngest(enriched);
 
       const errNote = outcome.errors.length > 0 ? ` · ${outcome.errors.length} erreur(s)` : '';
       setCycleStatus(

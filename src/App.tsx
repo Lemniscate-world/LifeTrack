@@ -101,7 +101,7 @@ import { computeXp, levelForXp, rankForLevel } from './gamification';
 import Confetti from './Confetti';
 import { getDailyEntryMantra, todayStr, shouldShowMantraNotification, markMantraNotificationShown, MANTRA_DOMAINS, sendSystemNotification } from './mantras';
 import { buildMemoryReminder, buildOnThisDay } from './memories';
-import { runFeedCycle, pickFetcher } from './autoIngest';
+import { runFeedCycle, pickFetcher, enrichWithAi } from './autoIngest';
 import { rotateRecommendations, recKey } from './recRotation';
 
 // Detected at module load (window is always present in browser and Tauri).
@@ -587,9 +587,10 @@ const DEFAULT_CATEGORIES = [
   }, [year, month]);
 
   // --- Permanent automated ingestion loop (v0.6.1) ---
-  // While LifeTrack runs, its curated feeds refresh by themselves on a schedule
-  // and enrich the local knowledge library. Skipped in the test runner so the
-  // suite never touches the network.
+  // While LifeTrack runs, its curated feeds refresh by themselves on a schedule,
+  // are re-structured by the local AI (best-effort), and enrich the knowledge
+  // library — nothing to paste, nothing to click. Skipped in the test runner so
+  // the suite never touches the network.
   useEffect(() => {
     if (import.meta.env?.MODE === 'test') return;
     let cancelled = false;
@@ -605,7 +606,14 @@ const DEFAULT_CATEGORIES = [
         if (feeds.length === 0) return;
         const fetcher = await pickFetcher();
         const outcome = await runFeedCycle(feeds, getProtocols(), getIngestedSources(), fetcher, new Date());
-        if (!cancelled) applyFeedIngest(outcome);
+        if (cancelled) return;
+        const { outcome: enriched } = await enrichWithAi(outcome, {
+          enabled: prefs.ingestAiEnabled !== false,
+          model: prefs.aiModel,
+          provider: prefs.aiProvider,
+          apiKey: prefs.aiApiKey,
+        });
+        if (!cancelled) applyFeedIngest(enriched);
       } catch {
         // Best-effort: a failed feed must never break the app.
       }
@@ -619,6 +627,17 @@ const DEFAULT_CATEGORIES = [
       cancelled = true;
       if (timer) clearInterval(timer);
     };
+  }, []);
+
+  // --- Zero-touch knowledge engine: register Windows logon start by default ---
+  // so the ingestion loop keeps running even when LifeTrack is not open.
+  useEffect(() => {
+    if (import.meta.env?.MODE === 'test') return;
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window && getPreferences().autostartEnabled !== false) {
+      void import('@tauri-apps/api/core')
+        .then(({ invoke }) => invoke('set_autostart', { enabled: true }))
+        .catch(() => { /* best-effort */ });
+    }
   }, []);
 
   // Gamification: detect level-ups on every store change and celebrate.

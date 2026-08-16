@@ -51,6 +51,7 @@ import {
   deleteMission,
   archiveMission,
   getMissions,
+  getPreferences,
 } from '../store';
 
 // Reset store state between tests for full isolation
@@ -1947,5 +1948,32 @@ describe('Missions in store', () => {
     expect(missions.length).toBe(1);
     expect(missions[0].id).toBe('ok');
     expect(missions[0].quota).toBe(5);
+  });
+});
+
+describe('Knowledge engine defaults (zero-touch)', () => {
+  it('defaults every automation switch to ON', () => {
+    resetStore();
+    const prefs = getPreferences();
+    expect(prefs.autoIngestEnabled).not.toBe(false);
+    expect(prefs.autostartEnabled).not.toBe(false);
+    expect(prefs.ingestAiEnabled).not.toBe(false);
+    expect(prefs.knowledgeAutoSuggest).not.toBe(false);
+  });
+
+  it('keeps explicit opt-outs when stored', () => {
+    localStorage.setItem('lifetrack-data', JSON.stringify({
+      habits: [], checkIns: [], notes: [], chaosDimensions: [], achievementCategories: [],
+      mantras: [], mantraSettings: { morningEnabled: true, eveningEnabled: true, morningTime: '08:00', eveningTime: '20:00', showOnEntry: true, lastMorningDate: '', lastEveningDate: '', lastEntryDate: '' },
+      skills: [], capacities: [], capacityRatings: [], moods: {}, experiments: [], urges: [],
+      customUrgeTypes: [], journalEntries: [], journalThreads: [], challenges: [], personas: [],
+      levers: [], patternTracks: [], reflections: [],
+      preferences: { darkMode: false, theme: '', autoIngestEnabled: false, autostartEnabled: false, ingestAiEnabled: false },
+    }));
+    resetStore();
+    const prefs = getPreferences();
+    expect(prefs.autoIngestEnabled).toBe(false);
+    expect(prefs.autostartEnabled).toBe(false);
+    expect(prefs.ingestAiEnabled).toBe(false);
   });
 });

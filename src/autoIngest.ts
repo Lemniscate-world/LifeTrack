@@ -12,7 +12,7 @@
 
 import type { FeedConfig, IngestedSource, Protocol } from './types';
 import { parseFeed, type FeedItem } from './feeds';
-import { extractProtocolsFromText, mergeProtocols } from './ingest';
+import { extractProtocolsFromText, mergeProtocols, aiExtractProtocols } from './ingest';
 
  
 export type Fetcher = (url: string) => Promise<string>;
@@ -168,4 +168,41 @@ export async function pickFetcher(): Promise<Fetcher> {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return resp.text();
   };
+}
+
+export interface AiEnrichOptions {
+  enabled: boolean;
+  model?: string;
+  provider?: string;
+  apiKey?: string;
+}
+
+/**
+ * Best-effort AI structuring of the newest ingested sources (DeepSeek V4 Flash
+ * via the Tauri `extract_protocols_ai` command, batched to `maxSources`).
+ * Never throws: without a key, a local model or any failure, the offline
+ * extraction already done by runFeedCycle is kept untouched.
+ */
+export async function enrichWithAi(
+  outcome: FeedCycleOutcome,
+  opts: AiEnrichOptions,
+  maxSources = 3,
+): Promise<{ outcome: FeedCycleOutcome; aiAdded: number }> {
+  if (!opts.enabled || outcome.sources.length === 0) return { outcome, aiAdded: 0 };
+  let library = outcome.protocols;
+  let aiAdded = 0;
+  for (const src of outcome.sources.slice(0, maxSources)) {
+    try {
+      const ai = await aiExtractProtocols(src.rawText, src.title, {
+        model: opts.model,
+        provider: opts.provider || 'auto',
+        apiKey: opts.apiKey || '',
+      });
+      const before = library.length;
+      library = mergeProtocols(library, ai);
+      aiAdded += library.length - before;
+    } catch { /* best-effort: offline extraction stands */ }
+  }
+  if (aiAdded === 0) return { outcome, aiAdded };
+  return { outcome: { ...outcome, protocols: library }, aiAdded };
 }
