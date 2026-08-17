@@ -10,8 +10,16 @@
 import type { CheckIn, Mission, MissionTransitWindow } from './types';
 import {
   TRANSIT_BODIES, getTransitBody, upcomingTransits, upcomingAspects,
-  ASPECT_DEFS, ASPECT_PAIRS, type TransitBodyId,
+  ASC_ASPECT_PAIRS, ASPECT_DEFS, ASPECT_PAIRS,
+  type TransitBodyId, type AspectPoint,
 } from './astrology';
+
+/** Display info for either a planet or the natal Ascendant point. */
+function aspectPointInfo(point: AspectPoint): { emoji: string; label: string } {
+  return point === 'asc'
+    ? { emoji: '⬆️', label: 'Ascendant' }
+    : getTransitBody(point);
+}
 
 export type MissionStatus = 'upcoming' | 'active' | 'done' | 'failed' | 'archived';
 
@@ -217,6 +225,8 @@ export interface SkySuggestionInput {
   transitHorizonDays?: number;
   /** Calendar horizon for aspects (days). */
   aspectHorizonDays?: number;
+  /** Natal Ascendant ecliptic longitude (adds 'asc' aspect pairs when given). */
+  ascendantLon?: number;
   /** Max number of 1-click suggestions returned. */
   maxSuggestions?: number;
 }
@@ -281,7 +291,11 @@ export function suggestMissionsFromSky(input: SkySuggestionInput): AutoMissionSu
     });
   }
 
-  const aspects = upcomingAspects(ASPECT_PAIRS, input.aspectHorizonDays ?? 150, now);
+  const ascLon = input.ascendantLon;
+  const pairList: [AspectPoint, AspectPoint][] = ascLon !== undefined
+    ? [...ASPECT_PAIRS, ...ASC_ASPECT_PAIRS]
+    : ASPECT_PAIRS;
+  const aspects = upcomingAspects(pairList, input.aspectHorizonDays ?? 150, now, ascLon);
   for (const ev of aspects) {
     const key = `aspect:${ev.bodyA}:${ev.bodyB}:${ev.kind}`;
     const start = new Date(ev.exactAt.getTime() - ASPECT_WINDOW_PAD_DAYS * 86400000);
@@ -290,12 +304,15 @@ export function suggestMissionsFromSky(input: SkySuggestionInput): AutoMissionSu
     const endKey = localDateKey(end);
     const overlaps = fixed.some((m) => dayIndex(m.window.startDate) <= dayIndex(endKey) && dayIndex(m.window.endDate) >= dayIndex(startKey));
     if (overlaps) continue;
-    const domains = [...new Set([...BODY_DOMAINS[ev.bodyA], ...BODY_DOMAINS[ev.bodyB]])];
+    const domains = [...new Set([
+      ...(BODY_DOMAINS[ev.bodyA as TransitBodyId] ?? []),
+      ...(BODY_DOMAINS[ev.bodyB as TransitBodyId] ?? []),
+    ])];
     const domain = domains.find((d) => weak.has(d)) ?? domains[0];
     const def = ASPECT_DEFS[ev.kind];
     const habitIds = pickHabits(domain, input.habits);
-    const a = getTransitBody(ev.bodyA);
-    const b = getTransitBody(ev.bodyB);
+    const a = aspectPointInfo(ev.bodyA);
+    const b = aspectPointInfo(ev.bodyB);
     const name = `${a.emoji} ${a.label} ${def.emoji} ${b.emoji} ${b.label}`;
     const days = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
     suggestions.push({

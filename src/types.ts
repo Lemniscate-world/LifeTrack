@@ -638,6 +638,7 @@ export interface UserPreferences {
   knowledgeAutoSuggest?: boolean;  // auto-surface protocols matched to your data
   stickyMax?: number;              // max protocols pushed at once (anti-overwhelm, default 3)
   ingestAiEnabled?: boolean;       // allow the local AI to structure ingested sources
+  knowledgeAutoAdopt?: boolean;    // auto-adopt suggested protocols (create their habits) — default true
   // v0.6.1: permanent automated ingestion.
   autoIngestEnabled?: boolean;     // default true — feeds refresh by themselves
   autoIngestIntervalHours?: number; // default 6

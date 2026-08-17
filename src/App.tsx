@@ -103,6 +103,7 @@ import { getDailyEntryMantra, todayStr, shouldShowMantraNotification, markMantra
 import { buildMemoryReminder, buildOnThisDay } from './memories';
 import { runFeedCycle, pickFetcher, enrichWithAi } from './autoIngest';
 import { runAutoMissions } from './missionEngine';
+import { runAutoKnowledge } from './knowledgeEngine';
 import { rotateRecommendations, recKey } from './recRotation';
 
 // Detected at module load (window is always present in browser and Tauri).
@@ -617,6 +618,8 @@ const DEFAULT_CATEGORIES = [
         if (!cancelled) applyFeedIngest(enriched);
         // Sky-driven missions: weak-domain transits become missions by themselves.
         if (!cancelled) runAutoMissions();
+        // Zero-touch knowledge: adopt the top suggested protocols (create habits).
+        if (!cancelled) runAutoKnowledge();
       } catch {
         // Best-effort: a failed feed must never break the app.
       }
@@ -648,6 +651,7 @@ const DEFAULT_CATEGORIES = [
   useEffect(() => {
     if (import.meta.env?.MODE === 'test') return;
     runAutoMissions();
+    runAutoKnowledge();
   }, []);
 
   // Gamification: detect level-ups on every store change and celebrate.

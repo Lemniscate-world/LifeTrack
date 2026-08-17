@@ -22,9 +22,11 @@ import {
   nextAspect,
   upcomingTransits,
   upcomingAspects,
+  currentAspects,
   ASPECT_DEFS,
 } from '../astrology';
 import * as A from 'astronomy-engine';
+import type { TransitBodyId } from '../astrology';
 
 // Reference dates (verified against known ephemerides):
 // - March equinox 2026: Sun at 0° Aries on 2026-03-20 ~14:46 UTC.
@@ -328,9 +330,39 @@ describe('astrology.aspects', () => {
     expect(events.length).toBeGreaterThanOrEqual(1);
     for (const ev of events.slice(0, 3)) {
       const def = ASPECT_DEFS[ev.kind];
-      const sep = separationDeg(planetLongitude(ev.bodyA, ev.exactAt), planetLongitude(ev.bodyB, ev.exactAt));
+      const sep = separationDeg(planetLongitude(ev.bodyA as TransitBodyId, ev.exactAt), planetLongitude(ev.bodyB as TransitBodyId, ev.exactAt));
       expect(Math.abs(sep - def.angle)).toBeLessThan(0.1);
       expect(ev.exactAt.getTime()).toBeGreaterThan(from.getTime());
+    }
+  });
+
+  it('aspects to the natal Ascendant resolve against a fixed point', () => {
+    // Cancer ascendant ≈ 90°; Mercury sweeps the whole zodiac in ~88 days, so
+    // an exact aspect to the fixed ascendant point is guaranteed in 120 days.
+    const from = new Date('2026-01-01T00:00:00Z');
+    const ascLon = 90; // 0° Cancer
+    const events = upcomingAspects([['asc', 'mercury']], 120, from, ascLon);
+    expect(events.length).toBeGreaterThanOrEqual(1);
+    for (const ev of events.slice(0, 3)) {
+      const def = ASPECT_DEFS[ev.kind];
+      const sep = separationDeg(ascLon, planetLongitude(ev.bodyB as TransitBodyId, ev.exactAt));
+      expect(Math.abs(sep - def.angle)).toBeLessThan(0.1);
+    }
+  });
+
+  it('currentAspects evaluates asc pairs when the ascendant is given, ignores them otherwise', () => {
+    const at = new Date('2026-01-01T00:00:00Z');
+    const ascLon = 90;
+    const withAsc = currentAspects([['asc', 'jupiter']], at, ascLon);
+    const withoutAsc = currentAspects([['asc', 'jupiter']], at);
+    expect(withoutAsc).toHaveLength(0);
+    // With the ascendant the pair is evaluated: either in orb or not — but
+    // never crashes and never fabricates an event outside the orb.
+    for (const ev of withAsc) {
+      expect(ev.bodyA).toBe('asc');
+      const other = ev.bodyB as TransitBodyId;
+      const sep = separationDeg(ascLon, planetLongitude(other, at));
+      expect(Math.abs(sep - ASPECT_DEFS[ev.kind].angle)).toBeLessThanOrEqual(ASPECT_DEFS[ev.kind].orbDeg);
     }
   });
 });

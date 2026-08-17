@@ -1960,6 +1960,7 @@ describe('Knowledge engine defaults (zero-touch)', () => {
     expect(prefs.ingestAiEnabled).not.toBe(false);
     expect(prefs.knowledgeAutoSuggest).not.toBe(false);
     expect(prefs.missionAutoEnabled).not.toBe(false);
+    expect(prefs.knowledgeAutoAdopt).not.toBe(false);
   });
 
   it('keeps explicit opt-outs when stored', () => {
@@ -1969,7 +1970,7 @@ describe('Knowledge engine defaults (zero-touch)', () => {
       skills: [], capacities: [], capacityRatings: [], moods: {}, experiments: [], urges: [],
       customUrgeTypes: [], journalEntries: [], journalThreads: [], challenges: [], personas: [],
       levers: [], patternTracks: [], reflections: [],
-      preferences: { darkMode: false, theme: '', autoIngestEnabled: false, autostartEnabled: false, ingestAiEnabled: false, missionAutoEnabled: false },
+      preferences: { darkMode: false, theme: '', autoIngestEnabled: false, autostartEnabled: false, ingestAiEnabled: false, missionAutoEnabled: false, knowledgeAutoAdopt: false },
     }));
     resetStore();
     const prefs = getPreferences();
@@ -1977,5 +1978,6 @@ describe('Knowledge engine defaults (zero-touch)', () => {
     expect(prefs.autostartEnabled).toBe(false);
     expect(prefs.ingestAiEnabled).toBe(false);
     expect(prefs.missionAutoEnabled).toBe(false);
+    expect(prefs.knowledgeAutoAdopt).toBe(false);
   });
 });

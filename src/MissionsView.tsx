@@ -14,7 +14,7 @@ import { buildPreferenceReport } from './preferences';
 import {
   SIGNS, TRANSIT_BODIES, resolveTransitWindow, signOfPlanet, isRetrograde, getTransitBody,
   ascendantLongitude, moonPhaseAt, wholeSignHouse, planetLongitude, nextRetrograde,
-  upcomingTransits, upcomingAspects, currentAspects, ASPECT_DEFS, ASPECT_PAIRS,
+  upcomingTransits, upcomingAspects, currentAspects, ASPECT_DEFS, ASPECT_PAIRS, ASC_ASPECT_PAIRS,
   type TransitBodyId,
 } from './astrology';
 import { todayStr } from './mantras';
@@ -85,8 +85,11 @@ export default function MissionsView() {
 
   // Aspects currently in orb (sky dashboard).
   const aspectsNow = useMemo(() => {
-    try { return currentAspects(ASPECT_PAIRS, now); } catch { return []; }
-  }, [now]);
+    try {
+      const pairs = natalAsc ? [...ASPECT_PAIRS, ...ASC_ASPECT_PAIRS] : ASPECT_PAIRS;
+      return currentAspects(pairs, now, natalAsc?.ascendant);
+    } catch { return []; }
+  }, [now, natalAsc]);
 
   // --- Sky-driven mission suggestions (transits + aspects × weak domains) ---
   const suggestions = useMemo(() => {
@@ -109,6 +112,7 @@ export default function MissionsView() {
         checkIns: habits.flatMap((h) => getCheckInsForHabit(h.id)),
         weakDomains: report.weakDomains,
         existingMissions: missions,
+        ascendantLon: natalAsc?.ascendant,
         now,
       });
     } catch { return []; }
@@ -120,10 +124,15 @@ export default function MissionsView() {
     try {
       return {
         transits: upcomingTransits(TRANSIT_BODIES.map((b) => b.id as TransitBodyId), 60, now),
-        aspects: upcomingAspects(ASPECT_PAIRS, 90, now),
+        aspects: upcomingAspects(
+          natalAsc ? [...ASPECT_PAIRS, ...ASC_ASPECT_PAIRS] : ASPECT_PAIRS,
+          90,
+          now,
+          natalAsc?.ascendant,
+        ),
       };
     } catch { return { transits: [], aspects: [] }; }
-  }, [now]);
+  }, [now, natalAsc]);
 
   const acceptSuggestion = (s: AutoMissionSuggestion) => {
     addMission({
@@ -290,7 +299,7 @@ export default function MissionsView() {
                     color: def.tone === 'favorable' ? '#10b981' : def.tone === 'tension' ? '#f59e0b' : 'var(--text-muted)',
                   }}
                 >
-                  {getTransitBody(a.bodyA).emoji} {getTransitBody(a.bodyA).label} {def.emoji} {getTransitBody(a.bodyB).emoji} {getTransitBody(a.bodyB).label}
+{a.bodyA === 'asc' ? '⬆️ Ascendant' : `${getTransitBody(a.bodyA).emoji} ${getTransitBody(a.bodyA).label}`} {def.emoji} {a.bodyB === 'asc' ? '⬆️ Ascendant' : `${getTransitBody(a.bodyB).emoji} ${getTransitBody(a.bodyB).label}`}
                   <span style={{ marginLeft: '0.3rem' }}>({def.label} active)</span>
                 </span>
               );
@@ -355,7 +364,7 @@ export default function MissionsView() {
             return (
               <div key={`a-${a.bodyA}-${a.bodyB}-${a.kind}-${a.exactAt.toISOString()}`}>
                 <span style={{ color: 'var(--text-muted)', marginRight: '0.5rem' }}>{fmtDate(localDateKey(a.exactAt))}</span>
-                {getTransitBody(a.bodyA).emoji} {getTransitBody(a.bodyA).label} {def.emoji} {getTransitBody(a.bodyB).emoji} {getTransitBody(a.bodyB).label}
+                {a.bodyA === 'asc' ? '⬆️ Ascendant' : `${getTransitBody(a.bodyA).emoji} ${getTransitBody(a.bodyA).label}`} {def.emoji} {a.bodyB === 'asc' ? '⬆️ Ascendant' : `${getTransitBody(a.bodyB).emoji} ${getTransitBody(a.bodyB).label}`}
                 <span style={{ color: def.tone === 'favorable' ? '#10b981' : def.tone === 'tension' ? '#f59e0b' : 'var(--text-muted)' }}>
                   {' '}({def.label} exact)
                 </span>

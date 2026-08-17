@@ -511,8 +511,8 @@ function refineMin(f: (t: number) => number, t0: number, t1: number, iter = 60):
 }
 
 export interface AspectEvent {
-  bodyA: TransitBodyId;
-  bodyB: TransitBodyId;
+  bodyA: AspectPoint;
+  bodyB: AspectPoint;
   kind: AspectKind;
   /** Moment when the aspect is exact. */
   exactAt: Date;
@@ -566,12 +566,25 @@ export const ASPECT_PAIRS: [TransitBodyId, TransitBodyId][] = [
   ['jupiter', 'node'], ['saturn', 'node'],
 ];
 
+export type AspectPoint = TransitBodyId | 'asc';
+
 export interface TransitScheduleItem {
   bodyId: TransitBodyId;
   signIndex: number;
   sign: SignInfo;
   window: TransitWindow;
 }
+
+/**
+ * Aspect pairs against the natal Ascendant point: transiting planets in exact
+ * aspect to the Rising sign are a classic "personal timing" signal. The Moon is
+ * excluded (too fast). 'asc' pairs need an `ascendantLon` at call time.
+ */
+export const ASC_ASPECT_PAIRS: [AspectPoint, AspectPoint][] = [
+  ['asc', 'sun'], ['asc', 'mercury'], ['asc', 'venus'], ['asc', 'mars'],
+  ['asc', 'jupiter'], ['asc', 'saturn'], ['asc', 'uranus'], ['asc', 'neptune'],
+  ['asc', 'pluto'], ['asc', 'node'],
+];
 
 /**
  * Upcoming whole-sign transit windows (next ingress → exit) for a set of
@@ -605,15 +618,21 @@ export function upcomingTransits(
  * Longitudes are precomputed once on a shared 0.5-day grid (one ephemeris call
  * per body per step) and every pair×kind crossing is detected on the arrays —
  * roughly 20× cheaper than per-pair sampling. Local minima below the orb are
- * refined by ternary search.
+ * refined by ternary search. When `ascendantLon` is given, the natal Ascendant
+ * point ('asc') can be part of the pairs — its longitude is constant, so it
+ * only adds array work, no extra ephemeris calls.
  */
 export function upcomingAspects(
-  pairs: [TransitBodyId, TransitBodyId][],
+  pairs: [AspectPoint, AspectPoint][],
   horizonDays: number,
   fromDate: Date,
+  ascendantLon?: number,
 ): AspectEvent[] {
-  const bodies: TransitBodyId[] = [];
+  const bodies: AspectPoint[] = [];
   for (const [bodyA, bodyB] of pairs) {
+    if (bodyA === 'asc' || bodyB === 'asc') {
+      if (ascendantLon === undefined) continue;
+    }
     if (!bodies.includes(bodyA)) bodies.push(bodyA);
     if (!bodies.includes(bodyB)) bodies.push(bodyB);
   }
@@ -627,11 +646,21 @@ export function upcomingAspects(
   for (let i = 0; i < n; i++) {
     grid[i] = jd0 + i * step;
     const date = dateFromJulian(grid[i]);
-    for (const b of bodies) lons[b][i] = planetLongitude(b, date);
+    for (const b of bodies) {
+      lons[b][i] = b === 'asc' ? ascendantLon! : planetLongitude(b, date);
+    }
   }
+
+  const lonAt = (point: AspectPoint, t: number): number =>
+    point === 'asc' ? ascendantLon! : planetLongitude(point, dateFromJulian(t));
+  const gapAt = (pointA: AspectPoint, pointB: AspectPoint, kind: AspectKind, t: number): number =>
+    Math.abs(separationDeg(lonAt(pointA, t), lonAt(pointB, t)) - ASPECT_DEFS[kind].angle);
 
   const events: AspectEvent[] = [];
   for (const [bodyA, bodyB] of pairs) {
+    if (bodyA === 'asc' || bodyB === 'asc') {
+      if (ascendantLon === undefined) continue;
+    }
     const la = lons[bodyA];
     const lb = lons[bodyB];
     for (const kind of ASPECT_KINDS) {
@@ -642,13 +671,9 @@ export function upcomingAspects(
         const gCur = Math.abs(separationDeg(la[i], lb[i]) - angle);
         const gNext = Math.abs(separationDeg(la[i + 1], lb[i + 1]) - angle);
         if (gCur <= gPrev && gCur <= gNext && gCur < orb) {
-          const refined = refineMin(
-            (t) => aspectGap(bodyA, bodyB, kind, dateFromJulian(t)),
-            grid[i - 1],
-            grid[i + 1],
-          );
+          const refined = refineMin((t) => gapAt(bodyA, bodyB, kind, t), grid[i - 1], grid[i + 1]);
           const exactAt = dateFromJulian(refined);
-          if (exactAt.getTime() >= fromDate.getTime() && aspectGap(bodyA, bodyB, kind, exactAt) < 0.1) {
+          if (exactAt.getTime() >= fromDate.getTime() && gapAt(bodyA, bodyB, kind, refined) < 0.1) {
             events.push({ bodyA, bodyB, kind, exactAt });
           }
         }
@@ -660,14 +685,21 @@ export function upcomingAspects(
 
 /**
  * Aspects currently in orb at a date, for a pair list — the "sky dashboard".
+ * `asc` pairs are evaluated against the natal Ascendant longitude when given.
  */
 export function currentAspects(
-  pairs: [TransitBodyId, TransitBodyId][],
+  pairs: [AspectPoint, AspectPoint][],
   date: Date,
+  ascendantLon?: number,
 ): AspectEvent[] {
+  const lonOf = (point: AspectPoint): number =>
+    point === 'asc' ? (ascendantLon ?? NaN) : planetLongitude(point, date);
   const out: AspectEvent[] = [];
   for (const [bodyA, bodyB] of pairs) {
-    const kind = aspectBetween(bodyA, bodyB, date);
+    const la = lonOf(bodyA);
+    const lb = lonOf(bodyB);
+    if (!Number.isFinite(la) || !Number.isFinite(lb)) continue;
+    const kind = ASPECT_KINDS.find((k) => Math.abs(separationDeg(la, lb) - ASPECT_DEFS[k].angle) <= ASPECT_DEFS[k].orbDeg);
     if (kind) out.push({ bodyA, bodyB, kind, exactAt: date });
   }
   return out.sort((a, b) =>

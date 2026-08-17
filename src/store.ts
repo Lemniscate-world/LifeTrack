@@ -526,6 +526,7 @@ function sanitizePreferences(raw: unknown): UserPreferences {
     knowledgeAutoSuggest: p.knowledgeAutoSuggest === false ? false : true,
     stickyMax: typeof p.stickyMax === 'number' && p.stickyMax >= 1 && p.stickyMax <= 8 ? p.stickyMax : 3,
     ingestAiEnabled: p.ingestAiEnabled === false ? false : true,
+    knowledgeAutoAdopt: p.knowledgeAutoAdopt === false ? false : true,
     autoIngestEnabled: p.autoIngestEnabled === false ? false : true,
     autoIngestIntervalHours: typeof p.autoIngestIntervalHours === 'number' && p.autoIngestIntervalHours >= 1 && p.autoIngestIntervalHours <= 72 ? p.autoIngestIntervalHours : 6,
     autostartEnabled: p.autostartEnabled === false ? false : true,

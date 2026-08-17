@@ -10,7 +10,21 @@ import {
 } from './store';
 import { suggestMissionsFromSky } from './missions';
 import { buildPreferenceReport } from './preferences';
+import { ascendantLongitude } from './astrology';
 import type { AppData, Mission, MissionTransitWindow } from './types';
+
+/** Natal Ascendant longitude from the birth info stored in preferences (if any). */
+function natalAscendant(): number | undefined {
+  const p = getPreferences();
+  if (!p.birthDate || p.birthLat === undefined || p.birthLon === undefined) return undefined;
+  const date = new Date(`${p.birthDate}T${p.birthTime || '12:00'}:00`);
+  if (Number.isNaN(date.getTime())) return undefined;
+  try {
+    return ascendantLongitude(date, { lat: p.birthLat, lon: p.birthLon });
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Run one auto-mission pass. Creates at most `maxAuto` missions (weak-domain
@@ -40,6 +54,7 @@ export function runAutoMissions(maxAuto = 2): number {
       checkIns,
       weakDomains: report.weakDomains,
       existingMissions: getMissions(),
+      ascendantLon: natalAscendant(),
       now: new Date(),
     });
     const coveredBodies = new Set(
