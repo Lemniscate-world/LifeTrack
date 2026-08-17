@@ -102,6 +102,7 @@ import Confetti from './Confetti';
 import { getDailyEntryMantra, todayStr, shouldShowMantraNotification, markMantraNotificationShown, MANTRA_DOMAINS, sendSystemNotification } from './mantras';
 import { buildMemoryReminder, buildOnThisDay } from './memories';
 import { runFeedCycle, pickFetcher, enrichWithAi } from './autoIngest';
+import { runAutoMissions } from './missionEngine';
 import { rotateRecommendations, recKey } from './recRotation';
 
 // Detected at module load (window is always present in browser and Tauri).
@@ -614,6 +615,8 @@ const DEFAULT_CATEGORIES = [
           apiKey: prefs.aiApiKey,
         });
         if (!cancelled) applyFeedIngest(enriched);
+        // Sky-driven missions: weak-domain transits become missions by themselves.
+        if (!cancelled) runAutoMissions();
       } catch {
         // Best-effort: a failed feed must never break the app.
       }
@@ -638,6 +641,13 @@ const DEFAULT_CATEGORIES = [
         .then(({ invoke }) => invoke('set_autostart', { enabled: true }))
         .catch(() => { /* best-effort */ });
     }
+  }, []);
+
+  // --- Zero-touch mission engine: create weak-domain transit missions once ---
+  // at startup, even when the feed loop is offline or disabled.
+  useEffect(() => {
+    if (import.meta.env?.MODE === 'test') return;
+    runAutoMissions();
   }, []);
 
   // Gamification: detect level-ups on every store change and celebrate.

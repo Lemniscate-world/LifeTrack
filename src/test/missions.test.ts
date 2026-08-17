@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeMissionProgress, suggestQuota } from '../missions';
+import { computeMissionProgress, suggestQuota, suggestMissionsFromSky, BODY_DOMAINS } from '../missions';
 import type { CheckIn, Mission } from '../types';
 
 const BASE: Mission = {
@@ -113,5 +113,110 @@ describe('missions.suggestQuota', () => {
     expect(suggestQuota(3, 31)).toBe(13); // 3 × 31/7 ≈ 13.3
     expect(suggestQuota(3, 7)).toBe(3);
     expect(suggestQuota(0, 30)).toBe(1);
+  });
+});
+
+describe('missions.suggestMissionsFromSky', () => {
+  const habit = (id: string, category = 'health') => ({ id, category, archived: false });
+  const now = new Date();
+
+  it('always proposes the current Sun transit (window in progress or ahead)', () => {
+    const suggestions = suggestMissionsFromSky({
+      habits: [habit('h1')],
+      checkIns: [],
+      weakDomains: [],
+      existingMissions: [],
+      now,
+      transitHorizonDays: 120,
+    });
+    expect(suggestions.length).toBeGreaterThan(0);
+    const sun = suggestions.find((s) => s.source === 'transit' && s.key.startsWith('transit:sun:'));
+    expect(sun).toBeDefined();
+    expect(sun!.window.kind).toBe('transit');
+    expect(sun!.autoCreate).toBe(false); // no weak domain → 1-click only
+    expect(sun!.habitIds).toContain('h1');
+    expect(sun!.quota).toBeGreaterThanOrEqual(1);
+  });
+
+  it('flags transits on weak domains as autoCreate', () => {
+    const suggestions = suggestMissionsFromSky({
+      habits: [habit('h1')],
+      checkIns: [],
+      weakDomains: ['training'], // Mars is classically linked to training
+      existingMissions: [],
+      now,
+    });
+    const mars = suggestions.find((s) => s.key.startsWith('transit:mars:'));
+    expect(mars).toBeDefined();
+    expect(mars!.autoCreate).toBe(true);
+    expect(mars!.objective).toContain('faible');
+  });
+
+  it('dedupes against existing transit missions on the same (body, sign)', () => {
+    const base = suggestMissionsFromSky({
+      habits: [habit('h1')],
+      checkIns: [],
+      weakDomains: ['training'],
+      existingMissions: [],
+      now,
+    });
+    const mars = base.find((s) => s.key.startsWith('transit:mars:'));
+    expect(mars).toBeDefined();
+    const existing: Mission = {
+      id: 'x',
+      name: mars!.name,
+      habitIds: ['h1'],
+      window: {
+        kind: 'transit',
+        body: 'mars',
+        signIndex: Number(mars!.key.split(':')[2]),
+        startDate: mars!.window.startDate,
+        endDate: mars!.window.endDate,
+      },
+      createdAt: '2026-01-01T00:00:00Z',
+    };
+    const after = suggestMissionsFromSky({
+      habits: [habit('h1')],
+      checkIns: [],
+      weakDomains: ['training'],
+      existingMissions: [existing],
+      now,
+    });
+    expect(after.find((s) => s.key === mars!.key)).toBeUndefined();
+  });
+
+  it('resolves aspects to fixed windows with a quota from real pace', () => {
+    const checkIns: CheckIn[] = [];
+    const base = new Date();
+    for (let d = 27; d >= 0; d--) {
+      const k = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(base.getDate() - d).padStart(2, '0')}`;
+      if (d % 2 === 0) checkIns.push(cin('h1', k)); // ~14 completions / 28 days ≈ 3.5/week
+    }
+    const suggestions = suggestMissionsFromSky({
+      habits: [habit('h1')],
+      checkIns,
+      weakDomains: [],
+      existingMissions: [],
+      now,
+      aspectHorizonDays: 150,
+    });
+    const aspect = suggestions.find((s) => s.source === 'aspect');
+    expect(aspect).toBeDefined();
+    expect(aspect!.window.kind).toBe('fixed');
+    expect(aspect!.quota).toBeGreaterThan(1);
+    expect(aspect!.rationale).toContain('exact');
+  });
+
+  it('never suggests the Moon transit (windows too short for missions)', () => {
+    const suggestions = suggestMissionsFromSky({
+      habits: [habit('h1')],
+      checkIns: [],
+      weakDomains: ['mood'],
+      existingMissions: [],
+      now,
+    });
+    expect(suggestions.some((s) => s.key.startsWith('transit:moon:'))).toBe(false);
+    // Moon's mood domain still maps through BODY_DOMAINS for aspects.
+    expect(BODY_DOMAINS.moon).toContain('mood');
   });
 });

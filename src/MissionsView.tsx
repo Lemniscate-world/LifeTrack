@@ -7,10 +7,16 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   getMissions, addMission, deleteMission, archiveMission,
-  getHabits, getCheckInsForHabit, getPreferences, subscribe,
+  getHabits, getCheckInsForHabit, getPreferences, subscribe, exportAllData,
 } from './store';
-import { computeMissionProgress, suggestQuota, MISSION_STATUS_LABEL } from './missions';
-import { SIGNS, TRANSIT_BODIES, resolveTransitWindow, signOfPlanet, isRetrograde, getTransitBody, ascendantLongitude, moonPhaseAt, wholeSignHouse, planetLongitude, nextRetrograde, type TransitBodyId } from './astrology';
+import { computeMissionProgress, suggestQuota, MISSION_STATUS_LABEL, suggestMissionsFromSky, type AutoMissionSuggestion } from './missions';
+import { buildPreferenceReport } from './preferences';
+import {
+  SIGNS, TRANSIT_BODIES, resolveTransitWindow, signOfPlanet, isRetrograde, getTransitBody,
+  ascendantLongitude, moonPhaseAt, wholeSignHouse, planetLongitude, nextRetrograde,
+  upcomingTransits, upcomingAspects, currentAspects, ASPECT_DEFS, ASPECT_PAIRS,
+  type TransitBodyId,
+} from './astrology';
 import { todayStr } from './mantras';
 import type { Mission, MissionWindow } from './types';
 
@@ -76,6 +82,59 @@ export default function MissionsView() {
     if (p < 292.5) return '🌗 Dernier quartier';
     return '🌘 Dernier croissant';
   }, [now]);
+
+  // Aspects currently in orb (sky dashboard).
+  const aspectsNow = useMemo(() => {
+    try { return currentAspects(ASPECT_PAIRS, now); } catch { return []; }
+  }, [now]);
+
+  // --- Sky-driven mission suggestions (transits + aspects × weak domains) ---
+  const suggestions = useMemo(() => {
+    try {
+      const d = exportAllData();
+      const report = buildPreferenceReport({
+        habits: d.habits ?? [],
+        checkIns: d.checkIns ?? [],
+        notes: d.notes ?? [],
+        moods: d.moods ?? {},
+        capacities: (d.capacities ?? []).map((c) => ({ id: c.id, name: c.name })),
+        capacityRatings: d.capacityRatings ?? [],
+        projects: d.projects ?? [],
+        protocols: d.protocols ?? [],
+        experiments: (d.experiments ?? []).map((e) => ({ id: e.id, title: e.title })),
+        challenges: (d.challenges ?? []).map((c) => ({ id: c.id, name: c.name })),
+      });
+      return suggestMissionsFromSky({
+        habits,
+        checkIns: habits.flatMap((h) => getCheckInsForHabit(h.id)),
+        weakDomains: report.weakDomains,
+        existingMissions: missions,
+        now,
+      });
+    } catch { return []; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick, habits, missions, now]);
+
+  // --- Calendar of upcoming transits & aspects ---
+  const calendar = useMemo(() => {
+    try {
+      return {
+        transits: upcomingTransits(TRANSIT_BODIES.map((b) => b.id as TransitBodyId), 60, now),
+        aspects: upcomingAspects(ASPECT_PAIRS, 90, now),
+      };
+    } catch { return { transits: [], aspects: [] }; }
+  }, [now]);
+
+  const acceptSuggestion = (s: AutoMissionSuggestion) => {
+    addMission({
+      name: s.name,
+      objective: s.objective,
+      habitIds: s.habitIds,
+      window: s.window,
+      quota: s.quota,
+    });
+    setTick((t) => t + 1);
+  };
 
   // --- Creation form ---
   const [creating, setCreating] = useState(false);
@@ -217,6 +276,95 @@ export default function MissionsView() {
               {retro && <span style={{ color: '#f59e0b', marginLeft: '0.3rem' }}>⟲</span>}
             </span>
           ))}
+        </div>
+        {aspectsNow.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', padding: '0.25rem 0' }}>
+            {aspectsNow.map((a) => {
+              const def = ASPECT_DEFS[a.kind];
+              return (
+                <span
+                  key={`${a.bodyA}-${a.bodyB}-${a.kind}`}
+                  style={{
+                    background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px',
+                    padding: '0.3rem 0.6rem', fontSize: '0.8rem', whiteSpace: 'nowrap',
+                    color: def.tone === 'favorable' ? '#10b981' : def.tone === 'tension' ? '#f59e0b' : 'var(--text-muted)',
+                  }}
+                >
+                  {getTransitBody(a.bodyA).emoji} {getTransitBody(a.bodyA).label} {def.emoji} {getTransitBody(a.bodyB).emoji} {getTransitBody(a.bodyB).label}
+                  <span style={{ marginLeft: '0.3rem' }}>({def.label} active)</span>
+                </span>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* SKY-DRIVEN SUGGESTIONS */}
+      {suggestions.length > 0 && (
+        <div className="lever-card" style={{ marginBottom: '1rem' }}>
+          <div className="lever-card-main">
+            <span className="lever-content">🎯 Suggestions du ciel</span>
+            <span className="lever-notes">
+              Le moteur lit le ciel et tes domaines faibles. Les transits sur un domaine faible sont
+              créés automatiquement ⚡ ; le reste se valide d'un clic.
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingTop: '0.5rem' }}>
+            {suggestions.map((s) => (
+              <div key={s.key} className="lever-card" style={{ borderLeft: s.autoCreate ? '4px solid #10b981' : '4px solid var(--border)' }}>
+                <div className="lever-card-main">
+                  <span className="lever-content">
+                    {s.name}
+                    {s.autoCreate && <span style={{ fontSize: '0.72rem', color: '#10b981', marginLeft: '0.5rem' }}>⚡ auto-créée</span>}
+                  </span>
+                  <span className="lever-notes">
+                    {s.rationale} · {fmtDate(s.window.startDate)} → {fmtDate(s.window.endDate)}
+                    {' '}· quota suggéré : {s.quota ?? '—'}
+                  </span>
+                  {s.objective && <span className="lever-effect">« {s.objective} »</span>}
+                </div>
+                {!s.autoCreate && (
+                  <div className="lever-actions">
+                    <button className="btn btn-sm btn-primary" onClick={() => acceptSuggestion(s)}>✓ Créer</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* TRANSIT & ASPECT CALENDAR */}
+      <div className="lever-card" style={{ marginBottom: '1rem' }}>
+        <div className="lever-card-main">
+          <span className="lever-content">📅 Calendrier des transits & aspects</span>
+          <span className="lever-notes">Prochains passages planétaires (60 j) et aspects exacts (90 j).</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', paddingTop: '0.5rem', fontSize: '0.85rem' }}>
+          {calendar.transits.map((t) => (
+            <div key={`t-${t.bodyId}-${t.signIndex}-${t.window.start.toISOString()}`}>
+              <span style={{ color: 'var(--text-muted)', marginRight: '0.5rem' }}>
+                {fmtDate(localDateKey(t.window.start))} → {fmtDate(localDateKey(t.window.end))}
+              </span>
+              {getTransitBody(t.bodyId).emoji} {getTransitBody(t.bodyId).label} en {t.sign.emoji} {t.sign.name}
+              {t.window.revisit && <span style={{ color: '#f59e0b' }}> (va-et-vient rétrograde)</span>}
+            </div>
+          ))}
+          {calendar.aspects.map((a) => {
+            const def = ASPECT_DEFS[a.kind];
+            return (
+              <div key={`a-${a.bodyA}-${a.bodyB}-${a.kind}-${a.exactAt.toISOString()}`}>
+                <span style={{ color: 'var(--text-muted)', marginRight: '0.5rem' }}>{fmtDate(localDateKey(a.exactAt))}</span>
+                {getTransitBody(a.bodyA).emoji} {getTransitBody(a.bodyA).label} {def.emoji} {getTransitBody(a.bodyB).emoji} {getTransitBody(a.bodyB).label}
+                <span style={{ color: def.tone === 'favorable' ? '#10b981' : def.tone === 'tension' ? '#f59e0b' : 'var(--text-muted)' }}>
+                  {' '}({def.label} exact)
+                </span>
+              </div>
+            );
+          })}
+          {calendar.transits.length === 0 && calendar.aspects.length === 0 && (
+            <span className="lever-none">Rien dans l'horizon de calcul.</span>
+          )}
         </div>
       </div>
 

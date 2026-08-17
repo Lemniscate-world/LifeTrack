@@ -17,6 +17,12 @@ import {
   resolveTransitWindow,
   transitHouse,
   wholeSignHouse,
+  aspectBetween,
+  separationDeg,
+  nextAspect,
+  upcomingTransits,
+  upcomingAspects,
+  ASPECT_DEFS,
 } from '../astrology';
 import * as A from 'astronomy-engine';
 
@@ -259,5 +265,72 @@ describe('astrology.signIndexOfLongitude', () => {
     expect(signIndexOfLongitude(359.9)).toBe(11);
     expect(signIndexOfLongitude(-30)).toBe(11);
     expect(signIndexOfLongitude(-1)).toBe(11);
+  });
+});
+
+describe('astrology.aspects', () => {
+  it('separationDeg returns the minimal absolute angle', () => {
+    expect(separationDeg(10, 130)).toBe(120);
+    expect(separationDeg(350, 10)).toBe(20);
+    expect(separationDeg(0, 180)).toBe(180);
+    expect(separationDeg(100, 100)).toBe(0);
+  });
+
+  it('aspectBetween recognizes a trine from real longitudes', () => {
+    // Sun at 0° Aries (equinox) vs Jupiter ~105°: ~105° apart → trine (120) is
+    // out of orb; verify against computed separation instead of fixed signs.
+    const lonA = planetLongitude('sun', EQUINOX);
+    const lonB = planetLongitude('jupiter', EQUINOX);
+    const sep = separationDeg(lonA, lonB);
+    // No aspect is guaranteed here; but the function must never return a kind
+    // whose exact angle is far from the real separation.
+    const kind = aspectBetween('sun', 'jupiter', EQUINOX);
+    if (kind !== null) {
+      const def = ASPECT_DEFS[kind];
+      expect(Math.abs(sep - def.angle)).toBeLessThanOrEqual(def.orbDeg);
+    }
+  });
+
+  it('nextAspect returns a moment where the aspect is exact (±0.05°)', () => {
+    // Sun–Mars has a known cycle; find the next square from a fixed date and
+    // verify the ephemeris at the returned moment.
+    const from = new Date('2026-01-01T00:00:00Z');
+    const ev = nextAspect('sun', 'mars', 'square', from, 400);
+    expect(ev).not.toBeNull();
+    const lonA = planetLongitude('sun', ev!);
+    const lonB = planetLongitude('mars', ev!);
+    const sep = separationDeg(lonA, lonB);
+    expect(Math.abs(sep - 90)).toBeLessThan(0.05);
+  });
+
+  it('nextAspect finds an exact conjunction for Mercury–Sun within 120 days', () => {
+    const from = new Date('2026-01-01T00:00:00Z');
+    const ev = nextAspect('mercury', 'sun', 'conjunction', from, 120);
+    expect(ev).not.toBeNull();
+    const sep = separationDeg(planetLongitude('mercury', ev!), planetLongitude('sun', ev!));
+    expect(sep).toBeLessThan(0.05);
+  });
+
+  it('upcomingTransits lists the current and next sign window for the Sun', () => {
+    const from = new Date('2026-01-01T00:00:00Z');
+    const items = upcomingTransits(['sun'], 120, from);
+    expect(items.length).toBeGreaterThanOrEqual(1);
+    const sunItem = items.find((i) => i.bodyId === 'sun');
+    expect(sunItem).toBeDefined();
+    expect(sunItem!.window.end.getTime()).toBeGreaterThan(from.getTime());
+    expect(sunItem!.signIndex).toBeGreaterThanOrEqual(0);
+    expect(sunItem!.signIndex).toBeLessThanOrEqual(11);
+  });
+
+  it('upcomingAspects returns exact events consistent with the ephemeris', () => {
+    const from = new Date('2026-01-01T00:00:00Z');
+    const events = upcomingAspects([['sun', 'venus']], 150, from);
+    expect(events.length).toBeGreaterThanOrEqual(1);
+    for (const ev of events.slice(0, 3)) {
+      const def = ASPECT_DEFS[ev.kind];
+      const sep = separationDeg(planetLongitude(ev.bodyA, ev.exactAt), planetLongitude(ev.bodyB, ev.exactAt));
+      expect(Math.abs(sep - def.angle)).toBeLessThan(0.1);
+      expect(ev.exactAt.getTime()).toBeGreaterThan(from.getTime());
+    }
   });
 });

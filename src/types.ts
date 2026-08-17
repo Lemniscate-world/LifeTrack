@@ -642,6 +642,8 @@ export interface UserPreferences {
   autoIngestEnabled?: boolean;     // default true — feeds refresh by themselves
   autoIngestIntervalHours?: number; // default 6
   autostartEnabled?: boolean;      // launch LifeTrack at Windows logon
+  // v0.6.2: zero-touch mission engine.
+  missionAutoEnabled?: boolean;    // default true — auto-create missions on weak-domain transits
   // v0.7.0: audio feedback
   soundEnabled?: boolean;          // web audio chime feedback on check-in
   // v0.7.0: natal chart for whole-sign transit houses.

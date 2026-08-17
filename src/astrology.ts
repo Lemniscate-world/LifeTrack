@@ -434,3 +434,243 @@ export function transitHouse(bodyId: TransitBodyId, date: Date, natalAscendant: 
   const house = wholeSignHouse(lon, natalAscendant);
   return { house, sign: signOfLongitude(lon) };
 }
+
+// ============================================================================
+// Planetary aspects (Jupiter trine Pluto, Mars square Saturn, …)
+// ============================================================================
+
+export type AspectKind = 'conjunction' | 'sextile' | 'square' | 'trine' | 'opposition';
+
+export interface AspectDef {
+  kind: AspectKind;
+  /** Exact angle of the aspect (degrees). */
+  angle: number;
+  /** Classical orb (degrees) used for the "active now" display. */
+  orbDeg: number;
+  emoji: string;
+  label: string;
+  /** Favorable (opportunity) vs tense (vigilance). */
+  tone: 'favorable' | 'tension' | 'neutral';
+}
+
+export const ASPECT_DEFS: Record<AspectKind, AspectDef> = {
+  conjunction: { kind: 'conjunction', angle: 0, orbDeg: 8, emoji: '☌', label: 'Conjonction', tone: 'neutral' },
+  sextile: { kind: 'sextile', angle: 60, orbDeg: 4, emoji: '⚹', label: 'Sextile', tone: 'favorable' },
+  square: { kind: 'square', angle: 90, orbDeg: 6, emoji: '□', label: 'Carré', tone: 'tension' },
+  trine: { kind: 'trine', angle: 120, orbDeg: 6, emoji: '△', label: 'Trigon', tone: 'favorable' },
+  opposition: { kind: 'opposition', angle: 180, orbDeg: 8, emoji: '☍', label: 'Opposition', tone: 'tension' },
+};
+
+export const ASPECT_KINDS: AspectKind[] = ['conjunction', 'sextile', 'square', 'trine', 'opposition'];
+
+/**
+ * Absolute minimal angular separation between two longitudes (0-180°).
+ */
+export function separationDeg(lonA: number, lonB: number): number {
+  const d = Math.abs((((lonA - lonB) % 360) + 360) % 360);
+  return d > 180 ? 360 - d : d;
+}
+
+/**
+ * The aspect (if any) formed between two bodies at a date, within the
+ * classical orb. Returns the tightest aspect when several are in orb
+ * (only possible for the conjunction/sextile zone in practice).
+ */
+export function aspectBetween(bodyA: TransitBodyId, bodyB: TransitBodyId, date: Date): AspectKind | null {
+  const sep = separationDeg(planetLongitude(bodyA, date), planetLongitude(bodyB, date));
+  let best: AspectKind | null = null;
+  let bestGap = Infinity;
+  for (const kind of ASPECT_KINDS) {
+    const def = ASPECT_DEFS[kind];
+    const gap = Math.abs(sep - def.angle);
+    if (gap <= def.orbDeg && gap < bestGap) {
+      best = kind;
+      bestGap = gap;
+    }
+  }
+  return best;
+}
+
+/** Absolute separation from the exact angle of an aspect kind. */
+function aspectGap(bodyA: TransitBodyId, bodyB: TransitBodyId, kind: AspectKind, date: Date): number {
+  const def = ASPECT_DEFS[kind];
+  return Math.abs(separationDeg(planetLongitude(bodyA, date), planetLongitude(bodyB, date)) - def.angle);
+}
+
+/** Ternary-search refinement of a unimodal gap function over [t0, t1]. */
+function refineMin(f: (t: number) => number, t0: number, t1: number, iter = 60): number {
+  let lo = t0;
+  let hi = t1;
+  for (let i = 0; i < iter; i++) {
+    const m1 = lo + (hi - lo) / 3;
+    const m2 = hi - (hi - lo) / 3;
+    if (f(m1) <= f(m2)) hi = m2;
+    else lo = m1;
+  }
+  return (lo + hi) / 2;
+}
+
+export interface AspectEvent {
+  bodyA: TransitBodyId;
+  bodyB: TransitBodyId;
+  kind: AspectKind;
+  /** Moment when the aspect is exact. */
+  exactAt: Date;
+}
+
+/**
+ * Next moment when two bodies form an exact `kind` aspect, scanning forward
+ * from `fromDate`. The gap function is sampled, local minima below the orb
+ * are refined by ternary search. Null when nothing within the horizon.
+ */
+export function nextAspect(
+  bodyA: TransitBodyId,
+  bodyB: TransitBodyId,
+  kind: AspectKind,
+  fromDate: Date,
+  horizonDays = 150,
+): Date | null {
+  const gap = (t: number) => aspectGap(bodyA, bodyB, kind, dateFromJulian(t));
+  const step = 0.5;
+  const jd0 = makeTime(fromDate).ut;
+  let prevT = jd0;
+  let prevGap = gap(prevT);
+  for (let t = jd0 + step; t <= jd0 + horizonDays; t += step) {
+    const g = gap(t);
+    if (g < prevGap) {
+      // Still descending — the local minimum is ahead.
+      const tNext = t + step;
+      const gNext = gap(tNext);
+      if (g <= gNext) {
+        const refined = refineMin(gap, prevT, tNext);
+        if (gap(refined) < ASPECT_DEFS[kind].orbDeg) {
+          return dateFromJulian(refined);
+        }
+      }
+    }
+    prevT = t;
+    prevGap = g;
+  }
+  return null;
+}
+
+/** Curated pair list for the aspect calendar (all bodies except the Moon). */
+export const ASPECT_PAIRS: [TransitBodyId, TransitBodyId][] = [
+  ['sun', 'mercury'], ['sun', 'venus'], ['sun', 'mars'], ['sun', 'jupiter'], ['sun', 'saturn'],
+  ['mercury', 'venus'], ['mercury', 'mars'], ['mercury', 'jupiter'], ['mercury', 'saturn'],
+  ['venus', 'mars'], ['venus', 'jupiter'], ['venus', 'saturn'], ['venus', 'uranus'],
+  ['mars', 'jupiter'], ['mars', 'saturn'], ['mars', 'uranus'], ['mars', 'pluto'],
+  ['jupiter', 'saturn'], ['jupiter', 'uranus'], ['jupiter', 'neptune'], ['jupiter', 'pluto'],
+  ['saturn', 'uranus'], ['saturn', 'neptune'], ['saturn', 'pluto'],
+  ['uranus', 'neptune'], ['uranus', 'pluto'], ['neptune', 'pluto'],
+  ['jupiter', 'node'], ['saturn', 'node'],
+];
+
+export interface TransitScheduleItem {
+  bodyId: TransitBodyId;
+  signIndex: number;
+  sign: SignInfo;
+  window: TransitWindow;
+}
+
+/**
+ * Upcoming whole-sign transit windows (next ingress → exit) for a set of
+ * bodies, within a horizon. Moon windows (~2.5 days) are included — the
+ * mission engine filters them out, the calendar keeps them.
+ */
+export function upcomingTransits(
+  bodies: TransitBodyId[],
+  horizonDays: number,
+  fromDate: Date,
+): TransitScheduleItem[] {
+  const items: TransitScheduleItem[] = [];
+  for (const bodyId of bodies) {
+    const info = getTransitBody(bodyId);
+    const horizon = Math.min(horizonDays, info.maxHorizonDays);
+    const signIndex = signIndexOfLongitude(planetLongitude(bodyId, fromDate));
+    const first = resolveTransitWindow(bodyId, signIndex, fromDate);
+    if (first && first.end.getTime() > fromDate.getTime()) {
+      items.push({ bodyId, signIndex, sign: SIGNS[signIndex], window: first });
+    }
+    const next = nextTransitWindow(bodyId, (signIndex + 1) % 12, fromDate);
+    if (next && next.start.getTime() - fromDate.getTime() <= horizon * 86400000) {
+      items.push({ bodyId, signIndex: (signIndex + 1) % 12, sign: SIGNS[(signIndex + 1) % 12], window: next });
+    }
+  }
+  return items.sort((a, b) => a.window.start.getTime() - b.window.start.getTime());
+}
+
+/**
+ * Upcoming exact aspect events for the curated pair list, within a horizon.
+ * Longitudes are precomputed once on a shared 0.5-day grid (one ephemeris call
+ * per body per step) and every pair×kind crossing is detected on the arrays —
+ * roughly 20× cheaper than per-pair sampling. Local minima below the orb are
+ * refined by ternary search.
+ */
+export function upcomingAspects(
+  pairs: [TransitBodyId, TransitBodyId][],
+  horizonDays: number,
+  fromDate: Date,
+): AspectEvent[] {
+  const bodies: TransitBodyId[] = [];
+  for (const [bodyA, bodyB] of pairs) {
+    if (!bodies.includes(bodyA)) bodies.push(bodyA);
+    if (!bodies.includes(bodyB)) bodies.push(bodyB);
+  }
+
+  const step = 0.5;
+  const n = Math.max(3, Math.ceil(horizonDays / step) + 2);
+  const jd0 = makeTime(fromDate).ut;
+  const grid: number[] = new Array(n);
+  const lons: Record<string, number[]> = {};
+  for (const b of bodies) lons[b] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    grid[i] = jd0 + i * step;
+    const date = dateFromJulian(grid[i]);
+    for (const b of bodies) lons[b][i] = planetLongitude(b, date);
+  }
+
+  const events: AspectEvent[] = [];
+  for (const [bodyA, bodyB] of pairs) {
+    const la = lons[bodyA];
+    const lb = lons[bodyB];
+    for (const kind of ASPECT_KINDS) {
+      const angle = ASPECT_DEFS[kind].angle;
+      const orb = ASPECT_DEFS[kind].orbDeg;
+      for (let i = 1; i < n - 1; i++) {
+        const gPrev = Math.abs(separationDeg(la[i - 1], lb[i - 1]) - angle);
+        const gCur = Math.abs(separationDeg(la[i], lb[i]) - angle);
+        const gNext = Math.abs(separationDeg(la[i + 1], lb[i + 1]) - angle);
+        if (gCur <= gPrev && gCur <= gNext && gCur < orb) {
+          const refined = refineMin(
+            (t) => aspectGap(bodyA, bodyB, kind, dateFromJulian(t)),
+            grid[i - 1],
+            grid[i + 1],
+          );
+          const exactAt = dateFromJulian(refined);
+          if (exactAt.getTime() >= fromDate.getTime() && aspectGap(bodyA, bodyB, kind, exactAt) < 0.1) {
+            events.push({ bodyA, bodyB, kind, exactAt });
+          }
+        }
+      }
+    }
+  }
+  return events.sort((a, b) => a.exactAt.getTime() - b.exactAt.getTime());
+}
+
+/**
+ * Aspects currently in orb at a date, for a pair list — the "sky dashboard".
+ */
+export function currentAspects(
+  pairs: [TransitBodyId, TransitBodyId][],
+  date: Date,
+): AspectEvent[] {
+  const out: AspectEvent[] = [];
+  for (const [bodyA, bodyB] of pairs) {
+    const kind = aspectBetween(bodyA, bodyB, date);
+    if (kind) out.push({ bodyA, bodyB, kind, exactAt: date });
+  }
+  return out.sort((a, b) =>
+    ASPECT_KINDS.indexOf(a.kind) - ASPECT_KINDS.indexOf(b.kind),
+  );
+}

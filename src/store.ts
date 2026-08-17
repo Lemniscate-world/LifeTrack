@@ -529,6 +529,7 @@ function sanitizePreferences(raw: unknown): UserPreferences {
     autoIngestEnabled: p.autoIngestEnabled === false ? false : true,
     autoIngestIntervalHours: typeof p.autoIngestIntervalHours === 'number' && p.autoIngestIntervalHours >= 1 && p.autoIngestIntervalHours <= 72 ? p.autoIngestIntervalHours : 6,
     autostartEnabled: p.autostartEnabled === false ? false : true,
+    missionAutoEnabled: p.missionAutoEnabled === false ? false : true,
   };
 }
 
