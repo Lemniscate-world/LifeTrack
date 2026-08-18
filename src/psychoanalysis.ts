@@ -17,6 +17,7 @@
 import type { CheckIn, Note, UrgeEntry } from './types';
 import { moodRank } from './correlations';
 import { welchTwoSample } from './leverInsights';
+import { fromDateKey, shiftDateKey } from './dates';
 
 export interface NegativePattern {
   id: string;
@@ -603,12 +604,10 @@ function collectDatedTexts(checkIns: CheckIn[], notes: Note[], urges: UrgeEntry[
 
 /** Returns the Monday (YYYY-MM-DD) of the week containing a YYYY-MM-DD date. */
 function weekStartOf(dateKey: string): string {
-  const [y, m, d] = dateKey.split('-').map((n) => Number(n));
-  const date = new Date(y, m - 1, d);
+  const date = fromDateKey(dateKey);
   const day = date.getDay(); // 0 (Sun) .. 6 (Sat)
   const diff = day === 0 ? -6 : 1 - day; // back to Monday
-  date.setDate(date.getDate() + diff);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return shiftDateKey(dateKey, diff);
 }
 
 /** French short label for a week start, e.g. "05 août". */

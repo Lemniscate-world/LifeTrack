@@ -4,11 +4,9 @@ export interface WeekCell {
   isToday: boolean;
 }
 
-const WEEK_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+import { dateKeyFromParts } from './dates';
 
-function dateKey(y: number, m: number, d: number): string {
-  return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-}
+const WEEK_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
 
 /** Monday … Sunday of the ISO week containing `today`. */
 export function currentWeekCells(today: Date): WeekCell[] {
@@ -19,7 +17,7 @@ export function currentWeekCells(today: Date): WeekCell[] {
   for (let i = 0; i < 7; i++) {
     const d = new Date(day.getFullYear(), day.getMonth(), day.getDate() + i);
     cells.push({
-      dateKey: dateKey(d.getFullYear(), d.getMonth(), d.getDate()),
+      dateKey: dateKeyFromParts(d.getFullYear(), d.getMonth() + 1, d.getDate()),
       label: WEEK_LABELS[i],
       isToday:
         d.getFullYear() === today.getFullYear() &&

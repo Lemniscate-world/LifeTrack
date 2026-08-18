@@ -21,6 +21,7 @@ import { computeUrgeInsights } from './urgeInsights';
 import { validateLevers, detectRelapses } from './leverInsights';
 import { NEGATIVE_PATTERNS } from './psychoanalysis';
 import { STEPS } from './patternProgress';
+import { todayKey } from './dates';
 
 const MOOD_LABEL: Record<string, string> = Object.fromEntries(MOODS.map((m) => [m.id, m.label]));
 
@@ -32,11 +33,6 @@ interface HabitSummary {
   currentStreak: number;
   lastCheckIn?: string;
   notes: string[]; // all notes, oldest first
-}
-
-function todayStr(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 /**
@@ -90,7 +86,7 @@ function buildHabitSummaries(data: AppData): HabitSummary[] {
       let currentStreak = 0;
       if (dates.length > 0) {
         const last = dates[dates.length - 1];
-        if (last >= todayStr()) {
+        if (last >= todayKey()) {
           const set = new Set(dates);
           let d = new Date();
           while (set.has(d.toISOString().slice(0, 10))) {

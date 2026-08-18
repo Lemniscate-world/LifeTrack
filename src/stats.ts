@@ -23,32 +23,10 @@
 
 import type { CheckIn, Habit } from './types';
 
-// --- Date helpers (date-only, UTC-naive — local civil date strings) ---
-
-export function toDateKey(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-export function fromDateKey(key: string): Date {
-  const [y, m, d] = key.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
-
-export function daysBetween(a: Date, b: Date): number {
-  const ms = 24 * 60 * 60 * 1000;
-  const ad = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
-  const bd = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
-  return Math.round((bd - ad) / ms);
-}
-
-export function addDays(d: Date, n: number): Date {
-  const r = new Date(d);
-  r.setDate(r.getDate() + n);
-  return r;
-}
+// Date helpers live in ./dates (single canonical implementation). Re-exported
+// here so existing `import { toDateKey, addDays } from './stats'` keep working.
+import { toDateKey, fromDateKey, daysBetween, addDays } from './dates';
+export { toDateKey, fromDateKey, daysBetween, addDays };
 
 // --- Internal: build a date-keyed map of completion status for a habit ---
 

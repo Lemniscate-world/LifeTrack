@@ -10,6 +10,7 @@
 import type { Habit, CheckIn } from './types';
 import { computeStreakStats } from './stats';
 import { suggestAdaptiveTarget, type AdaptiveSuggestion } from './challenges';
+import { todayKey, daysBetweenKeys } from './dates';
 
 /** Minimum best-streak length a habit needs to count as a "won" past. */
 export const MIN_BEST_STREAK = 5;
@@ -33,18 +34,6 @@ export interface FadedWin {
   /** Short human call-to-action for this revival. */
   revival: string;}
 
-function todayKey(now: Date): string {
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
-
-function daysBetween(a: string, b: string): number {
-  const [ya, ma, da] = a.split('-').map(Number);
-  const [yb, mb, db] = b.split('-').map(Number);
-  return Math.round(
-    (new Date(yb, mb - 1, db).getTime() - new Date(ya, ma - 1, da).getTime()) / 86400000,
-  );
-}
-
 /**
  * Find habits whose all-time best streak has gone quiet, and whose record is
  * now at risk of being forgotten. Deterministic; oldest-win first.
@@ -64,7 +53,7 @@ export function detectFadedWins(
     const bestAt = habit.bestStreakAt ?? stats.bestAt ?? '';
     if (best < MIN_BEST_STREAK || !bestAt) continue;
 
-    const daysSinceBest = Math.max(0, daysBetween(bestAt, today));
+    const daysSinceBest = Math.max(0, daysBetweenKeys(bestAt, today));
     if (daysSinceBest < MIN_WIN_AGE_DAYS) continue;
 
     const lastDone = checkIns
@@ -73,7 +62,7 @@ export function detectFadedWins(
       .sort()
       .pop();
     const daysSinceLast = lastDone
-      ? Math.max(0, daysBetween(lastDone, today))
+      ? Math.max(0, daysBetweenKeys(lastDone, today))
       : Infinity;
 
     // Faded = records quiet now: nothing completed for a while, and the win is old.

@@ -6,6 +6,7 @@
 // Pure module, no store access — unit-testable in isolation.
 
 import type { CorrelationResult, Habit } from './types';
+import { toDateKey, shiftDateKey } from './dates';
 
 export interface ExperimentDraft {
   title: string;
@@ -16,17 +17,6 @@ export interface ExperimentDraft {
   startDate: string;         // YYYY-MM-DD
   endDate: string;           // YYYY-MM-DD (startDate + suggestedDays - 1)
   suggestedDays: number;
-}
-
-function localKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function shiftKey(key: string, days: number): string {
-  const [y, m, d] = key.split('-').map(Number);
-  const dt = new Date(y, m - 1, d);
-  dt.setDate(dt.getDate() + days);
-  return localKey(dt);
 }
 
 const MOOD_NAMES = new Set(['mood', 'humeur', 'Mood']);
@@ -69,9 +59,9 @@ export function correlationToExperiment(
 
   const positive = corr.coefficient >= 0;
   const direction = positive ? 'améliore' : 'dégrade';
-  const startDate = localKey(now);
+  const startDate = toDateKey(now);
   const suggestedDays = Math.max(14, Math.min(90, corr.requiredN || 30));
-  const endDate = shiftKey(startDate, suggestedDays - 1);
+  const endDate = shiftDateKey(startDate, suggestedDays - 1);
 
   return {
     title: `Hypothèse : « ${habitName} » et ${outcomeName}`,
@@ -94,9 +84,9 @@ export function weaknessToExperiment(
   recentRate: number,   // 0-100 over the last 7 days
   now: Date = new Date(),
 ): ExperimentDraft {
-  const startDate = localKey(now);
+  const startDate = toDateKey(now);
   const suggestedDays = 21;
-  const endDate = shiftKey(startDate, suggestedDays - 1);
+  const endDate = shiftDateKey(startDate, suggestedDays - 1);
   return {
     title: `Micro-expérience sur « ${habit.name} »`,
     hypothesis: `Si je réduis la barre de « ${habit.name} » (objectif ≤${Math.max(1, Math.round((recentRate / 100) * 7))}/sem) pendant ${suggestedDays} jours, ma constance remonte sans culpabilité.`,

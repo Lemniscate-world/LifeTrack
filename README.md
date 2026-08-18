@@ -24,20 +24,20 @@ LifeTrack is a native Windows desktop app for experimental habit tracking: track
 
 Download from [Releases](https://github.com/Lemniscate-world/LifeTrack/releases).
 
-``sh
+```sh
 npm install
 npm run desktop    # dev mode
 npm run package    # build .exe + .msi
-``
+```
 
 Requirements: Node.js 22+, Rust 1.77+, Windows WebView2.
 
 ## Development
 
-``sh
-npm test           # 547 tests (Vitest + React Testing Library)
+```sh
+npm test           # 1114 tests (Vitest + React Testing Library)
 npm run build      # TypeScript + Vite
-``
+```
 
 ## Tech Stack
 
@@ -50,8 +50,8 @@ npm run build      # TypeScript + Vite
 | Tests | Vitest + @testing-library/react + jsdom |
 
 ## Roadmap
-- **v0.4.0**: N=1 experiments, correlation analysis, AI recommendations
-- **v0.5.0**: Biohacking protocols (sleep, fasting, supplements), protocol library
+- **v0.7.0**: audio feedback, natal chart whole-sign houses, Windows autostart
+- **Next**: auto weekly reports, partial correlations (controlling mood), N=1 experiment insights
 
 ## License
 MIT

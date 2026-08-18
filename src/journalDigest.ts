@@ -5,6 +5,7 @@
 // the AI synthesis command (journal_summary).
 
 import type { JournalEntry, JournalPersonality } from './types';
+import { toDateKey } from './dates';
 
 export type DigestPeriod = 'week' | 'month';
 
@@ -38,10 +39,6 @@ const STOPWORDS = new Set([
 
 function dayKey(iso: string): string {
   return typeof iso === 'string' ? iso.slice(0, 10) : '';
-}
-
-function toDateKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function parseDay(k: string): Date {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { Habit, Note, CheckIn, Mantra } from './types';
+import { dateKeyFromParts } from './dates';
 import {
   getHabits,
   getMonthCheckIns,
@@ -121,7 +122,7 @@ function getDayLetter(year: number, month: number, day: number): string {
 }
 
 function parseDateStr(year: number, month: number, day: number): string {
-  return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return dateKeyFromParts(year, month + 1, day);
 }
 
 const MONTH_NAMES = [

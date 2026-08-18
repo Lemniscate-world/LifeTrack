@@ -14,26 +14,7 @@
 import type { Challenge, CheckIn, Habit, Note, UrgeEntry } from './types';
 import { XP_RULES, type Medal } from './gamification';
 import { lifeScoreSeries, type DayScore } from './evolution';
-
-// --- Date helpers (local civil dates, YYYY-MM-DD) ---
-
-function localKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function shiftKey(key: string, days: number): string {
-  const [y, m, d] = key.split('-').map(Number);
-  const dt = new Date(y, m - 1, d);
-  dt.setDate(dt.getDate() + days);
-  return localKey(dt);
-}
-
-function isoToKey(iso: unknown): string | null {
-  if (typeof iso !== 'string') return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
-}
+import { toDateKey, shiftDateKey, isoToDateKey } from './dates';
 
 // --- Window metrics (one period of the user's life) ---
 
@@ -84,7 +65,7 @@ export function windowMetrics(
   let urgesSurfed = 0;
   let urgesInWindow = 0;
   for (const u of urges) {
-    const k = isoToKey(u.startTime);
+    const k = isoToDateKey(u.startTime);
     if (!k || k < fromKey || k > toKey) continue;
     urgesInWindow++;
     if (u.outcome === 'surfed') urgesSurfed++;
@@ -137,10 +118,10 @@ export function compareWindows(
   windowDays = 30,
   now: Date = new Date(),
 ): DeepCompare | null {
-  const toAfter = localKey(now);
-  const fromAfter = shiftKey(toAfter, -(windowDays - 1));
-  const toBefore = shiftKey(toAfter, -windowDays);
-  const fromBefore = shiftKey(toBefore, -(windowDays - 1));
+  const toAfter = toDateKey(now);
+  const fromAfter = shiftDateKey(toAfter, -(windowDays - 1));
+  const toBefore = shiftDateKey(toAfter, -windowDays);
+  const fromBefore = shiftDateKey(toBefore, -(windowDays - 1));
 
   const before = windowMetrics(habits, checkIns, notes, urges, challenges, fromBefore, toBefore);
   const after = windowMetrics(habits, checkIns, notes, urges, challenges, fromAfter, toAfter);

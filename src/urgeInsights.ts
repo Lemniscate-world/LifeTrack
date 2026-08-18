@@ -18,20 +18,7 @@ import type { CheckIn, Habit, UrgeEntry } from './types';
 import { spearmanTest, wilsonInterval } from './statistics';
 import { moodRank } from './correlations';
 import { trendTest, seriesVolatility, dayOffsets, type TrendResult } from './timeseries';
-
-// --- Small date helpers (local civil dates, YYYY-MM-DD) ---
-
-function dateKeyOf(iso: string): string | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
-}
-
-function shiftDateKey(key: string, days: number): string {
-  const [y, m, d] = key.split('-').map(Number);
-  const dt = new Date(y, m - 1, d);
-  dt.setDate(dt.getDate() + days);
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-}
+import { isoToDateKey, shiftDateKey } from './dates';
 
 // --- Wilson proportion ---------------------------------------------------
 
@@ -65,7 +52,7 @@ export interface DailyUrge {
 export function dailyUrgeSeries(urges: UrgeEntry[]): DailyUrge[] {
   const byDate = new Map<string, { max: number; count: number; surfed: number; ended: number }>();
   for (const u of urges) {
-    const d = dateKeyOf(u.startTime);
+    const d = isoToDateKey(u.startTime);
     if (!d) continue;
     const cur = byDate.get(d) ?? { max: 0, count: 0, surfed: 0, ended: 0 };
     cur.count += 1;
@@ -177,7 +164,7 @@ export function surfedVsGiveInNextMood(urges: UrgeEntry[], moods: Record<string,
   const gaveIn: number[] = [];
   for (const u of urges) {
     if (u.outcome !== 'surfed' && u.outcome !== 'gave_in') continue;
-    const d = dateKeyOf(u.endTime ?? u.startTime);
+    const d = isoToDateKey(u.endTime ?? u.startTime);
     if (!d) continue;
     const next = moodByDate.get(shiftDateKey(d, 1));
     if (next === undefined) continue;

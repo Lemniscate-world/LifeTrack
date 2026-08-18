@@ -19,6 +19,9 @@
 import type { CheckIn, Habit, CapacityRating, CorrelationResult, CorrelationCell, CorrelationAnalysis } from './types';
 import { pearsonTest, spearmanTest, benjaminiHochberg, requiredSampleSize, correlationRobustness, detrendedCorrelation, fisherZ, fisherZInv, partialCorrelation, maxAttainableR } from './statistics';
 import { moonPhaseAt } from './astrology';
+import { fromDateKey, shiftDateKey, weekdayOf } from './dates';
+// Re-exported for backward compatibility (gainsAnalysis imports weekdayOf from here).
+export { weekdayOf, shiftDateKey };
 
 /** Distinct ordinal rank for each mood id (the raw number is irrelevant; Spearman
  * uses relative order). angry and bad are both low; sick slightly above bad. */
@@ -28,25 +31,6 @@ const MOOD_RANK: Record<string, number> = {
 
 export function moodRank(moodId: string): number {
   return MOOD_RANK[moodId] ?? 5;
-}
-
-/** Weekday number for a YYYY-MM-DD key: 0=Sun … 6=Sat. */
-export function weekdayOf(date: string): number {
-  const [y, m, d] = date.split('-').map(Number);
-  return new Date(y, m - 1, d).getDay();
-}
-
-/** Parse a YYYY-MM-DD key as a local Date. */
-function parseDate(date: string): Date {
-  const [y, m, d] = date.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
-
-/** Shift a YYYY-MM-DD key by ±days. */
-export function shiftDateKey(date: string, days: number): string {
-  const [y, m, d] = date.split('-').map(Number);
-  const t = new Date(y, m - 1, d + days);
-  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
 }
 
 /** Enumerate every distinct date across all sources, oldest → newest. */
@@ -247,7 +231,7 @@ function build(
 
         // Lunar phase control (mood pairs): the mood may follow the moon cycle.
         if (metricA === 'Mood' || metricB === 'Mood') {
-          const zs = dates.map((d) => Math.sin((2 * Math.PI * moonPhaseAt(parseDate(d))) / 360));
+          const zs = dates.map((d) => Math.sin((2 * Math.PI * moonPhaseAt(fromDateKey(d))) / 360));
           const pc = partialCorrelation(xs, ys, zs, method);
           if (pc) {
             lunarCoefficient = pc.r;

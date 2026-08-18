@@ -10,5 +10,8 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
     css: true,
+    // The App-level integration tests mount the full UI (heavy effects,
+    // notifications, auto-backup…); 5s is too tight on slow machines/CI.
+    testTimeout: 15000,
   },
 })

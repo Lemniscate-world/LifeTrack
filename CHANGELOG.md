@@ -20,7 +20,7 @@ All notable changes to LifeTrack are documented in this file.
 - Atom namespace parsing in the RSS/Atom parser (robust to namespaced feeds, unescaped `&`, Atom `<id>`).
 - Reactivity of Projects/Knowledge views (memo on the tick value, not the setter).
 
-## [Unreleased / v0.6.2] — Life across all levels
+## [0.6.2] — Life across all levels (2026-08-18)
 
 - **Today view enriched** — daily progress bar, one-tap mood for today, and a "Cette semaine"
   digest (7-day completion, best day, active habits).
@@ -41,8 +41,12 @@ All notable changes to LifeTrack are documented in this file.
   energy reading (click +10, right-click −10, 100% → cleared). Persisted per day, sanitized on
   load, restored on import, and fed into the correlation engine as a metric series (Pearson)
   alongside habits, Mood and capacities — including the heatmap matrix.
-
-## [Unreleased]
+- **Astro missions** — sky-driven mission suggestions (upcoming transits/aspects matched to
+  weak life domains), natal ascendant support, auto-create on weak-domain transits.
+- **Automated knowledge** — permanent feed ingestion with Windows autostart, AI-assisted
+  protocol extraction, auto-adopted suggestions, "Savoir" preference engine.
+- **Hygiene** — canonical `src/dates.ts` date helpers (was copy-pasted in ~20 modules),
+  `testTimeout` raised for App-level tests, dead files removed, CSP hardened, version aligned.
 
 ## [0.3.2] — 2026-07-25
 

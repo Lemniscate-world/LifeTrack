@@ -8,6 +8,7 @@
 // missions, and turned into ready-to-create Mission drafts (auto or 1-click).
 
 import type { CheckIn, Mission, MissionTransitWindow } from './types';
+import { toDateKey } from './dates';
 import {
   TRANSIT_BODIES, getTransitBody, upcomingTransits, upcomingAspects,
   ASC_ASPECT_PAIRS, ASPECT_DEFS, ASPECT_PAIRS,
@@ -183,15 +184,11 @@ export interface AutoMissionSuggestion {
   autoCreate: boolean;
 }
 
-function localDateKey(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
 /** Weekly completion pace of the given habits over the last 28 days. */
 function weeklyPace(habitIds: string[], checkIns: CheckIn[], today: string): number {
   if (habitIds.length === 0) return 0;
   const set = new Set(habitIds);
-  const startI = dayIndex(localDateKey(new Date(Date.now() - 27 * 86400000)));
+  const startI = dayIndex(toDateKey(new Date(Date.now() - 27 * 86400000)));
   const endI = dayIndex(today);
   let total = 0;
   for (const c of checkIns) {
@@ -242,7 +239,7 @@ export interface SkySuggestionInput {
  */
 export function suggestMissionsFromSky(input: SkySuggestionInput): AutoMissionSuggestion[] {
   const now = input.now ?? new Date();
-  const today = localDateKey(now);
+  const today = toDateKey(now);
   const suggestions: AutoMissionSuggestion[] = [];
   const weak = new Set(input.weakDomains);
 
@@ -280,8 +277,8 @@ export function suggestMissionsFromSky(input: SkySuggestionInput): AutoMissionSu
         kind: 'transit',
         body: item.bodyId,
         signIndex: item.signIndex,
-        startDate: localDateKey(item.window.start),
-        endDate: localDateKey(item.window.end),
+        startDate: toDateKey(item.window.start),
+        endDate: toDateKey(item.window.end),
       },
       habitIds,
       quota: habitIds.length > 0 ? suggestQuota(weeklyPace(habitIds, input.checkIns, today), days) : undefined,
@@ -300,8 +297,8 @@ export function suggestMissionsFromSky(input: SkySuggestionInput): AutoMissionSu
     const key = `aspect:${ev.bodyA}:${ev.bodyB}:${ev.kind}`;
     const start = new Date(ev.exactAt.getTime() - ASPECT_WINDOW_PAD_DAYS * 86400000);
     const end = new Date(ev.exactAt.getTime() + ASPECT_WINDOW_PAD_DAYS * 86400000);
-    const startKey = localDateKey(start);
-    const endKey = localDateKey(end);
+    const startKey = toDateKey(start);
+    const endKey = toDateKey(end);
     const overlaps = fixed.some((m) => dayIndex(m.window.startDate) <= dayIndex(endKey) && dayIndex(m.window.endDate) >= dayIndex(startKey));
     if (overlaps) continue;
     const domains = [...new Set([
@@ -325,7 +322,7 @@ export function suggestMissionsFromSky(input: SkySuggestionInput): AutoMissionSu
       habitIds,
       quota: habitIds.length > 0 ? suggestQuota(weeklyPace(habitIds, input.checkIns, today), days) : undefined,
       source: 'aspect',
-      rationale: `${a.label} ${def.label} ${b.label} — exact le ${localDateKey(ev.exactAt)}`,
+      rationale: `${a.label} ${def.label} ${b.label} — exact le ${toDateKey(ev.exactAt)}`,
       autoCreate: false, // aspects are 1-click; transits on weak domains auto-create
     });
   }

@@ -4,6 +4,7 @@
 // opinionated — just honest numbers from the user's own check-ins.
 
 import type { CheckIn, Habit } from './types';
+import { toDateKey } from './dates';
 
 const DAYS = 7;
 
@@ -22,17 +23,13 @@ export interface WeeklySummary {
   activeHabits: number;  // distinct habits completed at least once this week
 }
 
-function key(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 /** Build the trailing-7-day digest (ends today, includes today). */
 export function weeklySummary(habits: Habit[], checkIns: CheckIn[], now: Date = new Date()): WeeklySummary {
   const dates: string[] = [];
   for (let i = DAYS - 1; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
-    dates.push(key(d));
+    dates.push(toDateKey(d));
   }
 
   const inWeek = new Set(dates);

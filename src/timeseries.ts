@@ -19,6 +19,7 @@
 import type { CheckIn, Habit } from './types';
 import { logGamma } from './statistics';
 import { moodRank } from './correlations';
+import { weekdayOf } from './dates';
 
 // --- Basic helpers -------------------------------------------------------
 
@@ -330,11 +331,6 @@ export interface WeekdayProfile {
   df: number;
   p: number;
   significant: boolean;
-}
-
-function weekdayOf(dateKey: string): number {
-  const [y, m, d] = dateKey.split('-').map(Number);
-  return new Date(y, m - 1, d).getDay();
 }
 
 /**

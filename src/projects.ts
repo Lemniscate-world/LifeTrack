@@ -8,10 +8,7 @@
 // Pure module: (data) → stats. No store, no UI, fully unit-testable.
 
 import type { CheckIn, Habit, Project, Task } from './types';
-
-function localToday(now: Date = new Date()): string {
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
+import { todayKey } from './dates';
 
 /** All completed check-ins that reference a given project (directly or via a linked habit). */
 export function projectCheckIns(project: Project, checkIns: CheckIn[]): CheckIn[] {
@@ -70,7 +67,7 @@ export function computeProjectProgress(
   const tasks = projectTasks(project);
   const doneTasks = tasks.filter((t) => t.done).length;
   const totalTasks = tasks.length;
-  const today = localToday(now);
+  const today = todayKey(now);
 
   return {
     project,

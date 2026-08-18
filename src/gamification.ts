@@ -10,6 +10,10 @@
 import type { Capacity, CapacityRating, Challenge, CheckIn, Habit, Lever, Note, Persona, Skill, UrgeEntry } from './types';
 import { moodRank } from './correlations';
 import { detectNegativePatterns } from './psychoanalysis';
+import { toDateKey, fromDateKey, daysBetween } from './dates';
+
+// Reference date for calendar-day offsets (avoids DST 23h/25h day bugs).
+const DAY_ZERO = new Date(2020, 0, 1);
 
 // --- XP rules ---
 export const XP_RULES = {
@@ -29,32 +33,23 @@ export interface XpBreakdown {
   total: number;
 }
 
-function parseLocalDate(key: string): Date {
-  const [y, m, d] = key.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
-
-function localKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function completedDaySet(habitId: string, checkIns: CheckIn[]): number[] {
+function completedDayOffsets(habitId: string, checkIns: CheckIn[]): number[] {
   const days = new Set<number>();
   for (const ci of checkIns) {
     if (ci.habitId !== habitId || !ci.completed) continue;
-    days.add(parseLocalDate(ci.date).getTime());
+    days.add(daysBetween(DAY_ZERO, fromDateKey(ci.date)));
   }
   return [...days].sort((a, b) => a - b);
 }
 
 /** Count of full 7-day consecutive runs for a habit (historical milestones). */
 export function streakMilestonesForHabit(habitId: string, checkIns: CheckIn[]): number {
-  const sorted = completedDaySet(habitId, checkIns);
+  const sorted = completedDayOffsets(habitId, checkIns);
   let milestones = 0;
   let run = 0;
   let prev = -Infinity;
   for (const t of sorted) {
-    run = t - prev === 86400000 ? run + 1 : 1;
+    run = t - prev === 1 ? run + 1 : 1;
     if (run % 7 === 0) milestones++;
     prev = t;
   }
@@ -65,11 +60,11 @@ export function streakMilestonesForHabit(habitId: string, checkIns: CheckIn[]): 
 export function bestStreakAllTime(habits: Habit[], checkIns: CheckIn[]): number {
   let best = 0;
   for (const h of habits) {
-    const sorted = completedDaySet(h.id, checkIns);
+    const sorted = completedDayOffsets(h.id, checkIns);
     let run = 0;
     let prev = -Infinity;
     for (const t of sorted) {
-      run = t - prev === 86400000 ? run + 1 : 1;
+      run = t - prev === 1 ? run + 1 : 1;
       if (run > best) best = run;
       prev = t;
     }
@@ -260,7 +255,7 @@ export function habitMastersCount(
   for (let i = windowDays - 1; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
-    window.add(localKey(d));
+    window.add(toDateKey(d));
   }
   let masters = 0;
   for (const h of habits) {
@@ -483,10 +478,10 @@ export function xpInRange(habits: Habit[], checkIns: CheckIn[], fromKey: string,
 }
 
 export function compareLastWeeks(habits: Habit[], checkIns: CheckIn[], now: Date = new Date()): WeekComparison {
-  const today = localKey(now);
-  const fromCur = localKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6));
-  const toPrev = localKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7));
-  const fromPrev = localKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 13));
+  const today = toDateKey(now);
+  const fromCur = toDateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6));
+  const toPrev = toDateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7));
+  const fromPrev = toDateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 13));
 
   const currentXp = xpInRange(habits, checkIns, fromCur, today);
   const previousXp = xpInRange(habits, checkIns, fromPrev, toPrev);
@@ -541,7 +536,7 @@ export function personaProgress(
   for (let i = windowDays - 1; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
-    window.add(localKey(d));
+    window.add(toDateKey(d));
   }
 
   const perHabit = linked.map((h) => {
@@ -665,7 +660,7 @@ export function suggestPersonas(
   for (let i = windowDays - 1; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
-    window.add(localKey(d));
+    window.add(toDateKey(d));
   }
 
   const perHabit = active.map((h) => {

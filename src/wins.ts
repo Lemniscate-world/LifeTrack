@@ -8,12 +8,7 @@
 import type { CheckIn, Habit, Note, UrgeEntry } from './types';
 import { bestStreakAllTime, type Medal } from './gamification';
 import { scoredDays } from './evolution';
-
-// --- Date helpers (local civil dates) ---
-
-function localKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+import { toDateKey } from './dates';
 
 /** Day-of-the-year (1-366) for the seed phrase rotation. */
 function dayOfYear(d: Date): number {
@@ -45,7 +40,7 @@ export function buildWinsFeed(
   limit: number = 6,
   now: Date = new Date(),
 ): WinItem[] {
-  const today = localKey(now);
+  const today = toDateKey(now);
   const items: WinItem[] = [];
 
   // 1. Most recent tagged achievements.

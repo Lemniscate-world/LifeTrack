@@ -19,6 +19,7 @@ import {
 } from './astrology';
 import { todayStr } from './mantras';
 import type { Mission, MissionWindow } from './types';
+import { toDateKey } from './dates';
 
 const STATUS_EMOJI: Record<string, string> = {
   upcoming: '🕐', active: '🔥', done: '✅', failed: '❌', archived: '📦',
@@ -27,10 +28,6 @@ const STATUS_EMOJI: Record<string, string> = {
 function fmtDate(d: string): string {
   const [y, m, day] = d.split('-');
   return `${day}/${m}/${y}`;
-}
-
-function localDateKey(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 export default function MissionsView() {
@@ -171,7 +168,7 @@ export default function MissionsView() {
   const weeklyPace = useMemo(() => {
     if (habitIds.length === 0) return 0;
     const end = today;
-    const start = localDateKey(new Date(now.getTime() - 27 * 86400000));
+    const start = toDateKey(new Date(now.getTime() - 27 * 86400000));
     let total = 0;
     for (const h of habitIds) {
       for (const c of getCheckInsForHabit(h)) {
@@ -205,7 +202,7 @@ export default function MissionsView() {
       const r = nextRetrograde(body, new Date(Math.max(transitPreview.start.getTime() - 1, 0)));
       if (!r) return null;
       if (r.start.getTime() < transitPreview.end.getTime()) {
-        return { start: localDateKey(r.start), end: localDateKey(r.end) };
+        return { start: toDateKey(r.start), end: toDateKey(r.end) };
       }
       return null;
     } catch { return null; }
@@ -233,8 +230,8 @@ export default function MissionsView() {
       if (!transitPreview) { setFormError('Impossible de calculer la fenêtre de transit.'); return; }
       window = {
         kind: 'transit', body, signIndex,
-        startDate: localDateKey(transitPreview.start),
-        endDate: localDateKey(transitPreview.end),
+        startDate: toDateKey(transitPreview.start),
+        endDate: toDateKey(transitPreview.end),
       };
     }
     addMission({
@@ -353,7 +350,7 @@ export default function MissionsView() {
           {calendar.transits.map((t) => (
             <div key={`t-${t.bodyId}-${t.signIndex}-${t.window.start.toISOString()}`}>
               <span style={{ color: 'var(--text-muted)', marginRight: '0.5rem' }}>
-                {fmtDate(localDateKey(t.window.start))} → {fmtDate(localDateKey(t.window.end))}
+                {fmtDate(toDateKey(t.window.start))} → {fmtDate(toDateKey(t.window.end))}
               </span>
               {getTransitBody(t.bodyId).emoji} {getTransitBody(t.bodyId).label} en {t.sign.emoji} {t.sign.name}
               {t.window.revisit && <span style={{ color: '#f59e0b' }}> (va-et-vient rétrograde)</span>}
@@ -363,7 +360,7 @@ export default function MissionsView() {
             const def = ASPECT_DEFS[a.kind];
             return (
               <div key={`a-${a.bodyA}-${a.bodyB}-${a.kind}-${a.exactAt.toISOString()}`}>
-                <span style={{ color: 'var(--text-muted)', marginRight: '0.5rem' }}>{fmtDate(localDateKey(a.exactAt))}</span>
+                <span style={{ color: 'var(--text-muted)', marginRight: '0.5rem' }}>{fmtDate(toDateKey(a.exactAt))}</span>
                 {a.bodyA === 'asc' ? '⬆️ Ascendant' : `${getTransitBody(a.bodyA).emoji} ${getTransitBody(a.bodyA).label}`} {def.emoji} {a.bodyB === 'asc' ? '⬆️ Ascendant' : `${getTransitBody(a.bodyB).emoji} ${getTransitBody(a.bodyB).label}`}
                 <span style={{ color: def.tone === 'favorable' ? '#10b981' : def.tone === 'tension' ? '#f59e0b' : 'var(--text-muted)' }}>
                   {' '}({def.label} exact)
@@ -424,7 +421,7 @@ export default function MissionsView() {
             {kind === 'transit' && transitPreview && (
               <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                 {getTransitBody(body).emoji} {getTransitBody(body).label} en {SIGNS[signIndex].emoji} {SIGNS[signIndex].name} :
-                du <strong>{fmtDate(localDateKey(transitPreview.start))}</strong> au <strong>{fmtDate(localDateKey(transitPreview.end))}</strong>
+                du <strong>{fmtDate(toDateKey(transitPreview.start))}</strong> au <strong>{fmtDate(toDateKey(transitPreview.end))}</strong>
                 {' '}({Math.round((transitPreview.end.getTime() - transitPreview.start.getTime()) / 86400000) + 1} jours)
                 {previewHouse && <span style={{ color: 'var(--primary)' }}> · en maison {previewHouse}</span>}
                 {!previewHouse && natalAsc === null && <span> · <em>règle ton thème natal dans Réglages pour voir les maisons</em></span>}

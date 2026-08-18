@@ -10,6 +10,7 @@
 
 import type { Habit, CheckIn, DetectedReflection, CorrelationResult } from './types';
 import { computeStreakStats } from './stats';
+import { toDateKey } from './dates';
 
 export type ChallengeSuggestionKind =
   | 'stale-recovery'   // was strong, went silent → re-ignite
@@ -28,12 +29,8 @@ export interface ChallengeSuggestion {
   adaptive: boolean;
 }
 
-function localKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 function recentRate(habitId: string, checkIns: CheckIn[], days: number, now: Date): number {
-  const start = localKey(new Date(now.getTime() - (days - 1) * 86400000));
+  const start = toDateKey(new Date(now.getTime() - (days - 1) * 86400000));
   const set = new Set<string>();
   for (const c of checkIns) {
     if (c.habitId === habitId && c.completed && c.date >= start) set.add(c.date);

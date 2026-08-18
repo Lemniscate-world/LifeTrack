@@ -18,6 +18,7 @@ import type {
   DetectedReflection,
   ReflectionEntry,
 } from './types';
+import { daysAgoKey } from './dates';
 
 export type { ReflectionKind, DetectedReflection, ReflectionEntry } from './types';
 
@@ -47,15 +48,6 @@ export interface DataSlice {
   tracks?: PatternTrack[];
 }
 
-const dayKey = (d: Date): string =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-const daysAgo = (n: number, base: Date): string => {
-  const d = new Date(base);
-  d.setDate(d.getDate() - n);
-  return dayKey(d);
-};
-
 const pct = (n: number, total: number): string =>
   `${Math.round((n / total) * 100)}%`;
 
@@ -82,9 +74,9 @@ export function detectReflections(data: DataSlice, now: Date = new Date()): Dete
   const anySince = (habitId: string, since: string): string[] =>
     (byHabit.get(habitId)?.any ?? []).filter((d) => d >= since);
 
-  const pastStart = daysAgo(45, now);
-  const weekStart = daysAgo(7, now);
-  const twoWeeksStart = daysAgo(14, now);
+  const pastStart = daysAgoKey(45, now);
+  const weekStart = daysAgoKey(7, now);
+  const twoWeeksStart = daysAgoKey(14, now);
 
   // 1. stale-win: strong in the past window, silent this week.
   for (const habit of active) {
@@ -152,7 +144,7 @@ export function detectReflections(data: DataSlice, now: Date = new Date()): Dete
   }
 
   // 5. repetition: giving in again and again on the same urge type.
-  const since14 = daysAgo(14, now);
+  const since14 = daysAgoKey(14, now);
   const gaveIn = new Map<string, number>();
   for (const u of data.urges) {
     if (u.outcome === 'gave_in' && u.startTime.slice(0, 10) >= since14) {
