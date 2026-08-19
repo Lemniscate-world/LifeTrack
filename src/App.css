@@ -5719,6 +5719,33 @@ body {
   max-width: 260px;
 }
 
+.settings-segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.settings-segmented button {
+  padding: 5px 10px;
+  background: var(--bg);
+  border: none;
+  border-right: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.settings-segmented button:last-child {
+  border-right: none;
+}
+.settings-segmented button.active {
+  background: var(--primary);
+  color: #fff;
+}
+.dark .settings-segmented button.active {
+  background: var(--primary);
+  color: var(--bg);
+}
+
 .settings-text-input {
   flex: 1;
   min-width: 0;
@@ -10041,4 +10068,79 @@ body {
 }
 .theme-bw .habit-grid tbody tr:nth-child(even) .col-habits .habit-row {
   background: transparent;
+}
+
+/* ============ v0.7.x - COMPACT GRID ENHANCEMENTS ============ */
+/* Today column stands out in compact mode */
+.table-scroll.compact-grid .col-day.today {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+/* Visible cell grid: faint borders on every cell so the full structure reads */
+.table-scroll.compact-grid .day-cell {
+  border: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
+}
+.table-scroll.compact-grid .day-cell.checked {
+  border-color: transparent;
+}
+
+/* Density level 1 — dense */
+.table-scroll.compact-grid.compact-density-1 .habit-grid th {
+  font-size: 9px;
+}
+.table-scroll.compact-grid.compact-density-1 .col-day {
+  min-width: 20px;
+  width: 20px;
+}
+.table-scroll.compact-grid.compact-density-1 .day-cell {
+  width: 15px;
+  height: 15px;
+}
+.table-scroll.compact-grid.compact-density-1 .habit-grid tbody td {
+  padding: 1px 0;
+}
+.table-scroll.compact-grid.compact-density-1 .habit-name {
+  font-size: 10px;
+}
+.table-scroll.compact-grid.compact-density-1 .day-letter {
+  font-size: 7px;
+}
+.table-scroll.compact-grid.compact-density-1 .day-number {
+  font-size: 9px;
+}
+
+/* Density level 2 — ultra */
+.table-scroll.compact-grid.compact-density-2 .habit-grid th {
+  font-size: 8px;
+}
+.table-scroll.compact-grid.compact-density-2 .col-day {
+  min-width: 18px;
+  width: 18px;
+}
+.table-scroll.compact-grid.compact-density-2 .day-cell {
+  width: 13px;
+  height: 13px;
+}
+.table-scroll.compact-grid.compact-density-2 .habit-grid tbody td {
+  padding: 0;
+}
+.table-scroll.compact-grid.compact-density-2 .habit-row {
+  gap: 2px;
+}
+.table-scroll.compact-grid.compact-density-2 .habit-name {
+  font-size: 9px;
+  max-width: 80px;
+}
+.table-scroll.compact-grid.compact-density-2 .day-letter {
+  font-size: 6px;
+}
+.table-scroll.compact-grid.compact-density-2 .day-number {
+  font-size: 8px;
+}
+.table-scroll.compact-grid.compact-density-2 .day-cell-count {
+  font-size: 6px;
+}
+.table-scroll.compact-grid.compact-density-2 .day-cell-note-dot {
+  width: 9px;
+  height: 9px;
+  font-size: 7px;
 }

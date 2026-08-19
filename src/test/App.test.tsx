@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { resetStore, getPreferences } from '../store';
+import { resetStore, getPreferences, updatePreferences } from '../store';
 import App from '../App';
 
 beforeEach(() => {
@@ -239,6 +239,32 @@ describe('App component', () => {
     await user.click(screen.getByText('⚡ Compact'));
     expect(getPreferences().compactGrid).toBe(false);
     expect(document.querySelector('.table-scroll.compact-grid')).toBeNull();
+  });
+
+  it('auto-enables compact grid when habits reach the threshold', async () => {
+    const user = userEvent.setup();
+    updatePreferences({ compactGrid: false, autoCompact: true, compactThreshold: 3 });
+    render(<App />);
+
+    for (let i = 0; i < 3; i++) {
+      await user.click(screen.getByText('+ New Habit'));
+      await user.type(screen.getByPlaceholderText('Habit name...'), `Habit ${i}`);
+      await user.click(screen.getByText('Add'));
+    }
+
+    expect(document.querySelector('.table-scroll.compact-grid')).not.toBeNull();
+  });
+
+  it('applies the compact density level class', async () => {
+    const user = userEvent.setup();
+    updatePreferences({ compactGrid: true, compactLevel: 2 });
+    render(<App />);
+
+    await user.click(screen.getByText('+ New Habit'));
+    await user.type(screen.getByPlaceholderText('Habit name...'), 'Gym');
+    await user.click(screen.getByText('Add'));
+
+    expect(document.querySelector('.table-scroll.compact-grid.compact-density-2')).not.toBeNull();
   });
 
   it('shows empty state when no habits exist', () => {

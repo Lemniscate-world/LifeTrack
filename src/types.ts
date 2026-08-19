@@ -661,4 +661,10 @@ export interface UserPreferences {
   depressionAlertThreshold?: number;
   // v0.7.x: compact grid — smaller cells/rows so 25-50 habits fit on screen.
   compactGrid?: boolean;
+  // v0.7.x: auto-enable compact grid when the number of habits reaches
+  // compactThreshold (default 30).
+  autoCompact?: boolean;
+  compactThreshold?: number;
+  // v0.7.x: compact density level — 0 = standard compact, 1 = dense, 2 = ultra.
+  compactLevel?: 0 | 1 | 2;
 }

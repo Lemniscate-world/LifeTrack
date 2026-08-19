@@ -196,6 +196,56 @@ export default function SettingsView({
                 <span className="mantra-toggle-slider" />
               </label>
             </div>
+            <div className="settings-row">
+              <span>Auto-compact (s'active automatiquement à partir du seuil)</span>
+              <label className="mantra-toggle">
+                <input
+                  type="checkbox"
+                  checked={aiPrefs.autoCompact !== false}
+                  onChange={(e) => {
+                    const next = { ...aiPrefs, autoCompact: e.target.checked };
+                    setAiPrefs(next);
+                    updatePreferences(next);
+                  }}
+                />
+                <span className="mantra-toggle-slider" />
+              </label>
+            </div>
+            <div className="settings-row">
+              <span>Seuil d'auto-compact (nb d'habitudes)</span>
+              <select
+                className="settings-select"
+                disabled={aiPrefs.autoCompact === false}
+                value={aiPrefs.compactThreshold ?? 30}
+                onChange={(e) => {
+                  const next = { ...aiPrefs, compactThreshold: Number(e.target.value) };
+                  setAiPrefs(next);
+                  updatePreferences(next);
+                }}
+              >
+                {[20, 25, 30, 40, 50].map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+            <div className="settings-row">
+              <span>Densité compacte</span>
+              <div className="settings-segmented" role="group" aria-label="Compact density">
+                {([0, 1, 2] as const).map((level) => (
+                  <button
+                    key={level}
+                    className={((aiPrefs.compactLevel ?? 0) === level ? 'active' : '')}
+                    onClick={() => {
+                      const next = { ...aiPrefs, compactLevel: level };
+                      setAiPrefs(next);
+                      updatePreferences(next);
+                    }}
+                  >
+                    {level === 0 ? 'Standard' : level === 1 ? 'Dense' : 'Ultra'}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}

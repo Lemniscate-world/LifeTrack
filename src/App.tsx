@@ -1198,9 +1198,16 @@ const DEFAULT_CATEGORIES = [
                   {showArchived ? 'Hide archived' : 'Show archived'}
                 </button>
               </div>
-            <DragDropContext onDragEnd={handleDragEnd}>
-          <div className={`table-scroll${getPreferences().compactGrid ? ' compact-grid' : ''}`}>
-            <table className="habit-grid">
+              {(() => {
+                const cp = getPreferences();
+                const activeCount = habits.filter((h) => !h.archived).length;
+                const autoCompactOn = cp.autoCompact !== false && activeCount >= (cp.compactThreshold ?? 30);
+                const compactOn = cp.compactGrid === true || autoCompactOn;
+                const densityCls = cp.compactLevel === 1 ? ' compact-density-1' : cp.compactLevel === 2 ? ' compact-density-2' : '';
+                return (
+                  <DragDropContext onDragEnd={handleDragEnd}>
+                    <div className={`table-scroll${compactOn ? ' compact-grid' : ''}${densityCls}`}>
+                      <table className="habit-grid">
               <thead>
                 <tr>
                   <th className="col-drag-handle"></th>
@@ -1781,6 +1788,8 @@ const DEFAULT_CATEGORIES = [
             </table>
           </div>
           </DragDropContext>
+                );
+              })()}
             </>
           )}
         </div>
