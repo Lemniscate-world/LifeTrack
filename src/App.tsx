@@ -1177,6 +1177,14 @@ const DEFAULT_CATEGORIES = [
                   {habits.filter((h) => !h.archived).length} active · {habits.filter((h) => h.archived).length} archived
                 </span>
                 <button
+                  className={`btn btn-sm ${getPreferences().compactGrid ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => updatePreferences({ compactGrid: !getPreferences().compactGrid })}
+                  title={getPreferences().compactGrid ? 'Compact grid: on — click to switch to normal density' : 'Compact grid: off — smaller cells so more habits fit on screen'}
+                  aria-pressed={!!getPreferences().compactGrid}
+                >
+                  ⚡ Compact
+                </button>
+                <button
                   className={`btn btn-sm ${showArchived ? 'btn-primary' : 'btn-ghost'}`}
                   onClick={() => setShowArchived((v) => !v)}
                   title="Toggle archived habits"
@@ -1185,7 +1193,7 @@ const DEFAULT_CATEGORIES = [
                 </button>
               </div>
             <DragDropContext onDragEnd={handleDragEnd}>
-          <div className="table-scroll">
+          <div className={`table-scroll${getPreferences().compactGrid ? ' compact-grid' : ''}`}>
             <table className="habit-grid">
               <thead>
                 <tr>

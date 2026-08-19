@@ -9813,3 +9813,112 @@ body {
 .today-try-name { font-size: 14px; font-weight: 700; }
 .today-try-protocol { font-size: 13px; margin: 2px 0; }
 .today-try-source { font-size: 11px; color: var(--text-muted); }
+
+/* ============ v0.7.x - COMPACT GRID (25-50 habits on screen) ============ */
+/* Scoped to the grid table wrapper; overrides the normal grid density. */
+.table-scroll.compact-grid {
+  scrollbar-width: thin;
+}
+.table-scroll.compact-grid::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.table-scroll.compact-grid::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+.table-scroll.compact-grid .habit-grid {
+  font-size: 11px;
+}
+.table-scroll.compact-grid .habit-grid thead tr {
+  border-bottom: 1px solid var(--border);
+}
+.table-scroll.compact-grid .habit-grid th {
+  padding: 3px 1px;
+  font-size: 10px;
+}
+.table-scroll.compact-grid .col-day {
+  min-width: 22px;
+  width: 22px;
+  padding: 1px !important;
+}
+.table-scroll.compact-grid .day-cell {
+  width: 17px;
+  height: 17px;
+  border-radius: 3px;
+}
+.table-scroll.compact-grid .day-cell:hover {
+  transform: scale(1.1);
+}
+.table-scroll.compact-grid .day-letter {
+  font-size: 8px;
+}
+.table-scroll.compact-grid .day-number {
+  font-size: 10px;
+}
+.table-scroll.compact-grid .col-goal,
+.table-scroll.compact-grid .col-achieved {
+  min-width: 44px;
+  font-size: 12px;
+}
+.table-scroll.compact-grid .achieved-bar {
+  width: 30px;
+  height: 2px;
+}
+.table-scroll.compact-grid .day-cell-count {
+  font-size: 7px;
+  padding: 0 1px;
+}
+.table-scroll.compact-grid .day-cell-note-dot {
+  width: 11px;
+  height: 11px;
+  font-size: 8px;
+  top: -1px;
+  right: -1px;
+}
+.table-scroll.compact-grid .habit-grid tbody td {
+  padding: 2px 1px;
+}
+.table-scroll.compact-grid .habit-grid tbody tr {
+  border-bottom: none;
+}
+.table-scroll.compact-grid .habit-grid tbody td.col-habits {
+  padding-left: 8px;
+  padding-right: 4px;
+}
+.table-scroll.compact-grid .habit-row {
+  gap: 4px;
+}
+.table-scroll.compact-grid .habit-name {
+  font-size: 11px;
+  max-width: 90px;
+}
+.table-scroll.compact-grid .habit-category-select {
+  font-size: 10px;
+  max-width: 90px;
+  padding: 0 2px;
+}
+.table-scroll.compact-grid .habit-stack-badge,
+.table-scroll.compact-grid .focus-badge,
+.table-scroll.compact-grid .streak-badge {
+  font-size: 9px;
+}
+.table-scroll.compact-grid .habit-archive,
+.table-scroll.compact-grid .habit-chaos-btn,
+.table-scroll.compact-grid .habit-stack-btn,
+.table-scroll.compact-grid .habit-multiclick-btn,
+.table-scroll.compact-grid .habit-focus-btn,
+.table-scroll.compact-grid .habit-why-btn,
+.table-scroll.compact-grid .drag-grip {
+  padding: 1px;
+}
+.table-scroll.compact-grid .habit-archive svg,
+.table-scroll.compact-grid .habit-chaos-btn svg,
+.table-scroll.compact-grid .habit-stack-btn svg,
+.table-scroll.compact-grid .habit-multiclick-btn svg,
+.table-scroll.compact-grid .habit-focus-btn svg,
+.table-scroll.compact-grid .habit-why-btn svg,
+.table-scroll.compact-grid .drag-grip svg {
+  width: 10px;
+  height: 10px;
+}

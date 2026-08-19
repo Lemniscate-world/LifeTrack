@@ -659,4 +659,6 @@ export interface UserPreferences {
   // v0.7.x: depression alert — trigger a visible warning when the day's
   // depression reading reaches this percentage (0 = alert off, default 70).
   depressionAlertThreshold?: number;
+  // v0.7.x: compact grid — smaller cells/rows so 25-50 habits fit on screen.
+  compactGrid?: boolean;
 }

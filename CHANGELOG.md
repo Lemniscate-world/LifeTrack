@@ -47,6 +47,10 @@ All notable changes to LifeTrack are documented in this file.
   protocol extraction, auto-adopted suggestions, "Savoir" preference engine.
 - **Hygiene** — canonical `src/dates.ts` date helpers (was copy-pasted in ~20 modules),
   `testTimeout` raised for App-level tests, dead files removed, CSP hardened, version aligned.
+- **Compact grid (25-50 habits on screen)** — `⚡ Compact` toggle in the grid toolbar (and a
+  "Grid" setting in Appearance): smaller day cells, tighter rows/columns, thin scrollbar, so
+  long habit lists stop needing vertical scrolling. Preference `compactGrid` persists via the
+  normal backup chain, default off.
 
 ## [0.3.2] — 2026-07-25
 

@@ -178,6 +178,25 @@ export default function SettingsView({
               </label>
             </div>
           </div>
+
+          <div className="settings-group">
+            <h3>Grid</h3>
+            <div className="settings-row">
+              <span>Mode compact (cellules et lignes réduites pour afficher 25-50 habitudes)</span>
+              <label className="mantra-toggle">
+                <input
+                  type="checkbox"
+                  checked={aiPrefs.compactGrid === true}
+                  onChange={(e) => {
+                    const next = { ...aiPrefs, compactGrid: e.target.checked };
+                    setAiPrefs(next);
+                    updatePreferences(next);
+                  }}
+                />
+                <span className="mantra-toggle-slider" />
+              </label>
+            </div>
+          </div>
         </div>
       )}
 

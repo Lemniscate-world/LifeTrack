@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { resetStore } from '../store';
+import { resetStore, getPreferences } from '../store';
 import App from '../App';
 
 beforeEach(() => {
@@ -216,6 +216,29 @@ describe('App component', () => {
 
     // Grid should be visible again (day numbers present)
     expect(screen.getByText('1')).toBeInTheDocument();
+  });
+
+  it('toggles compact grid mode from the grid toolbar', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByText('+ New Habit'));
+    await user.type(screen.getByPlaceholderText('Habit name...'), 'Gym');
+    await user.click(screen.getByText('Add'));
+
+    // Compact off by default
+    expect(getPreferences().compactGrid).toBeUndefined();
+    expect(document.querySelector('.table-scroll.compact-grid')).toBeNull();
+
+    // Turn it on via the ⚡ Compact button
+    await user.click(screen.getByText('⚡ Compact'));
+    expect(getPreferences().compactGrid).toBe(true);
+    expect(document.querySelector('.table-scroll.compact-grid')).not.toBeNull();
+
+    // Turn it off again
+    await user.click(screen.getByText('⚡ Compact'));
+    expect(getPreferences().compactGrid).toBe(false);
+    expect(document.querySelector('.table-scroll.compact-grid')).toBeNull();
   });
 
   it('shows empty state when no habits exist', () => {
