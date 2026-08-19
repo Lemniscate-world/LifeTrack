@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { Habit, Note, CheckIn, Mantra } from './types';
 import { dateKeyFromParts } from './dates';
+import ViewTabs, { type ViewKey } from './components/ViewTabs';
 import {
   getHabits,
   getMonthCheckIns,
@@ -203,7 +204,7 @@ const DEFAULT_CATEGORIES = [
   const [editWhyText, setEditWhyText] = useState('');
   // v0.3.2: Toggle to display archived habits in the grid
   const [showArchived, setShowArchived] = useState(false);
-  const [view, setView] = useState<'today' | 'grid' | 'stats' | 'correlations' | 'gains' | 'history' | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights' | 'experiments' | 'urges' | 'journal' | 'mantras' | 'achievements' | 'settings' | 'psycho' | 'projects' | 'knowledge' | 'obsidian' | 'missions'>('grid');
+  const [view, setView] = useState<ViewKey>('grid');
   const [savedMsg, setSavedMsg] = useState('');
   // Shortcuts help + toast
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -1143,65 +1144,7 @@ const DEFAULT_CATEGORIES = [
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
         </div>
-        <div className="view-tabs" role="tablist" aria-label="View selector">
-          <button role="tab" aria-selected={view === 'today'} className={`view-tab ${view === 'today' ? 'active' : ''}`} onClick={() => setView('today')}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> Today
-          </button>
-          <button role="tab" aria-selected={view === 'grid'} className={`view-tab ${view === 'grid' ? 'active' : ''}`} onClick={() => setView('grid')}>Grid</button>
-          <button role="tab" aria-selected={view === 'stats'} className={`view-tab ${view === 'stats' ? 'active' : ''}`} onClick={() => setView('stats')}>Statistics</button>
-          <button role="tab" aria-selected={view === 'correlations'} className={`view-tab ${view === 'correlations' ? 'active' : ''}`} onClick={() => setView('correlations')}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg> Corr.
-          </button>
-          <button role="tab" aria-selected={view === 'gains'} className={`view-tab ${view === 'gains' ? 'active' : ''}`} onClick={() => setView('gains')}>📈 Gains</button>
-          <button role="tab" aria-selected={view === 'history'} className={`view-tab ${view === 'history' ? 'active' : ''}`} onClick={() => setView('history')}>History</button>
-          <button role="tab" aria-selected={view === 'year'} className={`view-tab ${view === 'year' ? 'active' : ''}`} onClick={() => setView('year')}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Year
-          </button>
-          <button role="tab" aria-selected={view === 'challenge'} className={`view-tab ${view === 'challenge' ? 'active' : ''}`} onClick={() => setView('challenge')}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Challenges
-          </button>
-          <button role="tab" aria-selected={view === 'stacks'} className={`view-tab ${view === 'stacks' ? 'active' : ''}`} onClick={() => setView('stacks')}>Stacks</button>
-          <button role="tab" aria-selected={view === 'skills'} className={`view-tab ${view === 'skills' ? 'active' : ''}`} onClick={() => setView('skills')}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Skills
-          </button>
-          <button role="tab" aria-selected={view === 'insights'} className={`view-tab ${view === 'insights' ? 'active' : ''}`} onClick={() => setView('insights')}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg> Insights
-          </button>
-          <button role="tab" aria-selected={view === 'experiments'} className={`view-tab ${view === 'experiments' ? 'active' : ''}`} onClick={() => setView('experiments')}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Experiments
-          </button>
-          <button role="tab" aria-selected={view === 'urges'} className={`view-tab ${view === 'urges' ? 'active' : ''}`} onClick={() => setView('urges')}>
-            🌊 Urges
-          </button>
-          <button role="tab" aria-selected={view === 'journal'} className={`view-tab ${view === 'journal' ? 'active' : ''}`} onClick={() => setView('journal')}>
-            📓 Journal
-          </button>
-          <button role="tab" aria-selected={view === 'psycho'} className={`view-tab ${view === 'psycho' ? 'active' : ''}`} onClick={() => setView('psycho')}>
-            🧠 Psycho
-          </button>
-          <button role="tab" aria-selected={view === 'projects'} className={`view-tab ${view === 'projects' ? 'active' : ''}`} onClick={() => setView('projects')}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7v11a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg> Projets
-          </button>
-          <button role="tab" aria-selected={view === 'knowledge'} className={`view-tab ${view === 'knowledge' ? 'active' : ''}`} onClick={() => setView('knowledge')}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg> Savoir
-          </button>
-          <button role="tab" aria-selected={view === 'obsidian'} className={`view-tab ${view === 'obsidian' ? 'active' : ''}`} onClick={() => setView('obsidian')}>
-            📓 Obsidian
-          </button>
-          <button role="tab" aria-selected={view === 'missions'} className={`view-tab ${view === 'missions' ? 'active' : ''}`} onClick={() => setView('missions')}>
-            🚀 Missions
-          </button>
-          <button role="tab" aria-selected={view === 'chaos'} className={`view-tab ${view === 'chaos' ? 'active' : ''}`} onClick={() => setView('chaos')}>Chaos</button>
-          <button role="tab" aria-selected={view === 'mantras'} className={`view-tab ${view === 'mantras' ? 'active' : ''}`} onClick={() => setView('mantras')}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4.5 12.5l3 3 5-7"/><circle cx="12" cy="12" r="10"/></svg> Mantras
-          </button>
-          <button role="tab" aria-selected={view === 'achievements'} className={`view-tab ${view === 'achievements' ? 'active' : ''}`} onClick={() => setView('achievements')}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 15a7 7 0 100-14 7 7 0 000 14z"/><path d="M8.21 13.89L7 23l5-3 5 3-1.21-9.12"/></svg> Achievements
-          </button>
-          <button role="tab" aria-selected={view === 'settings'} className={`view-tab ${view === 'settings' ? 'active' : ''}`} onClick={() => setView('settings')}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg> Settings
-          </button>
-        </div>
+        <ViewTabs view={view} onView={setView} />
       </div>
 
       <div className="view-scroll">

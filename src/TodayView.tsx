@@ -7,6 +7,8 @@ import { buildOnThisDay } from './memories';
 import { exportAllData, MOODS, setMood, getMood, subscribe } from './store';
 import { weeklySummary } from './weeklySummary';
 import { buildPreferenceReport } from './preferences';
+import { logTimeInsights } from './checkTimes';
+import { todayKey } from './dates';
 
 const MILESTONES = new Set([7, 14, 21, 30, 60, 90, 100, 180, 365]);
 
@@ -25,7 +27,7 @@ interface TodayViewProps {
 
 export default function TodayView({ habits, checkIns, todayMantra }: TodayViewProps) {
   const now = useMemo(() => new Date(), []);
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const todayStr = todayKey(now);
 
   // Re-render when the store changes (mood set, check-ins…).
   const [, setTick] = useState(0);
@@ -37,6 +39,9 @@ export default function TodayView({ habits, checkIns, todayMantra }: TodayViewPr
 
   // Trailing-7-days digest (local, derived).
   const week = useMemo(() => weeklySummary(habits, checkIns, now), [habits, checkIns, now]);
+
+  // When do I actually log? (hour-of-day analysis, requires checkedAt timestamps)
+  const logRhythm = useMemo(() => logTimeInsights(habits, checkIns, 90, now), [habits, checkIns, now]);
 
   // One focused thing worth trying today, from the preference engine.
   const tryToday = useMemo(() => {
@@ -275,6 +280,19 @@ export default function TodayView({ habits, checkIns, todayMantra }: TodayViewPr
           <div className="today-try-protocol">{tryToday.protocol.protocol}</div>
           <div className="today-try-source">
             {tryToday.protocol.source} · preuve {tryToday.protocol.evidenceLevel}
+          </div>
+        </div>
+      )}
+
+      {/* Ton rythme de log (heure des check-ins) */}
+      {logRhythm.length > 0 && (
+        <div className="today-section">
+          <h3>🕐 Ton rythme de log</h3>
+          {logRhythm.map((line, i) => (
+            <div key={i} className="today-tip">{line}</div>
+          ))}
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+            Chaque check-in enregistre son heure — plus tu logs, plus LifeTrack connaît ton rythme.
           </div>
         </div>
       )}

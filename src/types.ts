@@ -47,6 +47,9 @@ export interface CheckIn {
   // so a habit click becomes evidence of a real deliverable (v0.6.0).
   projectId?: string;
   taskId?: string;
+  // When the check-in was actually recorded (ISO timestamp). Enables the
+  // hour-of-day analysis (checkTimes.ts): "when do I log my life?".
+  checkedAt?: string;
 }
 
 export interface Note {

@@ -1968,12 +1968,15 @@ export function toggleCheckIn(habitId: string, date: string): CheckIn {
     pushUndo(habitId, date, existing.completed);
     existing.completed = !existing.completed;
     if (!existing.completed) existing.count = 0;
-    else if (!existing.count) existing.count = 1;
+    else {
+      if (!existing.count) existing.count = 1;
+      if (!existing.checkedAt) existing.checkedAt = new Date().toISOString();
+    }
     notify();
     return existing;
   }
   pushUndo(habitId, date, false);
-  const checkIn: CheckIn = { habitId, date, completed: true, count: 1 };
+  const checkIn: CheckIn = { habitId, date, completed: true, count: 1, checkedAt: new Date().toISOString() };
   data.checkIns.push(checkIn);
   notify();
   return checkIn;
@@ -1987,11 +1990,12 @@ export function incrementCheckInCount(habitId: string, date: string): CheckIn {
     pushUndo(habitId, date, existing.completed, current);
     existing.count = current + 1;
     existing.completed = true;
+    if (!existing.checkedAt) existing.checkedAt = new Date().toISOString();
     notify();
     return existing;
   }
   pushUndo(habitId, date, false, 0);
-  const checkIn: CheckIn = { habitId, date, completed: true, count: 1 };
+  const checkIn: CheckIn = { habitId, date, completed: true, count: 1, checkedAt: new Date().toISOString() };
   data.checkIns.push(checkIn);
   notify();
   return checkIn;
