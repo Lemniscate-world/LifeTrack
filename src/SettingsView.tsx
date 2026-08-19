@@ -15,8 +15,8 @@ import { INSIGHT_RULES_COUNT } from './recommendations';
 import { version as APP_VERSION } from '../package.json';
 import { ascendantLongitude, signOfLongitude } from './astrology';
 
-const THEMES = ['', 'theme-ocean', 'theme-forest', 'theme-sunset', 'theme-rose', 'theme-mono', 'theme-midnight', 'theme-emerald'];
-const THEME_LABELS = ['Default', 'Ocean', 'Forest', 'Sunset', 'Rose', 'Mono', 'Midnight', 'Emerald'];
+const THEMES = ['', 'theme-ocean', 'theme-forest', 'theme-sunset', 'theme-rose', 'theme-mono', 'theme-midnight', 'theme-emerald', 'theme-bw'];
+const THEME_LABELS = ['Default', 'Ocean', 'Forest', 'Sunset', 'Rose', 'Mono', 'Midnight', 'Emerald', 'Noir & Blanc'];
 
 interface SettingsViewProps {
   darkMode: boolean;
@@ -647,7 +647,7 @@ export default function SettingsView({
               <div><strong>{INSIGHT_RULES_COUNT}</strong> insight rules</div>
               <div><strong>6</strong> mantra domains</div>
               <div><strong>6</strong> backup locations</div>
-              <div><strong>8</strong> themes</div>
+              <div><strong>9</strong> themes</div>
             </div>
             <p className="about-tech">
               Built with React 19 · TypeScript 6 · Tauri 2 · Rust · Vite 8

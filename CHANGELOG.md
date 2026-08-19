@@ -14,7 +14,8 @@ All notable changes to LifeTrack are documented in this file.
 - **Cargo.toml corruption (from commit e3484b1)** - `tauri` was `0.6.2` (a version string, not the crate) and `tauri-build` likewise; restored `tauri = "2.11.3"`, `tauri-build = "2.6.3"`, `rust-version = "1.77.2"`; description de-mojibaked to ASCII.
 - **Window title mojibake** - `tauri.conf.json` title was a corrupted multibyte string; now `LifeTrack - Habit Tracker`.
 - **bump-version.ps1 guard** - aborts if `tauri`/`tauri-build`/`rust-version` drift off their expected formats after a version bump.
-- **Compact grid (25-50 habits on screen)** - `⚡ Compact` toolbar toggle (pref `compactGrid`), 22px day columns / 17px cells, thin scrollbar; settings toggle under Appearance > Grid.
+- **Compact grid (25-50 habits on screen)** - `⚡ Compact` toolbar toggle (pref `compactGrid`), 22px day columns / 17px cells, thin scrollbar; settings toggle under Appearance > Grid. Restored 1px horizontal row separators so dense rows stay readable.
+- **Noir & Blanc theme** - 9th theme (`theme-bw`, "Noir & Blanc"): striking editorial monochrome - pure black/white, sharp corners (radius 0), halftone dot texture, solid ink header bar with uppercase letters, day cells filled solid black when done (white in dark mode) with gray-to-black streak intensity, ledger zebra stripes, hard offset shadows. Not the generic AI look - it reads like a printed newspaper ledger.
 
 ## [0.6.1] — Automated knowledge harvest & life intelligence
 

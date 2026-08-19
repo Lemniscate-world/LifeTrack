@@ -148,6 +148,43 @@
   --bg-alt: #134e4a;
 }
 
+/* Theme: Noir & Blanc — striking editorial monochrome (light) */
+.theme-bw {
+  --bg: #ffffff;
+  --bg-alt: #f2f2f2;
+  --text: #000000;
+  --text-secondary: #262626;
+  --text-muted: #737373;
+  --border: #000000;
+  --primary: #000000;
+  --primary-light: #404040;
+  --primary-dark: #000000;
+  --accent: #000000;
+  --accent-light: #404040;
+  --surface: #ffffff;
+  --radius: 0px;
+  --shadow-sm: 2px 2px 0 rgba(0, 0, 0, 0.85);
+  --shadow-md: 4px 4px 0 rgba(0, 0, 0, 0.85);
+}
+
+.dark.theme-bw {
+  --bg: #000000;
+  --bg-alt: #121212;
+  --text: #ffffff;
+  --text-secondary: #d4d4d4;
+  --text-muted: #8a8a8a;
+  --border: #ffffff;
+  --primary: #ffffff;
+  --primary-light: #bfbfbf;
+  --primary-dark: #ffffff;
+  --accent: #ffffff;
+  --accent-light: #bfbfbf;
+  --surface: #121212;
+  --radius: 0px;
+  --shadow-sm: 2px 2px 0 rgba(255, 255, 255, 0.85);
+  --shadow-md: 4px 4px 0 rgba(255, 255, 255, 0.85);
+}
+
 /* Smooth theme transition */
 html {
   transition: background-color 0.4s ease;
@@ -5925,8 +5962,9 @@ body {
 .settings-theme-swatch.theme-mono { background: linear-gradient(135deg, #374151, #9ca3af); }
 .settings-theme-swatch.theme-midnight { background: linear-gradient(135deg, #1e1b4b, #6366f1); }
 .settings-theme-swatch.theme-emerald { background: linear-gradient(135deg, #047857, #34d399); }
+.settings-theme-swatch.theme-bw { background: linear-gradient(135deg, #000000 50%, #ffffff 50%); border-color: #000; }
 
-.settings-theme-btn .settings-theme-swatch:not(.theme-ocean):not(.theme-forest):not(.theme-sunset):not(.theme-rose):not(.theme-mono):not(.theme-midnight):not(.theme-emerald) {
+.settings-theme-btn .settings-theme-swatch:not(.theme-ocean):not(.theme-forest):not(.theme-sunset):not(.theme-rose):not(.theme-mono):not(.theme-midnight):not(.theme-emerald):not(.theme-bw) {
   background: linear-gradient(135deg, #94a3b8, #475569);
 }
 
@@ -9880,6 +9918,9 @@ body {
   padding: 2px 1px;
 }
 .table-scroll.compact-grid .habit-grid tbody tr {
+  border-bottom: 1px solid var(--border);
+}
+.table-scroll.compact-grid .habit-grid tbody tr:last-child {
   border-bottom: none;
 }
 .table-scroll.compact-grid .habit-grid tbody td.col-habits {
@@ -9921,4 +9962,83 @@ body {
 .table-scroll.compact-grid .drag-grip svg {
   width: 10px;
   height: 10px;
+}
+
+/* ============ v0.7.x - NOIR & BLANC THEME ============ */
+/* Striking editorial monochrome: pure black/white, sharp corners, halftone
+   texture, black bar header, solid-ink day cells, ledger zebra stripes. */
+.theme-bw body {
+  background-image: radial-gradient(color-mix(in srgb, var(--text) 8%, transparent) 1px, transparent 1px);
+  background-size: 18px 18px;
+  background-attachment: fixed;
+}
+
+/* Grid header: solid ink bar with uppercase letters */
+.theme-bw .habit-grid thead tr {
+  background: #000000;
+  border-bottom: 2px solid #000000;
+}
+.theme-bw .habit-grid thead th {
+  color: #ffffff;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 800;
+  border-right: 1px solid #ffffff33;
+}
+.dark.theme-bw .habit-grid thead tr {
+  background: #ffffff;
+  border-bottom: 2px solid #ffffff;
+}
+.dark.theme-bw .habit-grid thead th {
+  color: #000000;
+  border-right: 1px solid #00000022;
+}
+
+/* Day cells: solid ink when done, ink outline on hover */
+.theme-bw .day-cell {
+  border-radius: 0;
+}
+.theme-bw .day-cell:hover {
+  border-radius: 0;
+  box-shadow: inset 0 0 0 1px var(--text);
+}
+.theme-bw .day-cell.checked {
+  background: #000000;
+  color: #ffffff;
+}
+.theme-bw .streak-level-1 .day-cell.checked {
+  background: #4a4a4a;
+}
+.theme-bw .streak-level-2 .day-cell.checked {
+  background: #222222;
+  box-shadow: none;
+}
+.theme-bw .streak-level-3 .day-cell.checked {
+  background: #000000;
+  box-shadow: none;
+  animation: none;
+}
+.dark.theme-bw .day-cell.checked {
+  background: #ffffff;
+  color: #000000;
+}
+.dark.theme-bw .streak-level-1 .day-cell.checked {
+  background: #bfbfbf;
+}
+.dark.theme-bw .streak-level-2 .day-cell.checked {
+  background: #e0e0e0;
+  box-shadow: none;
+}
+.dark.theme-bw .streak-level-3 .day-cell.checked {
+  background: #ffffff;
+  box-shadow: none;
+  animation: none;
+}
+
+/* Ledger zebra stripes keep the row rhythm readable in monochrome */
+.theme-bw .habit-grid tbody tr:nth-child(even) {
+  background: var(--bg-alt);
+}
+.theme-bw .habit-grid tbody tr:nth-child(even) .col-habits .habit-row {
+  background: transparent;
 }

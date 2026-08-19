@@ -344,6 +344,18 @@ describe('App component', () => {
     expect(hasTheme).toBe(true);
   });
 
+  it('reaches the Noir & Blanc theme while cycling', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const themeBtn = document.querySelectorAll('.btn-icon')[0];
+    // 9 themes: Default + 8. Click 8 times to land on theme-bw.
+    for (let i = 0; i < 8; i++) {
+      await user.click(themeBtn);
+    }
+    const html = document.documentElement;
+    expect(html.classList.contains('theme-bw')).toBe(true);
+  });
+
   it('toggles dark mode', async () => {
     const user = userEvent.setup();
     render(<App />);
