@@ -36,6 +36,10 @@ Write-Host "  tauri.conf.json -> $NewVersion" -ForegroundColor Green
 $cargoPath = Join-Path $srcTauri "Cargo.toml"
 $cargo = Get-Content $cargoPath -Raw
 $cargo = [regex]::Replace($cargo, $cargoPattern, "version = `"$NewVersion`"", 1)
+# Guard: never clobber the tauri dependency versions or the Rust toolchain floor.
+if ($cargo -notmatch 'tauri-build = \{ version = "2\.' -or $cargo -notmatch 'tauri = \{ version = "2\.' -or $cargo -notmatch 'rust-version = "\d+\.') {
+    throw "Cargo.toml corrupted after bump (tauri/rust-version mismatch). Aborting — restore manually."
+}
 [System.IO.File]::WriteAllText($cargoPath, $cargo, [System.Text.UTF8Encoding]::new($false))
 Write-Host "  Cargo.toml -> $NewVersion" -ForegroundColor Green
 

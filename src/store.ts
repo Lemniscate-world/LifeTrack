@@ -979,6 +979,29 @@ export function clearFileRecoveryFlag(): void {
 }
 
 /**
+ * Append a line to the recovery audit trail at <appData>/recovery-debug.log.
+ * Best-effort: keeps a growing in-memory buffer and overwrites the file with
+ * the full history on each call (no read-modify-write race between the
+ * parallel recovery attempts).
+ */
+let recoveryLogBuffer = '';
+async function recoveryDebugLog(line: string): Promise<void> {
+  if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return;
+  try {
+    const [{ appDataDir }, { writeTextFile }] = await Promise.all([
+      import('@tauri-apps/api/path'),
+      import('@tauri-apps/plugin-fs'),
+    ]);
+    const dir = await appDataDir();
+    const ts = new Date().toISOString();
+    const last = recoveryLogBuffer.split('\n').filter((l) => l.trim()).slice(-200);
+    last.push(`${ts} ${line}`);
+    recoveryLogBuffer = last.join('\n') + '\n';
+    await writeTextFile(`${dir}/recovery-debug.log`, recoveryLogBuffer);
+  } catch { /* best-effort */ }
+}
+
+/**
  * Filesystem recovery: after a rebuild or reinstall the app may start with
  * empty localStorage even though full JSON copies of the user's data exist on
  * disk. Two writers produce files:
@@ -990,24 +1013,26 @@ export function clearFileRecoveryFlag(): void {
  */
 export async function attemptFileRecovery(): Promise<boolean> {
   if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return false;
+  await recoveryDebugLog('attemptFileRecovery: start');
   try {
-    const [{ appDataDir, documentDir, desktopDir }, { readTextFile, exists, readDir }] = await Promise.all([
+    const [{ appDataDir, documentDir, desktopDir, join }, { readTextFile, exists, readDir }] = await Promise.all([
       import('@tauri-apps/api/path'),
       import('@tauri-apps/plugin-fs'),
     ]);
 
-    // Directories where a backup could live.
+    // Directories where a backup could live. `join` inserts the OS separator —
+    // appDataDir()/documentDir()/desktopDir() do NOT end with a slash on Windows.
     const dirs: { dir: string; prefix: string }[] = [];
-    const one = async (p: string | undefined, prefix: string) => {
-      if (p) dirs.push({ dir: p, prefix });
+    const one = async (p: string | undefined, sub: string, prefix: string) => {
+      if (p) dirs.push({ dir: await join(p, sub), prefix });
     };
-    await one(await documentDir().then((d) => `${d}LifeTrack-Backups`, () => undefined), 'lifetrack-backup-');
-    await one(await desktopDir().then((d) => `${d}LifeTrack-Backups`, () => undefined), 'lifetrack-backup-');
-    await one(await appDataDir().then((d) => `${d}LifeTrack-Backups`, () => undefined), 'lifetrack-backup-');
-    await one(await appDataDir().then((d) => `${d}backups`, () => undefined), 'lifetrack-backup-');
-    await one(await appDataDir().then((d) => `${d}LifeTrack`, () => undefined), 'lifetrack-persistent.');
-    await one(await documentDir().then((d) => `${d}LifeTrack-Backups`, () => undefined), 'lifetrack-persistent.');
-    await one(await desktopDir().then((d) => `${d}LifeTrack-Backups`, () => undefined), 'lifetrack-persistent.');
+    await one(await documentDir().catch(() => undefined), 'LifeTrack-Backups', 'lifetrack-backup-');
+    await one(await desktopDir().catch(() => undefined), 'LifeTrack-Backups', 'lifetrack-backup-');
+    await one(await appDataDir().catch(() => undefined), 'LifeTrack-Backups', 'lifetrack-backup-');
+    await one(await appDataDir().catch(() => undefined), 'backups', 'lifetrack-backup-');
+    await one(await appDataDir().catch(() => undefined), 'LifeTrack', 'lifetrack-persistent.');
+    await one(await documentDir().catch(() => undefined), 'LifeTrack-Backups', 'lifetrack-persistent.');
+    await one(await desktopDir().catch(() => undefined), 'LifeTrack-Backups', 'lifetrack-persistent.');
 
     let best: AppData = null as unknown as AppData;
     let bestWeight = -1;
@@ -1027,7 +1052,8 @@ export async function attemptFileRecovery(): Promise<boolean> {
       // Direct file (persistent JSON).
       try {
         const directPath = `${dir}/${prefix === 'lifetrack-backup-' ? FILE_BACKUP_NAME : prefix}json`;
-        if (await exists(directPath).catch(() => false)) {
+        const directExists = await exists(directPath).catch((e: unknown) => { recoveryDebugLog(`direct exists err ${String(e).slice(0, 80)}`); return false; });
+        if (directExists) {
           const raw = await readTextFile(directPath);
           consider(JSON.parse(raw));
         }
@@ -1035,28 +1061,39 @@ export async function attemptFileRecovery(): Promise<boolean> {
 
       // Scan directory for matching files (Rust timestamps lifetrack-backup-*).
       if (prefix.startsWith('lifetrack-backup-')) {
+        const dirExists = await exists(dir).catch((e: unknown) => { recoveryDebugLog(`dir exists err ${String(e).slice(0, 80)}`); return false; });
+        if (!dirExists) {
+          await recoveryDebugLog(`dir missing: ${dir}`);
+          continue;
+        }
         try {
-          if (!(await exists(dir).catch(() => false))) continue;
           const entries = await readDir(dir);
+          let parsed = 0;
           for (const entry of entries) {
             if (!entry.name || !entry.name.startsWith('lifetrack-backup-') || !entry.name.endsWith('.json')) continue;
             try {
               const raw = await readTextFile(`${dir}/${entry.name}`);
               consider(JSON.parse(raw));
+              parsed++;
             } catch { /* skip corrupt file */ }
           }
-        } catch { /* best-effort */ }
+          await recoveryDebugLog(`scanned ${dir} (${entries.length} entries, ${parsed} parsed)`);
+        } catch (e) {
+          await recoveryDebugLog(`scan failed for ${dir}: ${String(e).slice(0, 160)}`);
+        }
       }
     }
 
     if (!best || bestWeight <= 0) {
       console.warn('[LifeTrack] No usable filesystem backup found for recovery.');
+      await recoveryDebugLog('attemptFileRecovery: no usable backup found');
       return false;
     }
 
     const current = readEnvelope(STORAGE_KEY);
     const currentSize = current ? current.habits.length + current.checkIns.length : 0;
     const bestSize = best.habits.length + best.checkIns.length;
+    await recoveryDebugLog(`attemptFileRecovery: best=${bestSize} (weight ${bestWeight}), current=${currentSize}`);
     if (currentSize >= bestSize) return false; // current data is at least as complete
 
     console.info(`[LifeTrack] Filesystem recovery: restoring ${best.habits.length} habits, ${best.checkIns.length} check-ins, ${best.notes.length} notes.`);
@@ -1066,9 +1103,12 @@ export async function attemptFileRecovery(): Promise<boolean> {
     try { localStorage.setItem(RAW_JSON_KEY, JSON.stringify(best)); } catch { /* best-effort */ }
     data = best;
     backfillHabitRecords();
+    scheduleFileBackup(best);
     notify();
+    await recoveryDebugLog('attemptFileRecovery: RESTORED ' + best.habits.length + ' habits');
     return true;
-  } catch {
+  } catch (e) {
+    await recoveryDebugLog(`attemptFileRecovery: ERROR ${String(e).slice(0, 300)}`);
     return false;
   }
 }
@@ -1247,17 +1287,17 @@ async function doFileBackup(d: AppData): Promise<void> {
   try {
     const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
     if (!isTauriEnv) return;
-    const [{ appDataDir, documentDir, desktopDir, homeDir }, { writeTextFile, exists, mkdir }] = await Promise.all([
+    const [{ appDataDir, documentDir, desktopDir, homeDir, join }, { writeTextFile, exists, mkdir }] = await Promise.all([
       import('@tauri-apps/api/path'),
       import('@tauri-apps/plugin-fs'),
     ]);
     const json = JSON.stringify(d, null, 2);
 
     const writeBackup = async (dir: string, subdir: string) => {
-      const fullDir = `${dir}${subdir}`;
+      const fullDir = await join(dir, subdir);
       const dirExists = await exists(fullDir).catch(() => false);
       if (!dirExists) await mkdir(fullDir, { recursive: true });
-      await writeTextFile(`${fullDir}/${FILE_BACKUP_NAME}`, json);
+      await writeTextFile(await join(fullDir, FILE_BACKUP_NAME), json);
     };
 
     // 1. AppData

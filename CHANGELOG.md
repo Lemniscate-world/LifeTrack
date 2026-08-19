@@ -2,6 +2,20 @@
 
 All notable changes to LifeTrack are documented in this file.
 
+## [0.6.2] - Reinstalled build, recovery hardening (2026-08-19)
+
+### Added
+- **File recovery audit trail** - `recovery-debug.log` under AppData records each startup recovery scan (directories, parsed backups, best/current weights, restore outcome).
+- **Recovery retry at boot** - up to 3 attempts (immediate, +3s, +6s) so a not-yet-ready filesystem plugin no longer causes a silent missed restore.
+
+### Fixed
+- **File backup/restore paths** - `attemptFileRecovery` and `doFileBackup` built paths by raw concatenation (`${dir}${sub}`) but `appDataDir()/documentDir()/desktopDir()` do not end with a separator on Windows, producing `...com.lemniscate.lifetrackbackups` (forbidden path). Now uses the `join` API. **This fix makes the disk safety net actually work** - verified end-to-end: wiped WebView2 profile -> app booted -> restored 29 habits / 524 check-ins / 8 notes / 8 personas / 2 levers / 1 challenge and wrote `lifetrack-persistent.json` to AppData, Documents and Desktop.
+- **Capabilities scope** - `fs:default` read scope did not cover the backup folders; added explicit read/write/mkdir/remove permissions for `$APPDATA/**`, `$DOCUMENT/**`, `$DESKTOP/**`.
+- **Cargo.toml corruption (from commit e3484b1)** - `tauri` was `0.6.2` (a version string, not the crate) and `tauri-build` likewise; restored `tauri = "2.11.3"`, `tauri-build = "2.6.3"`, `rust-version = "1.77.2"`; description de-mojibaked to ASCII.
+- **Window title mojibake** - `tauri.conf.json` title was a corrupted multibyte string; now `LifeTrack - Habit Tracker`.
+- **bump-version.ps1 guard** - aborts if `tauri`/`tauri-build`/`rust-version` drift off their expected formats after a version bump.
+- **Compact grid (25-50 habits on screen)** - `⚡ Compact` toolbar toggle (pref `compactGrid`), 22px day columns / 17px cells, thin scrollbar; settings toggle under Appearance > Grid.
+
 ## [0.6.1] — Automated knowledge harvest & life intelligence
 
 ### Added
