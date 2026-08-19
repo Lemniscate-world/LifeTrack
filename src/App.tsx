@@ -51,6 +51,9 @@ import {
   setConcentration,
   getConcentration,
   getMonthConcentrations,
+  setDepression,
+  getDepression,
+  getMonthDepressions,
   getPreferences,
   updatePreferences,
   getActiveChallenges,
@@ -186,12 +189,16 @@ const DEFAULT_CATEGORIES = [
   // Monthly energy levels (%)
   const [monthEnergies, setMonthEnergies] = useState<Map<number, number>>(new Map());
   const [monthConcentrations, setMonthConcentrations] = useState<Map<number, number>>(new Map());
+  const [monthDepressions, setMonthDepressions] = useState<Map<number, number>>(new Map());
   // Energy precision picker (slider + exact % input)
   const [energyPicker, setEnergyPicker] = useState<{ dateKey: string; label: string; value: number } | null>(null);
   const [energyPickerInput, setEnergyPickerInput] = useState('');
   // Concentration precision picker (slider + exact % input)
   const [concPicker, setConcPicker] = useState<{ dateKey: string; label: string; value: number } | null>(null);
   const [concPickerInput, setConcPickerInput] = useState('');
+  const [depPicker, setDepPicker] = useState<{ dateKey: string; label: string; value: number } | null>(null);
+  const [depPickerInput, setDepPickerInput] = useState('');
+  const [depThreshold, setDepThreshold] = useState(() => getPreferences().depressionAlertThreshold ?? 70);
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editingGoalValue, setEditingGoalValue] = useState('');
   const [editingChaosHabitId, setEditingChaosHabitId] = useState<string | null>(null);
@@ -585,6 +592,8 @@ const DEFAULT_CATEGORIES = [
       setMonthEnergies(getMonthEnergies(year, month));
       // Load concentration levels for current month
       setMonthConcentrations(getMonthConcentrations(year, month));
+      // Load depression levels for current month
+      setMonthDepressions(getMonthDepressions(year, month));
     }
     update();
     return subscribe(update);
@@ -1714,6 +1723,43 @@ const DEFAULT_CATEGORIES = [
                       <td className="col-goal"></td>
                       <td className="col-achieved"></td>
                     </tr>
+                    {/* Depression tracker row (% precision, high = bad) */}
+                    <tr className="energy-row">
+                      <td className="col-drag-handle"></td>
+                      <td className="col-habits">
+                        <span className="mood-label energy-label">🌧️ Dépression</span>
+                      </td>
+                      {dayHeaders.map((h) => {
+                        const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(h.day).padStart(2, '0')}`;
+                        const dep = monthDepressions.get(h.day);
+                        const isToday = isCurrentMonth && h.day === todayDay;
+                        const color = dep === undefined ? undefined : dep >= 70 ? '#ef4444' : dep >= 40 ? '#f59e0b' : '#10b981';
+                        return (
+                          <td
+                            key={h.day}
+                            className={`col-day mood-cell energy-cell ${isToday ? 'today' : ''}`}
+                            onClick={() => {
+                              const cur = getDepression(dateKey);
+                              setDepPicker({ dateKey, label: `Jour ${h.day}`, value: cur ?? 20 });
+                              setDepPickerInput(String(cur ?? 20));
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              const cur = getDepression(dateKey);
+                              setDepression(dateKey, cur === undefined || cur <= 10 ? null : cur - 10);
+                              setMonthDepressions(getMonthDepressions(year, month));
+                            }}
+                            title={dep !== undefined ? `Dépression : ${dep}% (clic = saisie précise, clic droit -10)` : 'Définir la dépression (clic = saisie précise, clic droit -10)'}
+                          >
+                            <div className="day-cell energy-display" style={color ? { background: color + '22', color } : {}}>
+                              {dep !== undefined ? `${dep}%` : '·'}
+                            </div>
+                          </td>
+                        );
+                      })}
+                      <td className="col-goal"></td>
+                      <td className="col-achieved"></td>
+                    </tr>
                     {dropProvided.placeholder}
                   </tbody>
                 )}
@@ -2052,6 +2098,99 @@ const DEFAULT_CATEGORIES = [
                   setConcentration(concPicker.dateKey, concPicker.value);
                   setMonthConcentrations(getMonthConcentrations(year, month));
                   setConcPicker(null);
+                }}
+              >Enregistrer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Depression precision picker modal + alert threshold */}
+      {depPicker && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(3px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 300, padding: '1rem' }}
+          onClick={() => setDepPicker(null)}
+        >
+          <div
+            className="energy-picker-modal"
+            style={{ background: 'var(--bg-alt)', border: '1px solid var(--border)', borderRadius: '14px', maxWidth: '380px', width: '100%', padding: '1.25rem 1.5rem', position: 'relative' }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-label="Saisie précise de la dépression"
+          >
+            <button
+              onClick={() => setDepPicker(null)}
+              style={{ position: 'absolute', top: '0.75rem', right: '0.9rem', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.1rem', cursor: 'pointer' }}
+              aria-label="Fermer"
+            >✕</button>
+            <h3 style={{ margin: '0 0 0.25rem 0', fontSize: '1rem' }}>🌧️ Dépression — {depPicker.label}</h3>
+            <p style={{ margin: '0 0 1rem 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Niveau de dépression perçu (0-100 %) — élevé = vigilance.
+            </p>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={depPicker.value}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setDepPicker({ ...depPicker, value: v });
+                setDepPickerInput(String(v));
+              }}
+              style={{ width: '100%', accentColor: 'var(--primary)' }}
+              aria-label="Slider dépression"
+            />
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginTop: '1rem' }}>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={depPickerInput}
+                onChange={(e) => {
+                  setDepPickerInput(e.target.value);
+                  const v = Number(e.target.value);
+                  if (Number.isFinite(v)) setDepPicker({ ...depPicker, value: Math.max(0, Math.min(100, v)) });
+                }}
+                style={{ width: '80px', padding: '0.4rem 0.6rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: '1rem', fontWeight: 700, textAlign: 'center' }}
+                aria-label="Valeur exacte en pourcent"
+              />
+              <span style={{ fontSize: '1.1rem', fontWeight: 700, color: '#ef4444' }}>{depPicker.value}%</span>
+              <button
+                className="btn btn-sm"
+                onClick={() => {
+                  setDepression(depPicker.dateKey, null);
+                  setMonthDepressions(getMonthDepressions(year, month));
+                  setDepPicker(null);
+                }}
+                style={{ marginLeft: 'auto' }}
+              >Effacer</button>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.7rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Alerte si la dépression du jour ≥
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={depThreshold}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  const clamped = Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 0;
+                  setDepThreshold(clamped);
+                  updatePreferences({ depressionAlertThreshold: clamped });
+                }}
+                style={{ width: '64px', padding: '0.3rem 0.5rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontWeight: 700, textAlign: 'center' }}
+                aria-label="Seuil d'alerte dépression"
+              />
+              %
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.1rem' }}>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setDepression(depPicker.dateKey, depPicker.value);
+                  setMonthDepressions(getMonthDepressions(year, month));
+                  setDepPicker(null);
                 }}
               >Enregistrer</button>
             </div>

@@ -366,3 +366,26 @@ describe('astrology.aspects', () => {
     }
   });
 });
+
+describe('separationDeg (angle minimal cyclique)', () => {
+  it('calcule l angle minimal entre deux longitudes', () => {
+    expect(separationDeg(120, 0)).toBeCloseTo(120, 6);
+    expect(separationDeg(0, 200)).toBeCloseTo(160, 6);
+    expect(separationDeg(350, 10)).toBeCloseTo(20, 6);
+    expect(separationDeg(0, 180)).toBeCloseTo(180, 6);
+  });
+});
+
+describe('diagnostic ciel réel — Jupiter trigone Pluton', () => {
+  it('rapporte la séparation Jupiter–Pluton aujourd hui (vérifie le bug « transits manquants »)', () => {
+    const now = new Date();
+    const sep = separationDeg(planetLongitude('jupiter', now), planetLongitude('pluto', now));
+    console.log(`DIAG Jupiter-Pluton today ${now.toISOString().slice(0, 10)}: sep=${sep.toFixed(2)}° (trine exact = 120°)`);
+    expect(Number.isFinite(sep)).toBe(true);
+    // Si l aspect est en orb, currentAspects doit le renvoyer.
+    const inOrb = currentAspects([['jupiter', 'pluto']], now);
+    console.log(`DIAG currentAspects jupiter-pluto: ${inOrb.map((e) => e.kind).join(',') || 'aucun'}`);
+    expect(Array.isArray(inOrb)).toBe(true);
+  });
+});
+

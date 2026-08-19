@@ -541,6 +541,7 @@ export interface AppData {
   moods: Record<string, string>; // date YYYY-MM-DD -> mood id
   energies?: Record<string, number>; // date YYYY-MM-DD -> energy 0-100 (precision %)
   concentrations?: Record<string, number>; // date YYYY-MM-DD -> focus/concentration 0-100 %
+  depressions?: Record<string, number>; // date YYYY-MM-DD -> depression 0-100 % (high = bad)
   experiments: Experiment[];
   urges: UrgeEntry[];
   customUrgeTypes: CustomUrgeType[];
@@ -655,4 +656,7 @@ export interface UserPreferences {
   birthTime?: string;              // "HH:MM" (local time of birth)
   birthLat?: number;               // decimal degrees, north positive
   birthLon?: number;               // decimal degrees, east positive
+  // v0.7.x: depression alert — trigger a visible warning when the day's
+  // depression reading reaches this percentage (0 = alert off, default 70).
+  depressionAlertThreshold?: number;
 }

@@ -4,11 +4,12 @@ import { computeStreakStats, computeCompletionRate } from './stats';
 import { MANTRA_DOMAINS } from './mantras';
 import { generateInsights } from './recommendations';
 import { buildOnThisDay } from './memories';
-import { exportAllData, MOODS, setMood, getMood, subscribe } from './store';
+import { exportAllData, MOODS, setMood, getMood, getDepression, getPreferences, subscribe } from './store';
 import { weeklySummary } from './weeklySummary';
 import { buildPreferenceReport } from './preferences';
 import { logTimeInsights } from './checkTimes';
 import { todayKey } from './dates';
+import { streakDrivers } from './streakDrivers';
 
 const MILESTONES = new Set([7, 14, 21, 30, 60, 90, 100, 180, 365]);
 
@@ -42,6 +43,29 @@ export default function TodayView({ habits, checkIns, todayMantra }: TodayViewPr
 
   // When do I actually log? (hour-of-day analysis, requires checkedAt timestamps)
   const logRhythm = useMemo(() => logTimeInsights(habits, checkIns, 90, now), [habits, checkIns, now]);
+
+  // What actually drives your streaks (weekday/mood/energy before, habit duos)?
+  const streakDriversList = useMemo(() => {
+    try {
+      const d = exportAllData();
+      return streakDrivers({
+        habits,
+        checkIns,
+        moods: d.moods ?? {},
+        energies: d.energies,
+        concentrations: d.concentrations,
+      });
+    } catch { return []; }
+  }, [habits, checkIns]);
+
+  // Depression alert: today's reading >= the configured threshold → visible warning.
+  const depAlert = (() => {
+    try {
+      const d = getDepression(todayStr);
+      const th = getPreferences().depressionAlertThreshold ?? 0;
+      return d !== undefined && th > 0 && d >= th ? d : null;
+    } catch { return null; }
+  })();
 
   // One focused thing worth trying today, from the preference engine.
   const tryToday = useMemo(() => {
@@ -281,6 +305,24 @@ export default function TodayView({ habits, checkIns, todayMantra }: TodayViewPr
           <div className="today-try-source">
             {tryToday.protocol.source} · preuve {tryToday.protocol.evidenceLevel}
           </div>
+        </div>
+      )}
+
+      {/* Ce qui déclenche tes séries */}
+      {streakDriversList.length > 0 && (
+        <div className="today-section">
+          <h3>🔥 Ce qui déclenche tes séries</h3>
+          {streakDriversList.slice(0, 3).map((dr, i) => (
+            <div key={i} className="today-tip">{dr.insight}</div>
+          ))}
+        </div>
+      )}
+
+      {/* Depression alert */}
+      {depAlert !== null && (
+        <div className="today-perfect" style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)' }}>
+          ⚠️ Dépression à {depAlert}% aujourd'hui — au-dessus de ton seuil d'alerte. Note ce qui s'est passé,
+          applique un micro-protocole (lumière du matin, marche, contact humain) et consulte tes insights.
         </div>
       )}
 

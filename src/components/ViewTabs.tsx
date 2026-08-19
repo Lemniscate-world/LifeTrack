@@ -22,6 +22,7 @@ export default function ViewTabs({ view, onView }: ViewTabsProps) {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> Today
       </button>
       <button role="tab" aria-selected={view === 'grid'} className={ACTIVE(view, 'grid')} onClick={() => onView('grid')}>Grid</button>
+      <button role="tab" aria-selected={view === 'chaos'} className={ACTIVE(view, 'chaos')} onClick={() => onView('chaos')}>Chaos</button>
       <button role="tab" aria-selected={view === 'stats'} className={ACTIVE(view, 'stats')} onClick={() => onView('stats')}>Statistics</button>
       <button role="tab" aria-selected={view === 'correlations'} className={ACTIVE(view, 'correlations')} onClick={() => onView('correlations')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg> Corr.
@@ -65,7 +66,6 @@ export default function ViewTabs({ view, onView }: ViewTabsProps) {
       <button role="tab" aria-selected={view === 'missions'} className={ACTIVE(view, 'missions')} onClick={() => onView('missions')}>
         🚀 Missions
       </button>
-      <button role="tab" aria-selected={view === 'chaos'} className={ACTIVE(view, 'chaos')} onClick={() => onView('chaos')}>Chaos</button>
       <button role="tab" aria-selected={view === 'mantras'} className={ACTIVE(view, 'mantras')} onClick={() => onView('mantras')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4.5 12.5l3 3 5-7"/><circle cx="12" cy="12" r="10"/></svg> Mantras
       </button>

@@ -3466,6 +3466,42 @@ export function getAverageConcentration(days: string[] = []): number | null {
   return Math.round(values.reduce((s, v) => s + v, 0) / values.length);
 }
 
+// --- Depression tracking (% 0-100 per day, high = bad) ---
+// Same per-day map pattern as energy/concentration: surfaced in the grid
+// depression row, usable as a continuous series for correlations, and able to
+// trigger a configurable alert when the day's value crosses the threshold.
+
+export function setDepression(date: string, value: number | null): void {
+  if (!data.depressions) data.depressions = {};
+  if (value === null) {
+    delete data.depressions[date];
+  } else {
+    data.depressions[date] = Math.max(0, Math.min(100, Math.round(value)));
+  }
+  notify();
+}
+export function getDepression(date: string): number | undefined {
+  return data.depressions?.[date];
+}
+export function getMonthDepressions(year: number, month: number): Map<number, number> {
+  const map = new Map<number, number>();
+  const prefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
+  for (const [date, v] of Object.entries(data.depressions ?? {})) {
+    if (date.startsWith(prefix)) {
+      const day = parseInt(date.split('-')[2], 10);
+      map.set(day, v);
+    }
+  }
+  return map;
+}
+export function getAverageDepression(days: string[] = []): number | null {
+  const values = days.length > 0
+    ? days.map((d) => data.depressions?.[d]).filter((v): v is number => v !== undefined)
+    : Object.values(data.depressions ?? {});
+  if (values.length === 0) return null;
+  return Math.round(values.reduce((s, v) => s + v, 0) / values.length);
+}
+
 // --- Obsidian notes ---
 export function getObsidianNotes(): ObsidianNote[] {
   return data.obsidianNotes ?? [];

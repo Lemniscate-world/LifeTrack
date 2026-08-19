@@ -11,7 +11,7 @@ import type { CheckIn, Mission, MissionTransitWindow } from './types';
 import { toDateKey } from './dates';
 import {
   TRANSIT_BODIES, getTransitBody, upcomingTransits, upcomingAspects,
-  ASC_ASPECT_PAIRS, ASPECT_DEFS, ASPECT_PAIRS,
+  ASC_ASPECT_PAIRS, ASPECT_DEFS, ASPECT_PAIRS, currentAspects,
   type TransitBodyId, type AspectPoint,
 } from './astrology';
 
@@ -324,6 +324,45 @@ export function suggestMissionsFromSky(input: SkySuggestionInput): AutoMissionSu
       source: 'aspect',
       rationale: `${a.label} ${def.label} ${b.label} — exact le ${toDateKey(ev.exactAt)}`,
       autoCreate: false, // aspects are 1-click; transits on weak domains auto-create
+    });
+  }
+
+  // Aspects currently in orb: slow planets keep an aspect "active" for weeks —
+  // an exact moment already past is STILL a live window. upcomingAspects only
+  // reports future exact crossings, so today's in-orb aspects would be missed.
+  const nowAspects = currentAspects(pairList, now, ascLon);
+  for (const ev of nowAspects) {
+    const key = `aspect:${ev.bodyA}:${ev.bodyB}:${ev.kind}`;
+    if (suggestions.some((s) => s.key === key)) continue; // exact future one already suggested
+    const start = new Date(now.getTime() - ASPECT_WINDOW_PAD_DAYS * 86400000);
+    const end = new Date(now.getTime() + ASPECT_WINDOW_PAD_DAYS * 86400000);
+    const startKey = toDateKey(start);
+    const endKey = toDateKey(end);
+    const overlaps = fixed.some((m) => dayIndex(m.window.startDate) <= dayIndex(endKey) && dayIndex(m.window.endDate) >= dayIndex(startKey));
+    if (overlaps) continue;
+    const domains = [...new Set([
+      ...(BODY_DOMAINS[ev.bodyA as TransitBodyId] ?? []),
+      ...(BODY_DOMAINS[ev.bodyB as TransitBodyId] ?? []),
+    ])];
+    const domain = domains.find((d) => weak.has(d)) ?? domains[0];
+    const def = ASPECT_DEFS[ev.kind];
+    const habitIds = pickHabits(domain, input.habits);
+    const a = aspectPointInfo(ev.bodyA);
+    const b = aspectPointInfo(ev.bodyB);
+    const name = `${a.emoji} ${a.label} ${def.emoji} ${b.emoji} ${b.label}`;
+    const days = 2 * ASPECT_WINDOW_PAD_DAYS + 1;
+    suggestions.push({
+      key,
+      name,
+      objective: def.tone === 'tension'
+        ? `Période de tension (${def.label}) actuellement en cours sur le ${DOMAIN_LABELS[domain] ?? domain} : stabilité et récupération.`
+        : `Fenêtre favorable (${def.label}) actuellement en cours sur le ${DOMAIN_LABELS[domain] ?? domain} : amplifie les efforts.`,
+      window: { kind: 'fixed', startDate: startKey, endDate: endKey },
+      habitIds,
+      quota: habitIds.length > 0 ? suggestQuota(weeklyPace(habitIds, input.checkIns, today), days) : undefined,
+      source: 'aspect',
+      rationale: `${a.label} ${def.label} ${b.label} — en orb maintenant (exact le ${toDateKey(ev.exactAt)}).`,
+      autoCreate: false, // aspects stay 1-click; transits on weak domains auto-create
     });
   }
 
