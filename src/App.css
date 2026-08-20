@@ -10234,9 +10234,57 @@ body {
 .theme-bw .habit-grid td.col-day:nth-child(7n+9) {
   border-right: 2px solid var(--text);
 }
+.empty-suggestions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.empty-suggestions .btn {
+  border: 1px dashed var(--border);
+}
+.theme-bw .empty-suggestions .btn {
+  border-style: solid;
+  border-width: 2px;
+}
+
 /* Mobile : garde le radius 0 en BW */
 @media (max-width: 639px) {
   .theme-bw {
     --radius: 0px;
   }
+}
+
+/* ============ v0.7.x - STREAK VISUEL ACCENTUÉ ============ */
+.habit-grid tbody tr.streak-level-2 {
+  border-left: 3px solid var(--primary);
+}
+.habit-grid tbody tr.streak-level-3 {
+  border-left: 4px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+.theme-bw .habit-grid tbody tr.streak-level-2 {
+  border-left: 3px solid var(--text);
+}
+.theme-bw .habit-grid tbody tr.streak-level-3 {
+  border-left: 4px solid var(--text);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.habit-grid tbody tr.streak-level-3 .habit-name {
+  font-weight: 700;
+}
+.habit-grid tbody tr.streak-level-3 .streak-badge {
+  background: var(--accent);
+  color: white;
+  font-weight: 800;
+  animation: streakPulse 1.6s ease-in-out infinite;
+}
+@keyframes streakPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+.theme-bw .habit-grid tbody tr.streak-level-3 .streak-badge {
+  background: var(--text);
+  color: var(--bg);
 }

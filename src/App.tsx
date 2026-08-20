@@ -1175,6 +1175,14 @@ const DEFAULT_CATEGORIES = [
             <div className="empty-state">
               <p className="empty-title">No habits yet</p>
               <p className="empty-hint">Click the button below or press <kbd>Ctrl+N</kbd> to add your first habit.</p>
+              <div className="empty-suggestions">
+                <button className="btn btn-sm btn-ghost" onClick={() => addHabit('Méditation')}>+ Méditation</button>
+                <button className="btn btn-sm btn-ghost" onClick={() => addHabit('Sport')}>+ Sport</button>
+                <button className="btn btn-sm btn-ghost" onClick={() => addHabit('Lecture')}>+ Lecture</button>
+              </div>
+              <p className="empty-hint" style={{ marginTop: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                Astuce : essaie le thème <strong>Noir & Blanc</strong> dans Réglages → Apparence.
+              </p>
             </div>
           ) : (
             <>
