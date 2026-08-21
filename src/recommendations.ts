@@ -11,6 +11,27 @@
 import type { Habit, CheckIn, Note, UrgeEntry, Capacity, CapacityRating, Experiment, JournalEntry, ReflectionEntry } from './types';
 import { computeStreakStats } from './stats';
 
+// --- helpers for statistical depth (Cohen's h, Wilson, normal approx) ---
+function cohenH(p1: number, p2: number): number {
+  const h = 2 * Math.asin(Math.sqrt(Math.max(0, Math.min(1, p1)))) - 2 * Math.asin(Math.sqrt(Math.max(0, Math.min(1, p2))));
+  return h;
+}
+function normalCDF(z: number): number {
+  // Abramowitz & Stegun approx
+  const t = 1 / (1 + 0.2316419 * Math.abs(z));
+  const d = 0.3989423 * Math.exp(-z * z / 2);
+  let p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+  if (z > 0) p = 1 - p;
+  return p;
+}
+function diffProportionsP(p1: number, n1: number, p2: number, n2: number): number | null {
+  if (n1 < 5 || n2 < 5) return null;
+  const se = Math.sqrt((p1 * (1 - p1)) / n1 + (p2 * (1 - p2)) / n2);
+  if (se === 0) return p1 === p2 ? 1 : 0.001;
+  const z = (p1 - p2) / se;
+  return 2 * (1 - normalCDF(Math.abs(z)));
+}
+
 // --- Recommendation types ---
 
 export type RecKind =
@@ -494,14 +515,20 @@ function detectTrends(
     const delta = Math.round((thisRate - lastRate) * 100);
     if (Math.abs(delta) < 10) continue; // only flag significant changes
 
-    const direction = delta > 0 ? 'up' : 'down';
+    // --- profondeur stat : h, p, puissance ---
+    const h = cohenH(thisRate, lastRate);
+    const pVal = diffProportionsP(thisRate, thisPeriod.length, lastRate, lastPeriod.length);
+    const pTxt = pVal === null ? 'n insuffisant' : pVal < 0.001 ? 'p<0.001' : `p=${pVal.toFixed(3)}`;
+    const sig = pVal !== null && pVal < 0.05;
+    const magnitude = Math.abs(h) < 0.2 ? 'négligeable' : Math.abs(h) < 0.5 ? 'petit' : Math.abs(h) < 0.8 ? 'moyen' : 'grand';
+    const caveat = thisPeriod.length + lastPeriod.length < 30 ? ' · échantillon faible — à confirmer sur 2-3 semaines' : sig ? '' : ' · non significatif — bruit possible';
     const emoji = delta > 0 ? '📈' : '📉';
     recs.push({
       kind: 'TREND',
       title: `${emoji} "${habit.name}" ${delta > 0 ? '+' : ''}${delta}% this month`,
-      detail: `Your completion rate for "${habit.name}" is ${direction} ${Math.abs(delta)}% compared to last month (${Math.round(thisRate * 100)}% vs ${Math.round(lastRate * 100)}%). ${delta > 0 ? "Whatever you're doing — keep it up!" : "A small adjustment could turn this around."}`,
+      detail: `Taux "${habit.name}" : ${Math.round(thisRate * 100)}% (n=${thisPeriod.length}) vs ${Math.round(lastRate * 100)}% (n=${lastPeriod.length}) le mois dernier. Δ=${delta > 0 ? '+' : ''}${delta}% · effet h=${h.toFixed(2)} (${magnitude}) · ${pTxt}${caveat}. ${sig ? (delta > 0 ? 'Progression réelle — capitalise.' : 'Baisse réelle — corrige vite.') : "Pas assez de signal — continue et réévalue."}`,
       habitIds: [habit.id],
-      strength: Math.min(100, Math.abs(delta) + 50),
+      strength: Math.min(100, Math.round(Math.abs(delta) * 0.6 + Math.abs(h) * 30 + (sig ? 15 : 0) + 40)),
       actionLabel: delta > 0 ? 'View stats' : 'Go to habit',
     });
   }
@@ -1110,9 +1137,20 @@ function detectBurnoutRisk(
   const title = worstHabit
     ? `🫀 Burnout watch — "${worstHabit.habit.name}" is slipping (${worstHabit.decline}% decline)`
     : `🫀 Burnout watch — energy low (${lowMoodDays} low-mood days in 2 weeks)`;
+  // profondeur: h et p sur la baisse
+  let deepNote = '';
+  if (worstHabit) {
+    const prior = priorRate(worstHabit.habit.id, checkIns, now);
+    const h2 = cohenH(worstHabit.recent, prior);
+    const nRecent = checkIns.filter((ci) => ci.habitId === worstHabit!.habit.id && ci.date >= dateStrDaysAgo(13, now)).length;
+    const nPrior = checkIns.filter((ci) => ci.habitId === worstHabit!.habit.id && ci.date >= dateStrDaysAgo(41, now) && ci.date <= dateStrDaysAgo(14, now)).length;
+    const p2 = diffProportionsP(worstHabit.recent, Math.max(7, nRecent), prior, Math.max(7, nPrior));
+    const sig2 = p2 !== null && p2 < 0.05;
+    deepNote = ` Effet h=${h2.toFixed(2)} (${Math.abs(h2) < 0.5 ? 'modeste' : Math.abs(h2) < 0.8 ? 'marqué' : 'massif'}) · ${p2 === null ? 'n faible' : p2 < 0.001 ? 'p<0.001' : `p=${p2.toFixed(3)}`}${sig2 ? ' · baisse significative' : ' · tendance à confirmer'} · n=${nRecent}+${nPrior}.`;
+  }
   const detail = worstHabit
-    ? `"${worstHabit.habit.name}" went from ${Math.round(worstHabit.habit ? priorRate(worstHabit.habit.id, checkIns, now) : 0)}% down to ${Math.round(worstHabit.recent * 100)}% completion in the last 2 weeks.${lowMoodRatio >= 0.3 ? ` Combined with ${lowMoodDays} low-mood day${lowMoodDays > 1 ? 's' : ''}, this points to ${dimName} overload.` : ''} The smartest move right now is usually to REST one dimension, not push harder.`
-    : `You logged ${lowMoodDays} low-mood day${lowMoodDays > 1 ? 's' : ''} in the last 2 weeks with no clear habit trigger. Check in with yourself — sometimes the highest-leverage habit is rest.`;
+    ? `"${worstHabit.habit.name}" went from ${Math.round(worstHabit.habit ? priorRate(worstHabit.habit.id, checkIns, now) : 0)}% down to ${Math.round(worstHabit.recent * 100)}% completion in the last 2 weeks.${lowMoodRatio >= 0.3 ? ` Combined with ${lowMoodDays} low-mood day${lowMoodDays > 1 ? 's' : ''}, this points to ${dimName} overload.` : ''}${deepNote} The smartest move right now is usually to REST one dimension, not push harder.`
+    : `You logged ${lowMoodDays} low-mood day${lowMoodDays > 1 ? 's' : ''} in the last 2 weeks with no clear habit trigger.${deepNote} Check in with yourself — sometimes the highest-leverage habit is rest.`;
 
   return [{
     kind: 'BURNOUT_RISK',
