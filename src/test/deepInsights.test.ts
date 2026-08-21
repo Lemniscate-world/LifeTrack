@@ -3,7 +3,9 @@ import { describe, it, expect } from 'vitest';
 import {
   buildDayTable,
   twoPropP,
+  twoMeanP,
   contrastiveWords,
+  firstCheckHours,
   generateDeepInsights,
 } from '../deepInsights';
 import type { Habit, CheckIn } from '../types';
@@ -115,5 +117,67 @@ describe('generateDeepInsights — chain detection', () => {
     expect(chain).toBeDefined();
     expect(chain!.body).toContain('Course');
     expect(chain!.stat).toMatch(/p[<=]/);
+  });
+});
+
+describe('firstCheckHours', () => {
+  it('keeps the earliest completed check per day', () => {
+    const map = firstCheckHours([
+      { date: '2026-08-01', habitId: 'a', completed: true, checkedAt: '2026-08-01T09:00:00' },
+      { date: '2026-08-01', habitId: 'b', completed: true, checkedAt: '2026-08-01T07:30:00' },
+      { date: '2026-08-01', habitId: 'c', completed: false, checkedAt: '2026-08-01T06:00:00' },
+      { date: '2026-08-02', habitId: 'a', completed: false },
+    ]);
+    expect(map.get('2026-08-01')).toBe(7); // 07:30 local, failed 06:00 ignored
+    expect(map.has('2026-08-02')).toBe(false);
+  });
+});
+
+describe('twoMeanP', () => {
+  it('separates clearly shifted samples', () => {
+    const a = [0.9, 0.85, 0.8, 0.95, 0.88, 0.92];
+    const b = [0.4, 0.5, 0.45, 0.55, 0.42, 0.48];
+    expect(twoMeanP(a, b)!).toBeLessThan(0.001);
+  });
+});
+
+describe('generateDeepInsights — weekend drift', () => {
+  it('detects a habit collapsing on weekends', () => {
+    const habits = [habit('medit', 'Méditation')];
+    const checkIns: CheckIn[] = [];
+    // 40 days ending 2026-08-20 (Thu): done on weekdays, missed on weekends.
+    for (let i = 40; i >= 1; i--) {
+      const d = new Date('2026-08-20T00:00:00Z');
+      d.setUTCDate(d.getUTCDate() - i);
+      const date = d.toISOString().slice(0, 10);
+      const isWeekend = d.getUTCDay() === 0 || d.getUTCDay() === 6;
+      checkIns.push(ci(date, 'medit', !isWeekend));
+    }
+    const insights = generateDeepInsights(habits, checkIns, {}, {}, new Date('2026-08-20T12:00:00Z'));
+    const drift = insights.find((x) => x.id === 'drift|medit');
+    expect(drift).toBeDefined();
+    expect(drift!.title).toContain("s'effondre");
+  });
+});
+
+describe('generateDeepInsights — goal calibration', () => {
+  it('flags a chronically missed monthly goal', () => {
+    const habits: Habit[] = [{
+      id: 'gym', name: 'Gym', color: '#000', icon: 'x', order: 0, archived: false,
+      createdAt: '2026-01-01', goal: 26,
+    } as unknown as Habit];
+    const checkIns: CheckIn[] = [];
+    // May-Aug 2026: ~12 completions/month vs goal 26.
+    for (const [month, days] of [['2026-05', 31], ['2026-06', 30], ['2026-07', 31], ['2026-08', 19]] as [string, number][]) {
+      for (let d = 1; d <= days; d++) {
+        const date = `${month}-${String(d).padStart(2, '0')}`;
+        checkIns.push(ci(date, 'gym', d % 3 === 1)); // ~1/3 of days → ~10/mo
+      }
+    }
+    const insights = generateDeepInsights(habits, checkIns, {}, {}, new Date('2026-08-19T12:00:00Z'));
+    const calib = insights.find((x) => x.id === 'goalcal|gym');
+    expect(calib).toBeDefined();
+    expect(calib!.title).toContain('calibré trop haut');
+    expect(calib!.body).toContain('médiane');
   });
 });

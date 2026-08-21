@@ -89,6 +89,23 @@ function mean(xs: number[]): number {
   return xs.reduce((a, b) => a + b, 0) / xs.length;
 }
 
+function sd(xs: number[]): number {
+  if (xs.length < 2) return 0;
+  const m = mean(xs);
+  return Math.sqrt(xs.reduce((s, x) => s + (x - m) * (x - m), 0) / (xs.length - 1));
+}
+
+/** Two-mean z-test (normal approx, pooled SD) p-value, two-sided. */
+export function twoMeanP(a: number[], b: number[]): number | null {
+  if (a.length < 5 || b.length < 5) return null;
+  const sa = sd(a);
+  const sb = sd(b);
+  const pooled = Math.sqrt((sa * sa) / a.length + (sb * sb) / b.length);
+  if (pooled === 0) return mean(a) === mean(b) ? 1 : 0.001;
+  const z = (mean(a) - mean(b)) / pooled;
+  return 2 * (1 - normalCDF(Math.abs(z)));
+}
+
 // ---------- 1. chains: A(day t) → B(day t+1) → mood ----------
 
 function detectChains(habits: Habit[], days: Map<string, DayRow>): DeepInsight[] {
@@ -455,6 +472,223 @@ function detectRestartPattern(habits: Habit[], checkIns: CheckIn[], days: Map<st
   }];
 }
 
+// ---------- 7. goal calibration (objectif mensuel vs réalité) ----------
+
+function detectGoalCalibration(habits: Habit[], checkIns: CheckIn[], today: Date): DeepInsight[] {
+  const out: DeepInsight[] = [];
+  const now = new Date(`${today.toISOString().slice(0, 10)}T00:00:00Z`);
+  // Last 3 full months keys (YYYY-MM), oldest first
+  const months: string[] = [];
+  for (let i = 1; i <= 3; i++) {
+    const d = new Date(now);
+    d.setUTCDate(1);
+    d.setUTCMonth(d.getUTCMonth() - i);
+    months.push(d.toISOString().slice(0, 7));
+  }
+  for (const h of habits.filter((x) => !x.archived)) {
+    if (!h.goal || h.goal <= 0) continue;
+    const rates: { month: string; done: number }[] = [];
+    for (const m of months) {
+      const done = checkIns.filter((ci) => ci.habitId === h.id && ci.completed && ci.date.startsWith(m)).length;
+      rates.push({ month: m, done });
+    }
+    const ratio = rates.map((r) => r.done / h.goal);
+    // Needs at least 2 months tracked and chronic underachievement
+    const tracked = ratio.filter((r) => r > 0).length;
+    if (tracked < 2) continue;
+    const medianRatio = [...ratio].sort((a, b) => a - b)[Math.floor(ratio.length / 2)];
+    if (medianRatio >= 0.65) continue;
+    const suggested = Math.max(4, Math.round(h.goal * Math.max(0.5, medianRatio + 0.15)));
+    out.push({
+      id: `goalcal|${h.id}`,
+      icon: '🎯',
+      title: `Objectif "${h.name}" calibré trop haut`,
+      body: `Objectif : ${h.goal}/mois. Réalisé sur les 3 derniers mois : ${rates.map((r) => `${r.month.slice(5)}=${r.done}`).join(', ')} — médiane ${Math.round(medianRatio * 100)}% de la cible. Un objectif raté 3 mois de suite n'est plus une motivation, c'est un reproche. Baisse-le à ~${suggested}/mois : tu le tiendras, et tu pourras le remonter ensuite.`,
+      stat: `médiane ${Math.round(medianRatio * 100)}% · ${tracked} mois · suggestion ${suggested}`,
+      action: { label: 'Voir la grille', view: 'grid' },
+    });
+  }
+  return out.slice(0, 2);
+}
+
+// ---------- 8. first-check timing effect ----------
+
+export function firstCheckHours(checkIns: CheckIn[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const ci of checkIns) {
+    if (!ci.completed || !ci.checkedAt) continue;
+    const hour = new Date(ci.checkedAt).getHours();
+    const cur = map.get(ci.date);
+    if (cur === undefined || hour < cur) map.set(ci.date, hour);
+  }
+  return map;
+}
+
+function detectFirstCheckEffect(checkIns: CheckIn[], days: Map<string, DayRow>): DeepInsight[] {
+  const firstHour = firstCheckHours(checkIns);
+  const early: number[] = []; // done/tracked on days first check < 10h
+  const late: number[] = [];  // ≥ 12h
+  for (const [date, hour] of firstHour) {
+    const r = days.get(date);
+    if (!r || r.tracked.size < 3) continue;
+    const rate = r.done.size / r.tracked.size;
+    if (hour < 10) early.push(rate);
+    else if (hour >= 12) late.push(rate);
+  }
+  if (early.length < 8 || late.length < 8) return [];
+  const p = twoMeanP(early, late);
+  const diff = mean(early) - mean(late);
+  if (p === null || p >= 0.05 || diff < 0.1) return [];
+  return [{
+    id: 'firstcheck',
+    icon: '🌅',
+    title: 'Ton premier coche tire toute la journée',
+    body: `Les jours où tu coches quelque chose avant 10h, tu complètes ${Math.round(mean(early) * 100)}% de tes habitudes ; après 12h, seulement ${Math.round(mean(late) * 100)}%. L'effet premier coche est réel dans TES données — ancre une micro-habitude au réveil (2 min max) et le reste suit.`,
+    stat: `n=${early.length}j vs ${late.length}j · Δ${Math.round(diff * 100)}pts · ${fmtP(p)}`,
+    action: { label: 'Voir stats', view: 'stats' },
+  }];
+}
+
+// ---------- 9. weekend drift per habit ----------
+
+function detectWeekendDrift(habits: Habit[], days: Map<string, DayRow>, today: Date): DeepInsight[] {
+  const todayStr = today.toISOString().slice(0, 10);
+  const out: DeepInsight[] = [];
+  for (const h of habits.filter((x) => !x.archived)) {
+    let wkK = 0; let wkN = 0; let weK = 0; let weN = 0;
+    for (let i = 0; i < 90; i++) {
+      const d = shiftDate(todayStr, -i);
+      const r = days.get(d);
+      if (!r || !r.tracked.has(h.id)) continue;
+      const dow = new Date(`${d}T00:00:00Z`).getUTCDay();
+      if (dow === 0 || dow === 6) { weN++; if (r.done.has(h.id)) weK++; }
+      else { wkN++; if (r.done.has(h.id)) wkK++; }
+    }
+    if (wkN < 10 || weN < 5) continue;
+    const p = twoPropP(wkK, wkN, weK, weN);
+    if (p === null || p >= 0.05) continue;
+    const diff = wkK / wkN - weK / weN;
+    if (Math.abs(diff) < 0.15) continue;
+    out.push({
+      id: `drift|${h.id}`,
+      icon: diff > 0 ? '🛋️' : '💪',
+      title: diff > 0
+        ? `"${h.name}" s'effondre le week-end`
+        : `"${h.name}" : ton point d'appui du week-end`,
+      body: diff > 0
+        ? `Semaine : ${Math.round((wkK / wkN) * 100)}% (${wkK}/${wkN}) vs week-end : ${Math.round((weK / weN) * 100)}% (${weK}/${weN}). Ce n'est pas un manque de volonté ponctuel, c'est structurel — prévois une version week-end plus petite (moitié moins, autre créneau).`
+        : `Contrairement au reste, "${h.name}" monte le week-end : ${Math.round((weK / weN) * 100)}% (${weK}/${weN}) vs ${Math.round((wkK / wkN) * 100)}% en semaine (${wkK}/${wkN}). C'est ton socle stable quand la semaine dérape.`,
+      stat: `semaine ${wkK}/${wkN} · w-e ${weK}/${weN} · Δ${diff > 0 ? '-' : '+'}${Math.abs(Math.round(diff * 100))}pts · ${fmtP(p)}`,
+    });
+  }
+  return out.sort((a, b) => parseInt(b.stat.match(/Δ([-+]\d+)/)?.[1] ?? '0', 10) - parseInt(a.stat.match(/Δ([-+]\d+)/)?.[1] ?? '0', 10)).slice(0, 2);
+}
+
+// ---------- 10. pair synergy on mood ----------
+
+function detectPairSynergy(habits: Habit[], days: Map<string, DayRow>): DeepInsight[] {
+  const active = habits.filter((h) => !h.archived);
+  const dates = [...days.keys()].sort().filter((d) => days.get(d)!.mood !== null);
+  if (dates.length < 20) return [];
+  interface Hit { a: Habit; b: Habit; bothMood: number[]; neitherMood: number[]; p: number; }
+  const hits: Hit[] = [];
+  for (let i = 0; i < active.length; i++) {
+    for (let j = i + 1; j < active.length; j++) {
+      const a = active[i];
+      const b = active[j];
+      const both: number[] = [];
+      const neither: number[] = [];
+      for (const d of dates) {
+        const r = days.get(d)!;
+        const aDone = r.done.has(a.id);
+        const bDone = r.done.has(b.id);
+        if (aDone && bDone) both.push(r.mood!);
+        else if (!r.tracked.has(a.id) && !r.tracked.has(b.id)) continue; // day off entirely → ignore
+        else if (!aDone && !bDone) neither.push(r.mood!);
+      }
+      if (both.length < 6 || neither.length < 6) continue;
+      const diff = mean(both) - mean(neither);
+      if (diff < 0.4) continue;
+      const p = twoMeanP(both, neither);
+      if (p === null || p >= 0.05) continue;
+      hits.push({ a, b, bothMood: both, neitherMood: neither, p });
+    }
+  }
+  hits.sort((x, y) => (mean(y.bothMood) - mean(y.neitherMood)) - (mean(x.bothMood) - mean(x.neitherMood)));
+  const top = hits[0];
+  if (!top) return [];
+  return [{
+    id: `synergy|${top.a.id}|${top.b.id}`,
+    icon: '🤝',
+    title: `Duo gagnant : "${top.a.name}" + "${top.b.name}"`,
+    body: `Les jours où tu fais LES DEUX, ton humeur moyenne est ${mean(top.bothMood).toFixed(1)} vs ${mean(top.neitherMood).toFixed(1)} les jours où aucune des deux n'est faite (+${(mean(top.bothMood) - mean(top.neitherMood)).toFixed(1)}). Ce combo vaut plus que la somme de ses parties — protège-les ensemble, surtout les jours difficiles.`,
+    stat: `n=${top.bothMood.length}j duo vs ${top.neitherMood.length}j zéro · ${fmtP(top.p)}`,
+    action: { label: 'Voir corrélations', view: 'correlations' },
+  }];
+}
+
+// ---------- 11. weekly load sweet spot ----------
+
+function detectWeeklyLoad(days: Map<string, DayRow>, today: Date): DeepInsight[] {
+  const todayStr = today.toISOString().slice(0, 10);
+  // group last 84 days into Mon-Sun weeks
+  const weeks = new Map<string, { dones: number; moodDays: number; moodSum: number }>();
+  for (let i = 0; i < 84; i++) {
+    const d = shiftDate(todayStr, -i);
+    const dt = new Date(`${d}T00:00:00Z`);
+    const dow = dt.getUTCDay();
+    // Monday-based week key
+    const monday = new Date(dt);
+    monday.setUTCDate(dt.getUTCDate() - ((dow + 6) % 7));
+    const key = monday.toISOString().slice(0, 10);
+    const r = days.get(d);
+    if (!r) continue;
+    const w = weeks.get(key) ?? { dones: 0, moodDays: 0, moodSum: 0 };
+    w.dones += r.done.size;
+    if (r.mood !== null) { w.moodDays++; w.moodSum += r.mood; }
+    weeks.set(key, w);
+  }
+  const valid = [...weeks.entries()]
+    .filter(([, w]) => w.moodDays >= 3)
+    .map(([key, w]) => ({ key, load: w.dones, mood: w.moodSum / w.moodDays }))
+    .filter((w) => w.load > 0)
+    .sort((a, b) => b.mood - a.mood);
+  if (valid.length < 6) return [];
+  const top = valid.slice(0, 3);
+  const bottom = valid.slice(-3);
+  const topLoads = top.map((w) => w.load).sort((a, b) => a - b);
+  const bottomMeanLoad = mean(bottom.map((w) => w.load));
+  const topMeanLoad = mean(topLoads);
+  // current week load
+  const currentMonday = (() => {
+    const dt = new Date(`${todayStr}T00:00:00Z`);
+    const dow = dt.getUTCDay();
+    const m = new Date(dt);
+    m.setUTCDate(dt.getUTCDate() - ((dow + 6) % 7));
+    return m.toISOString().slice(0, 10);
+  })();
+  const cur = weeks.get(currentMonday);
+
+  if (topMeanLoad + 2 <= bottomMeanLoad) {
+    return [{
+      id: 'load|less',
+      icon: '🎚️',
+      title: 'Ta zone optimale : faire MOINS',
+      body: `Tes semaines d'humeur haute tournent à ${Math.round(topMeanLoad)} coches en moyenne, celles d'humeur basse à ${Math.round(bottomMeanLoad)}. Chez toi, en faire plus s'accompagne d'une humeur plus basse — signe de surcharge. Expérimente un plafond à ~${Math.round(topMeanLoad)} cette semaine.${cur ? ` Tu es actuellement à ${cur.dones}.` : ''}`,
+      stat: `${valid.length} semaines · top-3 vs bottom-3 humeur`,
+    }];
+  }
+  const lo = topLoads[0];
+  const hi = topLoads[topLoads.length - 1];
+  return [{
+    id: 'load|zone',
+    icon: '🎚️',
+    title: 'Ta charge hebdo optimale',
+    body: `Tes 3 meilleures semaines d'humeur ont un point commun : ${lo}–${hi} coches. En dessous, tu tournes à vide ; au-dessus de ${hi}, l'humeur ne monte plus. Utilise ${hi} comme plafond sain plutôt que comme plancher.${cur ? ` Cette semaine : ${cur.dones}.` : ''}`,
+    stat: `${valid.length} semaines · zone ${lo}-${hi}`,
+  }];
+}
+
 // ---------- entry ----------
 
 export function generateDeepInsights(
@@ -468,13 +702,18 @@ export function generateDeepInsights(
     const days = buildDayTable(checkIns, moods, energies);
     const out: DeepInsight[] = [
       ...detectStreakRisk(habits, days, today),
+      ...detectFirstCheckEffect(checkIns, days),
       ...detectChains(habits, days),
+      ...detectGoalCalibration(habits, checkIns, today),
       ...detectCannibalization(habits, days),
+      ...detectWeekendDrift(habits, days, today),
+      ...detectPairSynergy(habits, days),
+      ...detectWeeklyLoad(days, today),
       ...detectOwnWords(checkIns, today),
       ...detectDoseResponse(days),
       ...detectRestartPattern(habits, checkIns, days, today),
     ];
-    return out.slice(0, 7);
+    return out.slice(0, 9);
   } catch {
     return [];
   }
