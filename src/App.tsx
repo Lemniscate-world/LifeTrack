@@ -1055,9 +1055,7 @@ const DEFAULT_CATEGORIES = [
   function handleDragEnd(result: { source: { index: number }; destination?: { index: number } | null }) {
     if (!result.destination) return;
     // Diagnostic: log to help chase the "1-2 lines off" report
-    try {
-      console.log('[drag] source', result.source.index, '→ dest', result.destination.index);
-    } catch {}
+    console.log('[drag] source', result.source.index, '→ dest', result.destination.index);
     // hello-pangea gives dest as post-removal index; reorderHabits handles that.
     reorderHabits(result.source.index, result.destination.index);
   }
@@ -2544,10 +2542,8 @@ function InsightsView({
     try { return getDismissedRecs(); } catch { return []; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeTick]);
-  // TREND/WEEKLY_TREND live in the Correlations tab (Trends sub-tab) — not here.
   const visibleRecs = useMemo(
-    () => rotateRecommendations(recommendations, dismissed, new Date(), 10)
-      .filter((r) => r.kind !== 'TREND' && r.kind !== 'WEEKLY_TREND'),
+    () => rotateRecommendations(recommendations, dismissed, new Date(), 10),
     [recommendations, dismissed],
   );
   const dismissAll = recommendations.length > 0 && visibleRecs.length === 0;
@@ -2708,30 +2704,17 @@ function InsightsView({
     RECORD_APPROACH: '🔥',
     CHAOS_CORRELATION: '🌀',
     NEGLECTED: '⏰',
-    RECOVERY_PATTERN: '🔄',
     PRIME_TIME: '⭐',
     CORRELATION: '🤝',
-    TREND: '📊',
     WEEKLY_SUMMARY: '📋',
     STREAK_MILESTONE: '🎯',
-    PERFECT_WEEK: '✨',
     MANTRA_MATCH: '🧘',
-    NOTE_POSITIVE: '💚',
-    NOTE_OBSTACLE: '💡',
-    GOAL_PROGRESS: '🎯',
     BURNOUT_RISK: '🫀',
-    WEEKLY_TREND: '📊',
-    SYNERGY: '🤝',
-    MOOD_STREAK: '📈',
-    URGE_WIN: '🛡️',
     URGE_TRIGGER: '🎯',
-    CAPACITY_SURGE: '⚡',
     EXPERIMENT_RESULT: '🔬',
     NOTE_THEME: '📝',
     PERFECT_DAY: '🌟',
-    ENERGY_BUDGET: '🔋',
     WEEKLY_LETTER: '✉️',
-    STREAK_SAVER: '🛟',
     JOURNAL_THEME: '📓',
     REFLECTION_DUE: '💭',
     REFLECTION_REVIEW: '🔄',
@@ -2748,34 +2731,19 @@ function InsightsView({
     RECORD_APPROACH: () => onView('stats'),
     CHAOS_CORRELATION: () => onView('chaos'),
     NEGLECTED: () => onView('grid'),
-    RECOVERY_PATTERN: () => onView('history'),
     PRIME_TIME: () => onView('stats'),
     CORRELATION: (rec) => {
       if (rec.habitIds.length >= 2) onLink(rec.habitIds[0], rec.habitIds[1]);
     },
-    TREND: () => onView('history'),
     WEEKLY_SUMMARY: () => onView('history'),
     STREAK_MILESTONE: () => onView('stats'),
-    PERFECT_WEEK: () => onView('history'),
     MANTRA_MATCH: () => onView('mantras'),
-    NOTE_POSITIVE: () => onView('grid'),
-    NOTE_OBSTACLE: () => onView('grid'),
-    GOAL_PROGRESS: () => onView('stats'),
     BURNOUT_RISK: () => onView('history'),
-    WEEKLY_TREND: () => onView('history'),
-    SYNERGY: (rec) => {
-      if (rec.habitIds.length >= 2) onLink(rec.habitIds[0], rec.habitIds[1]);
-    },
-    MOOD_STREAK: () => onView('history'),
-    URGE_WIN: () => onView('urges'),
     URGE_TRIGGER: () => onView('urges'),
-    CAPACITY_SURGE: () => onView('skills'),
     EXPERIMENT_RESULT: () => onView('experiments'),
     NOTE_THEME: () => onView('history'),
     PERFECT_DAY: () => onView('stats'),
-    ENERGY_BUDGET: () => onView('chaos'),
     WEEKLY_LETTER: () => onView('history'),
-    STREAK_SAVER: () => onView('grid'),
     JOURNAL_THEME: () => onView('journal'),
     REFLECTION_DUE: () => onView('journal'),
     REFLECTION_REVIEW: () => onView('journal'),
@@ -2784,7 +2752,59 @@ function InsightsView({
     AI_RISK: () => onView('journal'),
   };
 
-  // --- Deep analysis (chains, streak risk, own-words, dose, interference) ---
+  /** Mini month calendar with planned days highlighted — makes a plan visible. */
+function MiniPlanCalendar({ dates, label }: { dates: string[]; label: string }) {
+  const planned = useMemo(() => new Set(dates), [dates]);
+  const todayStr = new Date().toISOString().slice(0, 10);
+  // Grid spans from the first to the last planned date (padded to full weeks),
+  // so the calendar is compact and always centered on the action days.
+  const sorted = [...dates].sort();
+  const start = sorted[0] ?? todayStr;
+  const end = sorted[sorted.length - 1] ?? todayStr;
+  const cells: { iso: string; day: number }[] = [];
+  const startDate = new Date(`${start}T00:00:00Z`);
+  const padStart = (startDate.getUTCDay() + 6) % 7; // Monday-first offset
+  for (let i = 0; i < padStart; i++) cells.push({ iso: '', day: 0 });
+  const endDate = new Date(`${end}T00:00:00Z`);
+  for (const cur = new Date(startDate); cur <= endDate; cur.setUTCDate(cur.getUTCDate() + 1)) {
+    const iso = cur.toISOString().slice(0, 10);
+    cells.push({ iso, day: cur.getUTCDate() });
+    if (cells.length > 62) break; // safety cap
+  }
+  return (
+    <div className="mini-cal">
+      <div className="mini-cal-label">{label}</div>
+      <div className="mini-cal-grid">
+        {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => (
+          <span key={`h${i}`} className="mini-cal-head">{d}</span>
+        ))}
+        {cells.map((c, i) =>
+          c.iso === '' ? (
+            <span key={`e${i}`} className="mini-cal-day empty" />
+          ) : (
+            <span
+              key={c.iso}
+              className={[
+                'mini-cal-day',
+                planned.has(c.iso) ? 'planned' : '',
+                c.iso === todayStr ? 'today' : '',
+                c.iso < todayStr ? 'past' : '',
+              ].filter(Boolean).join(' ')}
+              title={planned.has(c.iso) ? 'Jour planifié' : ''}
+            >
+              {c.day}
+            </span>
+          ),
+        )}
+      </div>
+      <div className="mini-cal-legend">
+        <span className="mini-cal-dot planned" /> jours à cocher · {dates.length} jours planifiés
+      </div>
+    </div>
+  );
+}
+
+// --- Deep analysis (chains, streak risk, own-words, dose, interference) ---
   const deepInsights = useMemo((): DeepInsight[] => {
     try {
       const allData = exportAllData();
@@ -2803,6 +2823,9 @@ function InsightsView({
             <div className="deep-body">
               <div className="deep-title">{card.title}</div>
               <div className="deep-text">{card.body}</div>
+              {card.plan && card.plan.dates.length > 0 && (
+                <MiniPlanCalendar dates={card.plan.dates} label={card.plan.label} />
+              )}
               <div className="deep-stat">{card.stat}</div>
             </div>
             {card.action && (

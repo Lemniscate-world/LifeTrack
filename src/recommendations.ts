@@ -40,30 +40,17 @@ export type RecKind =
   | 'RECORD_APPROACH'
   | 'CHAOS_CORRELATION'
   | 'NEGLECTED'
-  | 'RECOVERY_PATTERN'
   | 'PRIME_TIME'
   | 'CORRELATION'
-  | 'TREND'
   | 'WEEKLY_SUMMARY'
   | 'STREAK_MILESTONE'
-  | 'PERFECT_WEEK'
   | 'MANTRA_MATCH'
-  | 'NOTE_POSITIVE'
-  | 'NOTE_OBSTACLE'
-  | 'GOAL_PROGRESS'
   | 'BURNOUT_RISK'
-  | 'WEEKLY_TREND'
-  | 'SYNERGY'
-  | 'MOOD_STREAK'
-  | 'URGE_WIN'
   | 'URGE_TRIGGER'
-  | 'CAPACITY_SURGE'
   | 'EXPERIMENT_RESULT'
   | 'NOTE_THEME'
   | 'PERFECT_DAY'
-  | 'ENERGY_BUDGET'
   | 'WEEKLY_LETTER'
-  | 'STREAK_SAVER'
   | 'JOURNAL_THEME'
   | 'REFLECTION_DUE'
   | 'REFLECTION_REVIEW'
@@ -72,7 +59,7 @@ export type RecKind =
   | 'AI_RISK';
 
 /** Number of distinct insight rule kinds — kept in sync with RecKind. */
-export const INSIGHT_RULES_COUNT = 35;
+export const INSIGHT_RULES_COUNT = 22;
 
 export interface Recommendation {
   kind: RecKind;
@@ -170,13 +157,21 @@ function detectMissPatterns(
       if (dayTotal[d] < 4) continue; // not enough data
       const missRate = dayMisses[d] / dayTotal[d];
       if (missRate >= MISS_PATTERN_THRESHOLD) {
+        // Deep: is this weekday really worse than the rest? (two-proportion z)
+        const otherMiss = dayMisses.reduce((s, v, i) => (i === d ? s : s + v), 0);
+        const otherTotal = dayTotal.reduce((s, v, i) => (i === d ? s : s + v), 0);
+        const pVal = diffProportionsP(dayMisses[d], dayTotal[d], otherMiss, Math.max(1, otherTotal));
+        const sig = pVal !== null && pVal < 0.05;
+        const pTxt = pVal === null ? 'n insuffisant' : pVal < 0.001 ? 'p<0.001' : `p=${pVal.toFixed(3)}`;
+        const baseRate = otherTotal > 0 ? otherMiss / otherTotal : 0;
+        const ratio = baseRate > 0 ? missRate / baseRate : 0;
         recs.push({
           kind: 'MISS_PATTERN',
-          title: `You skip "${habit.name}" on ${DAY_NAMES[d]}s`,
-          detail: `Over the last 12 weeks, you missed ${habit.name} on ${Math.round(missRate * 100)}% of ${DAY_NAMES[d]}s (${dayMisses[d]} of ${dayTotal[d]}). Consider lowering the bar or planning a backup routine for that day.`,
+          title: `${sig ? '🚨' : '👀'} "${habit.name}" : les ${DAY_NAMES[d]}s sont ton point noir`,
+          detail: `Sur 12 semaines tu rates "${habit.name}" ${Math.round(missRate * 100)}% des ${DAY_NAMES[d]}s (${dayMisses[d]}/${dayTotal[d]}) vs ${Math.round(baseRate * 100)}% les autres jours${ratio > 0 ? ` — ×${ratio.toFixed(1)} plus de ratés` : ''} · ${pTxt}. ${sig ? `Ce n'est pas du hasard : prévois dès maintenant une version réduite du ${DAY_NAMES[d]} (2 minutes suffisent à garder la chaîne vivante), ou décale vers ton meilleur jour.` : "Tendance à surveiller — si ça se confirme encore 2 semaines, adapte ce jour-là."}`,
           habitIds: [habit.id],
-          strength: Math.round(missRate * 100),
-          actionLabel: 'View history',
+          strength: Math.min(95, Math.round(missRate * 60 + (sig ? 35 : 10))),
+          actionLabel: 'Voir historique',
         });
       }
     }
@@ -227,13 +222,28 @@ function detectStackSuggestions(
       const parentRate = rate30.get(parent.id) ?? 0;
       const childRate = rate30.get(child.id) ?? 0;
       if (parentRate >= STACK_CORRELATION_MIN && childRate < parentRate) {
+        // Deep: co-occurrence lift — when the parent is done, how often is the
+        // child done the SAME day vs its baseline? (two-proportion z)
+        const thirtyAgo = dateStrDaysAgo(ACTUAL_WINDOW_DAYS - 1, now);
+        const parentDone = new Set(
+          checkIns.filter((c) => c.habitId === parent.id && c.completed && c.date >= thirtyAgo).map((c) => c.date),
+        );
+        const childDone = new Set(
+          checkIns.filter((c) => c.habitId === child.id && c.completed && c.date >= thirtyAgo).map((c) => c.date),
+        );
+        let both = 0;
+        for (const d of parentDone) if (childDone.has(d)) both++;
+        const pVal = diffProportionsP(both, parentDone.size, childDone.size - both, Math.max(1, ACTUAL_WINDOW_DAYS - parentDone.size));
+        const sig = pVal !== null && pVal < 0.05;
+        const lift = parentDone.size > 0 ? (both / parentDone.size) / Math.max(0.01, childRate) : 1;
+        const liftTxt = lift >= 1.3 ? ` · quand "${parent.name}" est faite, tu fais "${child.name}" ×${lift.toFixed(1)} plus souvent${sig ? ' (significatif)' : ''}` : '';
         const candidate: Recommendation = {
           kind: 'STACK_SUGGESTION',
-          title: `Stack "${child.name}" after "${parent.name}"`,
-          detail: `"${parent.name}" was completed on ${Math.round(parentRate * ACTUAL_WINDOW_DAYS)} of the last ${ACTUAL_WINDOW_DAYS} days (${Math.round(parentRate * 100)}%), while "${child.name}" is at ${Math.round(childRate * ACTUAL_WINDOW_DAYS)} days (${Math.round(childRate * 100)}%). Linking them could anchor the new habit to an existing routine.`,
+          title: `🔗 Attache "${child.name}" après "${parent.name}"`,
+          detail: `"${parent.name}" tient ${Math.round(parentRate * 100)}% des jours (${Math.round(parentRate * ACTUAL_WINDOW_DAYS)}/${ACTUAL_WINDOW_DAYS}) contre ${Math.round(childRate * 100)}% pour "${child.name}"${liftTxt}. Ancre la faible sur la forte : même lieu, juste après. ${pVal !== null ? `${pVal < 0.001 ? 'p<0.001' : `p=${pVal.toFixed(3)}`}${sig ? '' : ' · tendance à confirmer'}.` : ''}`,
           habitIds: [child.id, parent.id],
-          strength: Math.min(100, Math.round(parentRate * 100)),
-          actionLabel: 'Link now',
+          strength: Math.min(100, Math.round(parentRate * 70 + (sig ? 25 : 5))),
+          actionLabel: 'Lier maintenant',
         };
         const existing = bestPerChild.get(child.id);
         if (!existing || candidate.strength > existing.strength) {
@@ -304,55 +314,40 @@ function detectNeglected(
     }
     const ago = daysSince(lastCheck, now);
     if (ago >= NEGLECT_DAYS) {
+      // Deep: find the user's best restart weekday from their own history —
+      // the day-of-week with the highest completion rate over the last 8 weeks.
+      const dowK = new Array(7).fill(0);
+      const dowN = new Array(7).fill(0);
+      const doneSet = new Set(checkIns.filter((c) => c.completed).map((c) => `${c.habitId}|${c.date}`));
+      for (let i = 1; i <= 56; i++) {
+        const d = dateStrDaysAgo(i, now);
+        for (const hh of habits) {
+          if (hh.archived) continue;
+          const tracked = checkIns.some((c) => c.habitId === hh.id && c.date === d);
+          if (!tracked) continue;
+          const idx = new Date(`${d}T00:00:00Z`).getUTCDay();
+          dowN[idx]++;
+          if (doneSet.has(`${hh.id}|${d}`)) dowK[idx]++;
+        }
+      }
+      let bestDow = -1;
+      let bestRate = -1;
+      for (let i = 0; i < 7; i++) {
+        if (dowN[i] >= 5 && dowK[i] / dowN[i] > bestRate) { bestRate = dowK[i] / dowN[i]; bestDow = i; }
+      }
+      const restartTxt = bestDow >= 0
+        ? `Ta meilleure fenêtre de reprise : le ${DAY_NAMES[bestDow]} (${Math.round(bestRate * 100)}% de réussite historique ce jour-là). D'ici là, coche une version "2 minutes" pour ne pas rompre l'identité.`
+        : 'Reprends avec une version réduite (2 minutes) plutôt que la version complète.';
       recs.push({
         kind: 'NEGLECTED',
-        title: `"${habit.name}" — ${ago} days since last check-in`,
-        detail: `Your last check-in was ${ago} days ago. A small step today can restart the momentum.`,
+        title: `"${habit.name}" — ${ago} jours sans coche`,
+        detail: `Dernier check-in il y a ${ago} jours. ${restartTxt}`,
         habitIds: [habit.id],
         strength: Math.min(100, ago * 15),
-        actionLabel: 'Go to habit',
+        actionLabel: 'Reprendre',
       });
     }
   }
-  recs.sort((a, b) => b.strength - a.strength);
-  return recs.slice(0, 3);
-}
-
-// --- Rule 5: Recovery pattern ---
-// "After missing 'Exercise', you recover on average in 1.2 days"
-function detectRecoveryPatterns(
-  habits: Habit[],
-  checkIns: CheckIn[],
-): Recommendation[] {
-  const recs: Recommendation[] = [];
-  for (const habit of habits) {
-    if (habit.archived) continue;
-    const checks = checkIns
-      .filter((ci) => ci.habitId === habit.id)
-      .sort((a, b) => a.date.localeCompare(b.date));
-    if (checks.length < 14) continue;
-
-    // Find gaps and recovery speed
-    const gaps: number[] = [];
-    for (let i = 1; i < checks.length; i++) {
-      const prev = new Date(checks[i - 1].date + 'T00:00:00Z');
-      const curr = new Date(checks[i].date + 'T00:00:00Z');
-      const diff = Math.round((curr.getTime() - prev.getTime()) / 86400000);
-      if (diff > 1 && diff <= 7) {
-        gaps.push(diff);
-      }
-    }
-    if (gaps.length < 2) continue;
-    const avgGap = Math.round((gaps.reduce((a, b) => a + b, 0) / gaps.length) * 10) / 10;
-    recs.push({
-      kind: 'RECOVERY_PATTERN',
-      title: `"${habit.name}" recovery: ${avgGap} days average`,
-      detail: `When you miss a day of "${habit.name}", you typically resume within ${avgGap} days (based on ${gaps.length} recovery events). Knowing this helps you plan — even a miss doesn't derail you permanently.`,
-      habitIds: [habit.id],
-      strength: Math.min(100, Math.round((7 - Math.min(avgGap, 7)) / 7 * 100)),
-    });
-  }
-  // Cap to top 3 to avoid drowning other recommendations on big habit lists
   recs.sort((a, b) => b.strength - a.strength);
   return recs.slice(0, 3);
 }
@@ -476,66 +471,6 @@ function detectCorrelations(
   return recs.slice(0, 3);
 }
 
-// --- Rule 8: Trend detection ---
-// "Your 'Exercise' completion is +15% this month vs last month"
-function detectTrends(
-  habits: Habit[],
-  checkIns: CheckIn[],
-  now: Date,
-): Recommendation[] {
-  const recs: Recommendation[] = [];
-  for (const habit of habits) {
-    if (habit.archived) continue;
-    // Use equal 30-day windows for fair comparison
-    const thisStart = new Date(now);
-    thisStart.setUTCDate(thisStart.getUTCDate() - 29);
-    const thisStartStr = thisStart.toISOString().slice(0, 10);
-    const lastEnd = new Date(now);
-    lastEnd.setUTCDate(lastEnd.getUTCDate() - 30);
-    const lastEndStr = lastEnd.toISOString().slice(0, 10);
-    const lastStart = new Date(now);
-    lastStart.setUTCDate(lastStart.getUTCDate() - 59);
-    const lastStartStr = lastStart.toISOString().slice(0, 10);
-
-    const thisPeriod = checkIns.filter(
-      (ci) => ci.habitId === habit.id && ci.date >= thisStartStr,
-    );
-    const lastPeriod = checkIns.filter(
-      (ci) => ci.habitId === habit.id && ci.date >= lastStartStr && ci.date <= lastEndStr,
-    );
-
-    const thisRate = thisPeriod.length > 0
-      ? thisPeriod.filter((ci) => ci.completed).length / thisPeriod.length
-      : 0;
-    const lastRate = lastPeriod.length > 0
-      ? lastPeriod.filter((ci) => ci.completed).length / lastPeriod.length
-      : 0;
-
-    if (thisPeriod.length < 7 || lastPeriod.length < 7) continue;
-    const delta = Math.round((thisRate - lastRate) * 100);
-    if (Math.abs(delta) < 10) continue; // only flag significant changes
-
-    // --- profondeur stat : h, p, puissance ---
-    const h = cohenH(thisRate, lastRate);
-    const pVal = diffProportionsP(thisRate, thisPeriod.length, lastRate, lastPeriod.length);
-    const pTxt = pVal === null ? 'n insuffisant' : pVal < 0.001 ? 'p<0.001' : `p=${pVal.toFixed(3)}`;
-    const sig = pVal !== null && pVal < 0.05;
-    const magnitude = Math.abs(h) < 0.2 ? 'négligeable' : Math.abs(h) < 0.5 ? 'petit' : Math.abs(h) < 0.8 ? 'moyen' : 'grand';
-    const caveat = thisPeriod.length + lastPeriod.length < 30 ? ' · échantillon faible — à confirmer sur 2-3 semaines' : sig ? '' : ' · non significatif — bruit possible';
-    const emoji = delta > 0 ? '📈' : '📉';
-    recs.push({
-      kind: 'TREND',
-      title: `${emoji} "${habit.name}" ${delta > 0 ? '+' : ''}${delta}% this month`,
-      detail: `Taux "${habit.name}" : ${Math.round(thisRate * 100)}% (n=${thisPeriod.length}) vs ${Math.round(lastRate * 100)}% (n=${lastPeriod.length}) le mois dernier. Δ=${delta > 0 ? '+' : ''}${delta}% · effet h=${h.toFixed(2)} (${magnitude}) · ${pTxt}${caveat}. ${sig ? (delta > 0 ? 'Progression réelle — capitalise.' : 'Baisse réelle — corrige vite.') : "Pas assez de signal — continue et réévalue."}`,
-      habitIds: [habit.id],
-      strength: Math.min(100, Math.round(Math.abs(delta) * 0.6 + Math.abs(h) * 30 + (sig ? 15 : 0) + 40)),
-      actionLabel: delta > 0 ? 'View stats' : 'Go to habit',
-    });
-  }
-  recs.sort((a, b) => b.strength - a.strength);
-  return recs.slice(0, 3);
-}
-
 // --- Rule 9: Weekly summary ---
 // "This week: 3 records beaten, stacks 80% done, chaos trend: down"
 function generateWeeklySummary(
@@ -644,70 +579,6 @@ function detectStreakMilestones(
   return recs;
 }
 
-// --- Rule 11: Perfect Week Detection ---
-// Flag when the user had a week with all habits completed every day
-function detectPerfectWeeks(
-  habits: Habit[],
-  checkIns: CheckIn[],
-  now: Date,
-): Recommendation[] {
-  const activeHabits = habits.filter((h) => !h.archived);
-  if (activeHabits.length < 2) return [];
-
-  // Look at the last completed week (Mon-Sun) and the current week
-  const today = new Date(now);
-  today.setUTCHours(0, 0, 0, 0);
-
-  // Build a map of date -> completed habit IDs
-  const byDate = new Map<string, Set<string>>();
-  for (const ci of checkIns) {
-    if (!ci.completed) continue;
-    let set = byDate.get(ci.date);
-    if (!set) { set = new Set(); byDate.set(ci.date, set); }
-    set.add(ci.habitId);
-  }
-
-  // Check last 4 weeks
-  const recs: Recommendation[] = [];
-  for (let w = 1; w <= 4; w++) {
-    const weekEnd = new Date(today);
-    weekEnd.setUTCDate(weekEnd.getUTCDate() - (w - 1) * 7);
-    const weekStart = new Date(weekEnd);
-    weekStart.setUTCDate(weekStart.getUTCDate() - 6);
-
-    let perfectDays = 0;
-    let totalDays = 0;
-    const perfectDates: string[] = [];
-
-    for (let d = 0; d < 7; d++) {
-      const date = new Date(weekStart);
-      date.setUTCDate(date.getUTCDate() + d);
-      const ds = date.toISOString().slice(0, 10);
-      if (ds > today.toISOString().slice(0, 10)) continue;
-      totalDays++;
-      const completed = byDate.get(ds);
-      if (completed && completed.size >= activeHabits.length) {
-        perfectDays++;
-        perfectDates.push(ds);
-      }
-    }
-
-    if (perfectDays >= 3 && totalDays >= 5) {
-      const weekLabel = w === 1 ? 'This week' : w === 2 ? 'Last week' : `${w} weeks ago`;
-      recs.push({
-        kind: 'PERFECT_WEEK',
-        title: `✨ ${perfectDays} perfect day${perfectDays > 1 ? 's' : ''} ${weekLabel.toLowerCase()}`,
-        detail: `You completed ALL ${activeHabits.length} habits on ${perfectDays} day${perfectDays > 1 ? 's' : ''} ${weekLabel.toLowerCase()}. That's exceptional consistency — these are the days that compound into real change.`,
-        habitIds: activeHabits.map((h) => h.id),
-        strength: Math.min(100, Math.round((perfectDays / totalDays) * 100)),
-        actionLabel: 'View history',
-      });
-      break; // only show the most recent perfect week
-    }
-  }
-  return recs.slice(0, 1);
-}
-
 // --- Rule 12: Mantra Match ---
 // Suggest a relevant mantra when a habit in that domain is neglected
 function detectMantraMatches(
@@ -756,124 +627,6 @@ function detectMantraMatches(
 // Pure local analysis — no AI needed.
 function normalizeForMatch(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-}
-const NOTE_KEYWORDS: Record<string, { label: string; sentiment: 'positive' | 'negative' | 'neutral' }> = {
-  // fatigue / énergie — FR + EN, avec variantes
-  tired: { label: 'fatigue', sentiment: 'negative' }, fatigue: { label: 'fatigue', sentiment: 'negative' }, fatiguee: { label: 'fatigue', sentiment: 'negative' },
-  exhausted: { label: 'épuisement', sentiment: 'negative' }, epuise: { label: 'épuisement', sentiment: 'negative' }, epuisee: { label: 'épuisement', sentiment: 'negative' }, creve: { label: 'épuisement', sentiment: 'negative' }, videe: { label: 'épuisement', sentiment: 'negative' },
-  'no energy': { label: "manque d'énergie", sentiment: 'negative' }, 'sans energie': { label: "manque d'énergie", sentiment: 'negative' }, 'pas d\'energie': { label: "manque d'énergie", sentiment: 'negative' }, drained: { label: "manque d'énergie", sentiment: 'negative' },
-  // stress / anxiété
-  stress: { label: 'stress', sentiment: 'negative' }, stresse: { label: 'stress', sentiment: 'negative' }, pressure: { label: 'stress', sentiment: 'negative' }, pression: { label: 'stress', sentiment: 'negative' }, overwhelmed: { label: 'stress', sentiment: 'negative' }, submerge: { label: 'stress', sentiment: 'negative' }, deborde: { label: 'stress', sentiment: 'negative' },
-  anxious: { label: 'anxiété', sentiment: 'negative' }, anxieux: { label: 'anxiété', sentiment: 'negative' }, anxieuse: { label: 'anxiété', sentiment: 'negative' }, angoisse: { label: 'anxiété', sentiment: 'negative' }, inquiet: { label: 'anxiété', sentiment: 'negative' }, inquiete: { label: 'anxiété', sentiment: 'negative' },
-  // humeur basse / déprime
-  sad: { label: 'tristesse', sentiment: 'negative' }, triste: { label: 'tristesse', sentiment: 'negative' }, depressed: { label: 'déprime', sentiment: 'negative' }, deprime: { label: 'déprime', sentiment: 'negative' }, deprimee: { label: 'déprime', sentiment: 'negative' }, down: { label: 'déprime', sentiment: 'negative' }, morose: { label: 'déprime', sentiment: 'negative' },
-  // obstacles / manques
-  'hard day': { label: 'journée difficile', sentiment: 'negative' }, 'journee difficile': { label: 'journée difficile', sentiment: 'negative' }, difficile: { label: 'journée difficile', sentiment: 'negative' },
-  sick: { label: 'maladie', sentiment: 'negative' }, malade: { label: 'maladie', sentiment: 'negative' }, fievre: { label: 'maladie', sentiment: 'negative' }, fever: { label: 'maladie', sentiment: 'negative' },
-  skipped: { label: 'oubli', sentiment: 'negative' }, forgot: { label: 'oubli', sentiment: 'negative' }, oublie: { label: 'oubli', sentiment: 'negative' }, rate: { label: 'oubli', sentiment: 'negative' },
-  'didn\'t feel': { label: 'manque de motivation', sentiment: 'negative' }, 'pas motive': { label: 'manque de motivation', sentiment: 'negative' }, 'pas motivee': { label: 'manque de motivation', sentiment: 'negative' }, demotive: { label: 'manque de motivation', sentiment: 'negative' },
-  lazy: { label: 'paresse', sentiment: 'negative' }, paresse: { label: 'paresse', sentiment: 'negative' }, flemme: { label: 'paresse', sentiment: 'negative' }, procrastine: { label: 'paresse', sentiment: 'negative' },
-  busy: { label: 'emploi du temps chargé', sentiment: 'negative' }, charge: { label: 'emploi du temps chargé', sentiment: 'negative' }, rush: { label: 'emploi du temps chargé', sentiment: 'negative' },
-  // victoires / énergie haute
-  great: { label: 'super journée', sentiment: 'positive' }, genial: { label: 'super journée', sentiment: 'positive' }, super: { label: 'super journée', sentiment: 'positive' }, top: { label: 'super journée', sentiment: 'positive' },
-  awesome: { label: 'excellente session', sentiment: 'positive' }, excellent: { label: 'excellente session', sentiment: 'positive' }, excellente: { label: 'excellente session', sentiment: 'positive' },
-  amazing: { label: 'session incroyable', sentiment: 'positive' }, incroyable: { label: 'session incroyable', sentiment: 'positive' },
-  proud: { label: 'fierté', sentiment: 'positive' }, fier: { label: 'fierté', sentiment: 'positive' }, fiere: { label: 'fierté', sentiment: 'positive' }, fierte: { label: 'fierté', sentiment: 'positive' },
-  'felt good': { label: 'bien-être', sentiment: 'positive' }, bien: { label: 'bien-être', sentiment: 'positive' }, heureux: { label: 'bien-être', sentiment: 'positive' }, heureuse: { label: 'bien-être', sentiment: 'positive' }, content: { label: 'bien-être', sentiment: 'positive' }, contente: { label: 'bien-être', sentiment: 'positive' },
-  energized: { label: 'plein d\'énergie', sentiment: 'positive' }, energie: { label: 'plein d\'énergie', sentiment: 'positive' }, dynamique: { label: 'plein d\'énergie', sentiment: 'positive' }, motive: { label: 'plein d\'énergie', sentiment: 'positive' }, motivee: { label: 'plein d\'énergie', sentiment: 'positive' },
-  'best streak': { label: 'record personnel', sentiment: 'positive' }, record: { label: 'record personnel', sentiment: 'positive' }, victoire: { label: 'record personnel', sentiment: 'positive' }, win: { label: 'record personnel', sentiment: 'positive' }, reussi: { label: 'record personnel', sentiment: 'positive' }, reussite: { label: 'record personnel', sentiment: 'positive' },
-  easy: { label: 'facilité', sentiment: 'positive' }, facile: { label: 'facilité', sentiment: 'positive' }, fluide: { label: 'facilité', sentiment: 'positive' },
-  grateful: { label: 'gratitude', sentiment: 'positive' }, gratitude: { label: 'gratitude', sentiment: 'positive' }, reconnaissant: { label: 'gratitude', sentiment: 'positive' },
-  focus: { label: 'concentration', sentiment: 'positive' }, concentre: { label: 'concentration', sentiment: 'positive' }, flow: { label: 'concentration', sentiment: 'positive' },
-  // neutres / routines
-  morning: { label: 'routine du matin', sentiment: 'neutral' }, matin: { label: 'routine du matin', sentiment: 'neutral' }, matinee: { label: 'routine du matin', sentiment: 'neutral' },
-  evening: { label: 'routine du soir', sentiment: 'neutral' }, soir: { label: 'routine du soir', sentiment: 'neutral' }, soiree: { label: 'routine du soir', sentiment: 'neutral' },
-  weekend: { label: 'week-end', sentiment: 'neutral' }, 'week-end': { label: 'week-end', sentiment: 'neutral' },
-  travel: { label: 'voyage', sentiment: 'neutral' }, voyage: { label: 'voyage', sentiment: 'neutral' }, deplacement: { label: 'voyage', sentiment: 'neutral' },
-};
-
-function detectNoteInsights(
-  habits: Habit[],
-  checkIns: CheckIn[],
-  now: Date,
-): Recommendation[] {
-  const recs: Recommendation[] = [];
-  const thirtyDaysAgo = new Date(now);
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  const cutoff = thirtyDaysAgo.toISOString().slice(0, 10);
-
-  // Early exit: no notes in any check-in
-  const hasAnyNotes = checkIns.some(ci => {
-    if (ci.date < cutoff) return false;
-    if (ci.notes && ci.notes.length > 0) return true;
-    const legacyNote = (ci as unknown as Record<string, unknown>).note;
-    return typeof legacyNote === 'string' && legacyNote.trim().length > 0;
-  });
-  if (!hasAnyNotes) return [];
-
-  // Collect keyword matches per habit
-  const habitKeywords = new Map<string, Map<string, { count: number; sentiment: string; label: string }>>();
-
-  for (const ci of checkIns) {
-    if (ci.date < cutoff) continue;
-    const notes: string[] = ci.notes ?? [];
-    const legacyNote = (ci as unknown as Record<string, unknown>).note;
-    if (typeof legacyNote === 'string' && legacyNote.trim()) notes.push(legacyNote.trim());
-    if (notes.length === 0) continue;
-
-    const combinedText = notes.join(' ').toLowerCase();
-
-    for (const [keyword, info] of Object.entries(NOTE_KEYWORDS)) {
-      if (combinedText.includes(keyword)) {
-        let hk = habitKeywords.get(ci.habitId);
-        if (!hk) { hk = new Map(); habitKeywords.set(ci.habitId, hk); }
-        const existing = hk.get(keyword);
-        if (existing) {
-          existing.count++;
-        } else {
-          hk.set(keyword, { count: 1, sentiment: info.sentiment, label: info.label });
-        }
-      }
-    }
-  }
-
-  // Generate insights from keyword matches
-  for (const habit of habits) {
-    if (habit.archived) continue;
-    const hk = habitKeywords.get(habit.id);
-    if (!hk || hk.size === 0) continue;
-
-    const positives: string[] = [];
-    const negatives: string[] = [];
-    for (const [, info] of hk) {
-      if (info.sentiment === 'positive') positives.push(info.label);
-      if (info.sentiment === 'negative') negatives.push(info.label);
-    }
-
-    if (positives.length > 0) {
-      recs.push({
-        kind: 'NOTE_POSITIVE',
-        title: `✨ "${habit.name}" — you're doing great!`,
-        detail: `Your recent notes show positive patterns: ${positives.slice(0, 3).join(', ')}. Whatever approach you're using — it's working. Keep that momentum.`,
-        habitIds: [habit.id],
-        strength: 75,
-        actionLabel: 'View notes',
-      });
-    }
-
-    if (negatives.length > 0) {
-      recs.push({
-        kind: 'NOTE_OBSTACLE',
-        title: `💡 "${habit.name}" — obstacles detected`,
-        detail: `Your notes mention: ${negatives.slice(0, 3).join(', ')}. Consider adjusting your approach — smaller steps, different timing, or stacking with a stronger habit can help overcome these.`,
-        habitIds: [habit.id],
-        strength: 70,
-        actionLabel: 'Adjust habit',
-      });
-    }
-  }
-
-  return recs.slice(0, 3);
 }
 
 // --- Rule 14: Mood-Habit Link ---
@@ -993,81 +746,6 @@ function detectChaosHabitLink(
   return recs.slice(0, 2);
 }
 
-// --- Rule 16: Goal Progress ---
-// Warn when habits are far from or approaching their monthly goal.
-function detectGoalProgress(
-  habits: Habit[],
-  checkIns: CheckIn[],
-  now: Date,
-): Recommendation[] {
-  const recs: Recommendation[] = [];
-  const monthStart = new Date(now);
-  monthStart.setDate(1);
-  monthStart.setUTCHours(0, 0, 0, 0);
-  const monthStartStr = monthStart.toISOString().slice(0, 10);
-  const todayStr = now.toISOString().slice(0, 10);
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const dayOfMonth = now.getDate();
-  const monthProgress = dayOfMonth / daysInMonth; // 0..1
-
-  for (const habit of habits) {
-    if (habit.archived) continue;
-    if (!habit.goal || habit.goal <= 0) continue;
-
-    // Count completions this month
-    const monthCompletions = checkIns
-      .filter(ci => ci.habitId === habit.id && ci.date >= monthStartStr && ci.date <= todayStr && ci.completed)
-      .reduce((sum, ci) => sum + (ci.count ?? 1), 0);
-
-    // Require at least 5 check-ins total for meaningful goal analysis
-    const totalCheckIns = checkIns.filter(ci => ci.habitId === habit.id).length;
-    if (totalCheckIns < 5) continue;
-
-    const expectedAtThisPoint = Math.round(habit.goal * monthProgress);
-    const remaining = habit.goal - monthCompletions;
-    const daysLeft = daysInMonth - dayOfMonth;
-
-    // Ahead of pace
-    if (monthCompletions >= expectedAtThisPoint * 1.3 && monthCompletions >= 3) {
-      const ahead = monthCompletions - expectedAtThisPoint;
-      recs.push({
-        kind: 'GOAL_PROGRESS',
-        title: `🚀 "${habit.name}" — ${ahead} ahead of monthly pace`,
-        detail: `You've completed ${monthCompletions}/${habit.goal} (${Math.round(monthCompletions / habit.goal * 100)}%). At this rate, you'll finish ${Math.round(monthCompletions / monthProgress - habit.goal)} above your goal of ${habit.goal}.`,
-        habitIds: [habit.id],
-        strength: 85,
-        actionLabel: 'View stats',
-      });
-    }
-
-    // Behind pace and goal at risk
-    if (monthProgress > 0.4 && remaining > daysLeft * 1.5 && remaining >= 3) {
-      const shortfall = expectedAtThisPoint - monthCompletions;
-      recs.push({
-        kind: 'GOAL_PROGRESS',
-        title: `⚠️ "${habit.name}" — ${shortfall} behind monthly goal`,
-        detail: `You're at ${monthCompletions}/${habit.goal} with ${daysLeft} days left. You need ${remaining} more — about ${Math.ceil(remaining / Math.max(1, daysLeft))}/day. A small push now prevents a big gap later.`,
-        habitIds: [habit.id],
-        strength: Math.min(90, Math.round((shortfall / habit.goal) * 100) + 40),
-        actionLabel: 'Go to habit',
-      });
-    }
-
-    // Goal achieved!
-    if (monthCompletions >= habit.goal && habit.goal > 0) {
-      recs.push({
-        kind: 'GOAL_PROGRESS',
-        title: `🎉 "${habit.name}" — monthly goal REACHED!`,
-        detail: `You've hit ${monthCompletions}/${habit.goal} with ${daysLeft} days to spare. Time to celebrate — and maybe raise the bar next month!`,
-        habitIds: [habit.id],
-        strength: 95,
-        actionLabel: 'View stats',
-      });
-    }
-  }
-  return recs.slice(0, 3);
-}
-
 // --- Rule 17: Burnout / energy risk ---
 // v0.3.4: Watches the energy/physical/emotional side of life. A habit linked to
 // one of these dimensions that is visibly declining, combined with several
@@ -1179,204 +857,6 @@ function priorRate(habitId: string, checkIns: CheckIn[], now: Date): number {
   return prior.filter((c) => c.completed).length / prior.length;
 }
 
-// --- Rule 18: Weekly trend report ---
-// v0.3.4: Compares the last 4 completed weeks so the user can see momentum
-// (improving vs slipping) plus their best/worst day of the week.
-function detectWeeklyTrend(
-  habits: Habit[],
-  checkIns: CheckIn[],
-  now: Date,
-): Recommendation[] {
-  const recs: Recommendation[] = [];
-  const todayIdx = now.getUTCDay(); // 0=Sun
-  const daysAgoForWeek = (weekOffset: number) => todayIdx + 1 + weekOffset * 7; // start of week (Monday-ish) N weeks ago
-
-  const weekRate = (habitId: string, weekOffset: number): number | null => {
-    const start = dateStrDaysAgo(daysAgoForWeek(weekOffset) + 6, now); // oldest day of that week
-    const end = dateStrDaysAgo(daysAgoForWeek(weekOffset), now); // newest day
-    const inWin = checkIns.filter((ci) => ci.habitId === habitId && ci.date >= start && ci.date <= end);
-    if (inWin.length < 4) return null; // not enough tracked days in that week
-    return inWin.filter((c) => c.completed).length / inWin.length;
-  };
-
-  const completedSet = new Set<string>();
-  for (const ci of checkIns) if (ci.completed) completedSet.add(ci.date);
-  const last28 = new Set<string>();
-  for (let d = 1; d <= 28; d++) last28.add(dateStrDaysAgo(d, now));
-
-  // Per-habit momentum: week 4 (oldest) vs week 1 (recent).
-  for (const habit of habits) {
-    if (habit.archived) continue;
-    const w1 = weekRate(habit.id, 0);
-    const w4 = weekRate(habit.id, 3);
-    if (w1 === null || w4 === null) continue;
-    const delta = Math.round((w1 - w4) * 100);
-    if (delta >= 20) {
-      recs.push({
-        kind: 'WEEKLY_TREND',
-        title: `📈 "${habit.name}" — ${delta}% better than 3 weeks ago`,
-        detail: `Your completion for "${habit.name}" went from ${Math.round(w4 * 100)}% (4 weeks ago) to ${Math.round(w1 * 100)}% this week. Whatever changed, it's working — keep the momentum.`,
-        habitIds: [habit.id],
-        strength: 75,
-        actionLabel: 'View history',
-      });
-    } else if (delta <= -20) {
-      recs.push({
-        kind: 'WEEKLY_TREND',
-        title: `📉 "${habit.name}" — ${-delta}% below where you were 3 weeks ago`,
-        detail: `You were at ${Math.round(w4 * 100)}% for "${habit.name}" four weeks ago, and ${Math.round(w1 * 100)}% this week. Before it becomes a habit gap, find the smallest version of this habit you can still do daily.`,
-        habitIds: [habit.id],
-        strength: Math.min(90, 70 + Math.min(20, -delta)),
-        actionLabel: 'View history',
-      });
-    }
-  }
-
-  // Best / worst weekday across all habits (last 28 tracked days).
-  if (last28.size > 0) {
-    const dayScores: { completed: number; tracked: number }[] = Array.from({ length: 7 }, () => ({ completed: 0, tracked: 0 }));
-    for (let d = 1; d <= 28; d++) {
-      const ds = dateStrDaysAgo(d, now);
-      if (!last28.has(ds)) continue;
-      const dayIdx = new Date(ds + 'T00:00:00Z').getUTCDay();
-      const hadTracked = checkIns.some((ci) => ci.date === ds);
-      dayScores[dayIdx].tracked += hadTracked ? 1 : 0;
-      if (completedSet.has(ds)) dayScores[dayIdx].completed++;
-    }
-    let best = -1, worst = -1;
-    for (let i = 0; i < 7; i++) {
-      if (dayScores[i].tracked < 3) continue;
-      const rate = dayScores[i].completed / dayScores[i].tracked;
-      if (best === -1 || rate > dayScores[best].completed / Math.max(1, dayScores[best].tracked)) best = i;
-      if (worst === -1 || rate < dayScores[worst].completed / Math.max(1, dayScores[worst].tracked)) worst = i;
-    }
-    if (best !== -1 && worst !== -1 && best !== worst) {
-      const bestRate = Math.round((dayScores[best].completed / dayScores[best].tracked) * 100);
-      const worstRate = Math.round((dayScores[worst].completed / dayScores[worst].tracked) * 100);
-      recs.push({
-        kind: 'WEEKLY_TREND',
-        title: `🗓️ Your best day is ${DAY_NAMES[best]} (${bestRate}%), hardest is ${DAY_NAMES[worst]} (${worstRate}%)`,
-        detail: `Over the last 4 weeks you complete habits most on ${DAY_NAMES[best]} and least on ${DAY_NAMES[worst]}. Plan easy wins for ${DAY_NAMES[worst]} — that's where the real gains are.`,
-        habitIds: [],
-        strength: 60,
-        actionLabel: 'View history',
-      });
-    }
-  }
-
-  recs.sort((a, b) => b.strength - a.strength);
-  return recs.slice(0, 3);
-}
-
-// --- Rule 19: Habit synergy ---
-// v0.3.4: Habits you already complete together on the same day are natural
-// stack candidates — lean into the pattern instead of fighting it.
-function detectSynergy(
-  habits: Habit[],
-  checkIns: CheckIn[],
-): Recommendation[] {
-  const active = habits.filter((h) => !h.archived);
-  if (active.length < 2) return [];
-
-  const byHabit = new Map<string, Set<string>>();
-  for (const ci of checkIns) {
-    if (!ci.completed) continue;
-    if (!byHabit.has(ci.habitId)) byHabit.set(ci.habitId, new Set());
-    byHabit.get(ci.habitId)!.add(ci.date);
-  }
-
-  const recs: Recommendation[] = [];
-  for (let i = 0; i < active.length; i++) {
-    for (let j = i + 1; j < active.length; j++) {
-      const a = active[i], b = active[j];
-      const datesA = byHabit.get(a.id);
-      const datesB = byHabit.get(b.id);
-      if (!datesA || !datesB) continue;
-      const both = [...datesA].filter((d) => datesB.has(d));
-      if (both.length < 5) continue;
-      const union = new Set([...datesA, ...datesB]);
-      const ratio = both.length / union.size;
-      if (ratio >= 0.45) {
-        recs.push({
-          kind: 'SYNERGY',
-          title: `🤝 "${a.name}" & "${b.name}" — you already do them together`,
-          detail: `You completed both on ${both.length} shared day${both.length > 1 ? 's' : ''} (${Math.round(ratio * 100)}% of days you did either). Bundle them into an explicit routine so one triggers the other automatically.`,
-          habitIds: [a.id, b.id],
-          strength: Math.min(85, Math.round(ratio * 60 + 30)),
-          actionLabel: 'Link habits',
-        });
-      }
-    }
-  }
-
-  recs.sort((a, b) => b.strength - a.strength);
-  return recs.slice(0, 2);
-}
-
-// --- Rule 20: Mood streak ---
-// v0.4.0: Celebrate a run of positive moods or gently flag a run of low ones.
-const POSITIVE_MOODS = ['amazing', 'great'];
-const LOW_MOODS = ['sick', 'tired', 'bad', 'angry'];
-
-function detectMoodStreak(moods: Record<string, string>): Recommendation[] {
-  const dates = Object.keys(moods).sort();
-  if (dates.length < 3) return [];
-
-  const countRun = (ids: string[]): number => {
-    let run = 0;
-    for (let i = dates.length - 1; i >= 0; i--) {
-      if (ids.includes(moods[dates[i]])) run++;
-      else break;
-    }
-    return run;
-  };
-
-  const recs: Recommendation[] = [];
-  const posRun = countRun(POSITIVE_MOODS);
-  if (posRun >= 3) {
-    recs.push({
-      kind: 'MOOD_STREAK',
-      title: `😄 ${posRun} days of positive mood`,
-      detail: `You've logged a positive mood for ${posRun} consecutive days. Something is aligning — notice what you've been doing and protect it.`,
-      habitIds: [],
-      strength: Math.min(80, 50 + posRun * 5),
-      actionLabel: 'View moods',
-    });
-  }
-  const lowRun = countRun(LOW_MOODS);
-  if (lowRun >= 3) {
-    recs.push({
-      kind: 'MOOD_STREAK',
-      title: `🌧️ ${lowRun} low-mood days in a row`,
-      detail: `You've logged a low mood for ${lowRun} consecutive days. Be kind to yourself — rest is productive, and a tiny win (one small habit) can turn the tide.`,
-      habitIds: [],
-      strength: Math.min(90, 60 + lowRun * 5),
-      actionLabel: 'View moods',
-    });
-  }
-  return recs;
-}
-
-// --- Rule 21: Urge surfing wins ---
-// v0.4.0: Celebrating resisted urges reinforces the mindfulness muscle.
-function detectUrgeWins(urges: UrgeEntry[], now: Date): Recommendation[] {
-  const weekAgo = now.getTime() - 7 * 86400000;
-  const recent = urges.filter((u) => u.endTime && new Date(u.endTime).getTime() >= weekAgo);
-  const surfed = recent.filter((u) => u.outcome === 'surfed').length;
-  const gaveIn = recent.filter((u) => u.outcome === 'gave_in').length;
-  if (surfed >= 3 && surfed > gaveIn) {
-    return [{
-      kind: 'URGE_WIN',
-      title: `🏄 You surfed ${surfed} urges this week`,
-      detail: `You rode out ${surfed} urge${surfed > 1 ? 's' : ''} without acting${gaveIn > 0 ? ` (and slipped ${gaveIn} time${gaveIn > 1 ? 's' : ''})` : ''}. Each surfed urge makes the next one easier — that's the muscle growing.`,
-      habitIds: [],
-      strength: Math.min(90, 60 + surfed * 5),
-      actionLabel: 'View urges',
-    }];
-  }
-  return [];
-}
-
 // --- Rule 22: Urge triggers ---
 // v0.4.0: The most common urge trigger, with a counter-measure suggestion.
 function detectUrgeTriggers(urges: UrgeEntry[]): Recommendation[] {
@@ -1399,55 +879,6 @@ function detectUrgeTriggers(urges: UrgeEntry[]): Recommendation[] {
         habitIds: [],
         strength: Math.min(85, 50 + info.total * 10),
         actionLabel: 'View urges',
-      });
-    }
-  }
-  return recs.slice(0, 2);
-}
-
-// --- Rule 23: Capacity surge ---
-// v0.4.0: A capacity whose self-ratings jumped in the last week vs the three before.
-function detectCapacitySurge(
-  capacities: Capacity[],
-  capacityRatings: CapacityRating[],
-  now: Date,
-): Recommendation[] {
-  const nowMs = now.getTime();
-  const DAY = 86400000;
-  const recent = capacityRatings.filter((r) => r.rating != null && new Date(r.date).getTime() >= nowMs - 7 * DAY);
-  const prior = capacityRatings.filter(
-    (r) => r.rating != null && new Date(r.date).getTime() >= nowMs - 21 * DAY && new Date(r.date).getTime() < nowMs - 7 * DAY,
-  );
-  if (recent.length < 2 || prior.length < 2) return [];
-
-  const group = (ratings: CapacityRating[]) => {
-    const m = new Map<string, number[]>();
-    for (const r of ratings) {
-      const arr = m.get(r.capacityId) ?? [];
-      arr.push(r.rating!);
-      m.set(r.capacityId, arr);
-    }
-    return m;
-  };
-  const recentByCap = group(recent);
-  const priorByCap = group(prior);
-
-  const recs: Recommendation[] = [];
-  for (const cap of capacities) {
-    const r = recentByCap.get(cap.id);
-    const p = priorByCap.get(cap.id);
-    if (!r || !p || r.length < 2 || p.length < 2) continue;
-    const rAvg = r.reduce((a, b) => a + b, 0) / r.length;
-    const pAvg = p.reduce((a, b) => a + b, 0) / p.length;
-    const delta = rAvg - pAvg;
-    if (delta >= 1.5) {
-      recs.push({
-        kind: 'CAPACITY_SURGE',
-        title: `📈 "${cap.name}" is surging (+${delta.toFixed(1)})`,
-        detail: `Your "${cap.name}" self-rating climbed from ${pAvg.toFixed(1)} to ${rAvg.toFixed(1)} over the last week. The linked habits are paying off — keep feeding them.`,
-        habitIds: [],
-        strength: Math.min(85, 55 + Math.round(delta * 8)),
-        actionLabel: 'View capacities',
       });
     }
   }
@@ -1642,49 +1073,6 @@ function detectPerfectDays(
   return [];
 }
 
-// --- Rule 27: Energy budget ---
-// v0.4.0: High load on energy-draining habits while low-energy days are frequent.
-const ENERGY_DIMS = ['energy', 'physical'];
-
-function detectEnergyBudget(
-  habits: Habit[],
-  checkIns: CheckIn[],
-  moods: Record<string, string>,
-  now: Date,
-): Recommendation[] {
-  const energyHabits = habits.filter((h) => !h.archived && chaosLinksOf(h).some((l) => ENERGY_DIMS.includes(l.dimension)));
-  if (energyHabits.length === 0) return [];
-
-  const week = dateStrDaysAgo(6, now);
-  const energyIds = new Set(energyHabits.map((h) => h.id));
-  const doneDays = new Set<string>();
-  for (const ci of checkIns) {
-    if (ci.completed && ci.date >= week && energyIds.has(ci.habitId)) doneDays.add(ci.date);
-  }
-  if (doneDays.size < 2) return [];
-
-  let lowDays = 0;
-  let moodDays = 0;
-  for (let d = 0; d < 7; d++) {
-    const ds = dateStrDaysAgo(d, now);
-    const m = moods[ds];
-    if (!m) continue;
-    moodDays++;
-    if (m === 'tired' || m === 'sick') lowDays++;
-  }
-  const ratio = moodDays > 0 ? lowDays / moodDays : 0;
-  if (ratio < 0.4) return [];
-
-  return [{
-    kind: 'ENERGY_BUDGET',
-    title: '🔋 High load on low-energy days',
-    detail: `You completed ${doneDays.size} energy-draining check-in day${doneDays.size > 1 ? 's' : ''} this week, while logging tired/low energy on ${lowDays} of ${moodDays} mood day${moodDays > 1 ? 's' : ''}. Protect a real rest window — recovery IS training.`,
-    habitIds: energyHabits.map((h) => h.id),
-    strength: Math.min(90, 50 + Math.round(ratio * 60)),
-    actionLabel: 'View history',
-  }];
-}
-
 // --- Rule 28: Weekly letter ---
 // v0.4.0: A warm one-line summary of the week's mood + notes.
 function generateWeeklyLetter(
@@ -1719,47 +1107,6 @@ function generateWeeklyLetter(
     strength: 55,
     actionLabel: 'View notes',
   }];
-}
-
-// --- Rule 29: Streak saver ---
-// v0.4.0: A meaningful streak alive as of yesterday that would break if today's
-// check-in is skipped. Walk back from yesterday (computeStreakStats returns 0
-// for today, which would miss this case entirely).
-function detectStreakSavers(
-  habits: Habit[],
-  checkIns: CheckIn[],
-  now: Date,
-): Recommendation[] {
-  const todayStr = dateStrDaysAgo(0, now);
-  const yesterdayStr = dateStrDaysAgo(1, now);
-  const recs: Recommendation[] = [];
-  for (const habit of habits) {
-    if (habit.archived) continue;
-    if (checkIns.some((ci) => ci.habitId === habit.id && ci.date === todayStr && ci.completed)) continue;
-
-    const completedSet = new Set(
-      checkIns.filter((ci) => ci.habitId === habit.id && ci.completed).map((ci) => ci.date),
-    );
-    let run = 0;
-    let cursor = yesterdayStr;
-    while (completedSet.has(cursor)) {
-      run++;
-      const d = new Date(cursor + 'T00:00:00Z');
-      d.setUTCDate(d.getUTCDate() - 1);
-      cursor = d.toISOString().slice(0, 10);
-    }
-    if (run < 7) continue;
-
-    recs.push({
-      kind: 'STREAK_SAVER',
-      title: `⏰ Check in today to keep "${habit.name}" at ${run} days`,
-      detail: `You last completed "${habit.name}" yesterday. A single check-in today protects your ${run}-day streak and pushes it to ${run + 1}. 30 seconds, huge ripple.`,
-      habitIds: [habit.id],
-      strength: Math.min(90, 60 + Math.round(run * 0.5)),
-      actionLabel: 'Check in now',
-    });
-  }
-  return recs.slice(0, 2);
 }
 
 // --- Main entry point ---
@@ -1821,36 +1168,19 @@ export function generateInsights(
     ...detectStackSuggestions(activeHabits, checkIns, now),
     ...detectRecordApproaches(habits, checkIns, now),
     ...detectNeglected(activeHabits, checkIns, now),
-    ...detectRecoveryPatterns(activeHabits, checkIns),
     ...detectPrimeTime(activeHabits, checkIns),
     ...detectCorrelations(activeHabits, checkIns),
-    ...detectTrends(activeHabits, checkIns, now),
-    ...generateWeeklySummary(habits, checkIns, now),
     ...detectStreakMilestones(habits, checkIns, now),
-    ...detectPerfectWeeks(activeHabits, checkIns, now),
     ...detectMantraMatches(activeHabits, checkIns, now),
-    // v0.3.2: New insight rules
-    ...detectNoteInsights(activeHabits, checkIns, now),
-    ...detectGoalProgress(habits, checkIns, now),
-    // v0.3.3: Mood & Chaos insights
     ...detectMoodHabitLink(activeHabits, checkIns, moods),
     ...detectChaosHabitLink(habits, checkIns, now),
-    // v0.3.4: Smarter insights — burnout watch, weekly momentum, synergy
     ...detectBurnoutRisk(activeHabits, checkIns, now, moods),
-    ...detectWeeklyTrend(habits, checkIns, now),
-    ...detectSynergy(activeHabits, checkIns),
-    // v0.4.0: Insights from moods, urges, capacities, experiments, notes
-    ...detectMoodStreak(moods),
-    ...detectUrgeWins(urges, now),
     ...detectUrgeTriggers(urges),
-    ...detectCapacitySurge(capacities, capacityRatings, now),
     ...detectExperimentResults(experiments),
     ...detectNoteThemes(notes),
     ...detectPerfectDays(activeHabits, checkIns, moods, now),
-    ...detectEnergyBudget(activeHabits, checkIns, moods, now),
+    ...generateWeeklySummary(habits, checkIns, now),
     ...generateWeeklyLetter(moods, notes, now),
-    ...detectStreakSavers(habits, checkIns, now),
-    // v0.6.4: Insights from the journal (the user's own words + reflections)
     ...detectJournalThemes(journalEntries),
     ...detectReflectionDue(reflections),
     ...detectReflectionReview(reflections, now),
@@ -1865,66 +1195,33 @@ export function generateInsights(
     return true;
   });
 
-  // CORRELATION and SYNERGY both detect same-day habit pairs. When they
-  // overlap for the same pair, keep the established CORRELATION insight and
-  // drop the SYNERGY duplicate so the pair isn't reported twice.
-  const corrPairs = new Set<string>();
-  for (const r of unique) {
-    if (r.kind === 'CORRELATION' && r.habitIds.length === 2) {
-      corrPairs.add([...r.habitIds].sort().join('|'));
-    }
-  }
-  const pairDeduped = unique.filter((r) => {
-    if (r.kind === 'SYNERGY' && r.habitIds.length === 2) {
-      return !corrPairs.has([...r.habitIds].sort().join('|'));
-    }
-    return true;
-  });
-
   // Sort by strength descending, but prioritize actionable kinds first:
-  // NEGLECTED/STACK_SUGGESTION/RECORD_APPROACH > RECOVERY/PRIME_TIME > MISS_PATTERN
+  // NEGLECTED/STACK_SUGGESTION/RECORD_APPROACH/BURNOUT > summaries > MISS_PATTERN
   const kindPriority: Record<RecKind, number> = {
     NEGLECTED: 0,
     RECORD_APPROACH: 0,
     STACK_SUGGESTION: 0,
     STREAK_MILESTONE: 0,
-    PERFECT_WEEK: 0,
-    GOAL_PROGRESS: 0,
-    NOTE_POSITIVE: 0,
-    NOTE_OBSTACLE: 0,
     CORRELATION: 0,
-    TREND: 1,
     WEEKLY_SUMMARY: 1,
     MANTRA_MATCH: 1,
-    RECOVERY_PATTERN: 2,
     PRIME_TIME: 2,
     CHAOS_CORRELATION: 2,
     MISS_PATTERN: 3,
-    // v0.3.4: burnout & momentum rank high (time-sensitive)
     BURNOUT_RISK: 0,
-    WEEKLY_TREND: 1,
-    SYNERGY: 1,
-    // v0.4.0: smarter insights from moods, urges, capacities, experiments, notes
-    MOOD_STREAK: 1,
-    URGE_WIN: 0,
     URGE_TRIGGER: 1,
-    CAPACITY_SURGE: 1,
     EXPERIMENT_RESULT: 1,
     NOTE_THEME: 1,
     PERFECT_DAY: 1,
-    ENERGY_BUDGET: 1,
     WEEKLY_LETTER: 2,
-    STREAK_SAVER: 0,
-    // v0.6.4: journal insights are gentle nudges — medium priority
     JOURNAL_THEME: 1,
     REFLECTION_DUE: 0,
     REFLECTION_REVIEW: 2,
-    // v0.6.4: AI-derived insights rank first — they are the freshest signal
     AI_PRIORITY: 0,
     AI_TREND: 1,
     AI_RISK: 0,
   };
-  pairDeduped.sort((a, b) => {
+  unique.sort((a, b) => {
     const pa = kindPriority[a.kind] ?? 2;
     const pb = kindPriority[b.kind] ?? 2;
     if (pa !== pb) return pa - pb;
@@ -1934,7 +1231,7 @@ export function generateInsights(
   // Limit to top 8, and max 2 per kind to avoid flooding
   const perKind = new Map<RecKind, number>();
   const limited: Recommendation[] = [];
-  for (const r of pairDeduped) {
+  for (const r of unique) {
     const count = perKind.get(r.kind) ?? 0;
     if (count >= 2) continue;
     perKind.set(r.kind, count + 1);

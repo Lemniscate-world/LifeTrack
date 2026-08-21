@@ -17,6 +17,8 @@ export interface DeepInsight {
   body: string;
   stat: string;
   action?: { label: string; view: 'grid' | 'stats' | 'correlations' | 'history' | 'journal' };
+  /** Concrete schedule: days to check, rendered as a mini calendar. */
+  plan?: { label: string; dates: string[] };
 }
 
 // ---------- small stat helpers ----------
@@ -115,12 +117,10 @@ function detectChains(habits: Habit[], days: Map<string, DayRow>): DeepInsight[]
   const habitById = new Map(active.map((h) => [h.id, h]));
 
   // Global base rates
-  let totalTrackedDays = 0;
   const bDone = new Map<string, number>();
   const bTracked = new Map<string, number>();
   for (const d of dates) {
     const r = days.get(d)!;
-    if (r.tracked.size > 0) totalTrackedDays++;
     for (const id of r.tracked) {
       bTracked.set(id, (bTracked.get(id) ?? 0) + 1);
       if (r.done.has(id)) bDone.set(id, (bDone.get(id) ?? 0) + 1);
@@ -472,9 +472,9 @@ function detectRestartPattern(habits: Habit[], checkIns: CheckIn[], days: Map<st
   }];
 }
 
-// ---------- 7. goal calibration (objectif mensuel vs réalité) ----------
+// ---------- 7. goal calibration (objectif mensuel vs réalité) + PLAN ----------
 
-function detectGoalCalibration(habits: Habit[], checkIns: CheckIn[], today: Date): DeepInsight[] {
+function detectGoalCalibration(habits: Habit[], checkIns: CheckIn[], days: Map<string, DayRow>, today: Date): DeepInsight[] {
   const out: DeepInsight[] = [];
   const now = new Date(`${today.toISOString().slice(0, 10)}T00:00:00Z`);
   // Last 3 full months keys (YYYY-MM), oldest first
@@ -497,18 +497,122 @@ function detectGoalCalibration(habits: Habit[], checkIns: CheckIn[], today: Date
     const tracked = ratio.filter((r) => r > 0).length;
     if (tracked < 2) continue;
     const medianRatio = [...ratio].sort((a, b) => a - b)[Math.floor(ratio.length / 2)];
-    if (medianRatio >= 0.65) continue;
-    const suggested = Math.max(4, Math.round(h.goal * Math.max(0.5, medianRatio + 0.15)));
-    out.push({
-      id: `goalcal|${h.id}`,
-      icon: '🎯',
-      title: `Objectif "${h.name}" calibré trop haut`,
-      body: `Objectif : ${h.goal}/mois. Réalisé sur les 3 derniers mois : ${rates.map((r) => `${r.month.slice(5)}=${r.done}`).join(', ')} — médiane ${Math.round(medianRatio * 100)}% de la cible. Un objectif raté 3 mois de suite n'est plus une motivation, c'est un reproche. Baisse-le à ~${suggested}/mois : tu le tiendras, et tu pourras le remonter ensuite.`,
-      stat: `médiane ${Math.round(medianRatio * 100)}% · ${tracked} mois · suggestion ${suggested}`,
-      action: { label: 'Voir la grille', view: 'grid' },
-    });
+
+    // Per-weekday success rate over the last 90 days — the plan's raw material.
+    const todayStr = now.toISOString().slice(0, 10);
+    const dowK = Array.from({ length: 7 }, () => 0);
+    const dowN = Array.from({ length: 7 }, () => 0);
+    for (let i = 1; i <= 90; i++) {
+      const d = shiftDate(todayStr, -i);
+      const r = days.get(d);
+      if (!r || !r.tracked.has(h.id)) continue;
+      const idx = new Date(`${d}T00:00:00Z`).getUTCDay();
+      dowN[idx]++;
+      if (r.done.has(h.id)) dowK[idx]++;
+    }
+
+    if (medianRatio < 0.65) {
+      // --- Plan A : objectif réaliste + calendrier pré-rempli ---
+      const suggested = Math.max(4, Math.round(h.goal * Math.max(0.5, medianRatio + 0.15)));
+      // Rank weekdays by historical success (need n>=2)
+      const ranked = [1, 2, 3, 4, 5, 6, 0]
+        .map((idx) => ({ idx, rate: dowN[idx] >= 2 ? dowK[idx] / dowN[idx] : 0.5 }))
+        .sort((a, b) => b.rate - a.rate);
+      // Next month occurrences per weekday
+      const nextMonth = new Date(now);
+      nextMonth.setUTCDate(1);
+      nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+      const ym = nextMonth.toISOString().slice(0, 7);
+      const occ: string[][] = Array.from({ length: 7 }, () => []);
+      for (let dd = 1; dd <= 31; dd++) {
+        const iso = `${ym}-${String(dd).padStart(2, '0')}`;
+        const dt = new Date(`${iso}T00:00:00Z`);
+        if (dt.getUTCMonth() !== nextMonth.getUTCMonth()) break;
+        occ[dt.getUTCDay()].push(iso);
+      }
+      // Greedy: cycle through best weekdays, one occurrence each, up to suggested
+      const picked: string[] = [];
+      const used = Array.from({ length: 7 }, () => 0);
+      let guard = 0;
+      while (picked.length < suggested && guard < 60) {
+        for (const rw of ranked) {
+          if (picked.length >= suggested) break;
+          const list = occ[rw.idx];
+          if (used[rw.idx] < list.length) {
+            picked.push(list[used[rw.idx]]);
+            used[rw.idx]++;
+          }
+        }
+        guard++;
+      }
+      picked.sort();
+      const topTxt = ranked.slice(0, Math.min(3, suggested))
+        .filter((rw) => used[rw.idx] > 0)
+        .map((rw) => `${DAY_NAMES[rw.idx]} (${Math.round(rw.rate * 100)}%)`)
+        .join(', ');
+      out.push({
+        id: `goalcal|${h.id}`,
+        icon: '🎯',
+        title: `Objectif "${h.name}" calibré trop haut — voici le plan`,
+        body: `Objectif actuel : ${h.goal}/mois. Réalisé : ${rates.map((r) => `${r.month.slice(5)}=${r.done}`).join(', ')} — médiane ${Math.round(medianRatio * 100)}%. Un objectif raté 3 mois de suite est un reproche, pas une motivation. Nouvelle cible réaliste : ${suggested}. Ton plan sur tes meilleurs créneaux historiques : ${topTxt} — le calendrier du mois prochain est pré-rempli ci-dessous.`,
+        stat: `médiane ${Math.round(medianRatio * 100)}% · cible ${h.goal}→${suggested} · plan ${picked.length} jours`,
+        action: { label: 'Voir la grille', view: 'grid' },
+        plan: { label: `Plan "${h.name}" — mois prochain`, dates: picked },
+      });
+    } else {
+      // --- Plan B : objectif tenu mais rythme du mois courant en retard → rattrapage ciblé ---
+      const thisMonth = todayStr.slice(0, 7);
+      const doneThisMonth = checkIns.filter((ci) => ci.habitId === h.id && ci.completed && ci.date.startsWith(thisMonth)).length;
+      const dayOfMonth = Number(todayStr.slice(8, 10));
+      const paceExpected = Math.round(h.goal * (dayOfMonth / 30));
+      const shortfall = paceExpected - doneThisMonth;
+      if (shortfall < 2 || dayOfMonth < 8) continue;
+      const remaining = 30 - dayOfMonth;
+      if (shortfall > remaining) continue;
+      const upcoming = rankedUpcomingDays(days, h.id, todayStr, shortfall);
+      if (upcoming.dates.length === 0) continue;
+      out.push({
+        id: `goalcatch|${h.id}`,
+        icon: '📅',
+        title: `"${h.name}" : rattraper ${shortfall} coches ce mois`,
+        body: `À ce stade du mois tu devrais être à ~${paceExpected}/${h.goal}, tu es à ${doneThisMonth}. Il reste ${remaining} jours : coche les ${upcoming.dates.length} jours surlignés ci-dessous (tes créneaux à meilleur taux : ${upcoming.label}) et l'objectif reste atteignable sans sprint.`,
+        stat: `fait ${doneThisMonth}/${paceExpected} attendus · rattrapage ${upcoming.dates.length}j · seuil ≥2`,
+        action: { label: 'Voir la grille', view: 'grid' },
+        plan: { label: `Rattrapage "${h.name}" — ce mois`, dates: upcoming.dates },
+      });
+    }
   }
   return out.slice(0, 2);
+}
+
+/** Pick the next `count` calendar days with the highest historical success rate. */
+function rankedUpcomingDays(
+  days: Map<string, DayRow>,
+  habitId: string,
+  todayStr: string,
+  count: number,
+): { dates: string[]; label: string } {
+  const dowK = Array.from({ length: 7 }, () => 0);
+  const dowN = Array.from({ length: 7 }, () => 0);
+  for (let i = 1; i <= 90; i++) {
+    const d = shiftDate(todayStr, -i);
+    const r = days.get(d);
+    if (!r || !r.tracked.has(habitId)) continue;
+    const idx = new Date(`${d}T00:00:00Z`).getUTCDay();
+    dowN[idx]++;
+    if (r.done.has(habitId)) dowK[idx]++;
+  }
+  const ranked = [0, 1, 2, 3, 4, 5, 6]
+    .map((idx) => ({ idx, rate: dowN[idx] >= 2 ? dowK[idx] / dowN[idx] : 0.5 }))
+    .sort((a, b) => b.rate - a.rate);
+  const dates: string[] = [];
+  for (let i = 1; i <= 30 && dates.length < count; i++) {
+    const iso = shiftDate(todayStr, i);
+    const idx = new Date(`${iso}T00:00:00Z`).getUTCDay();
+    if (ranked.find((r) => r.idx === idx)!.rate >= 0.5) dates.push(iso);
+  }
+  const label = ranked.slice(0, 2).map((r) => `${DAY_NAMES[r.idx]} ${Math.round(r.rate * 100)}%`).join(', ');
+  return { dates, label };
 }
 
 // ---------- 8. first-check timing effect ----------
@@ -704,7 +808,7 @@ export function generateDeepInsights(
       ...detectStreakRisk(habits, days, today),
       ...detectFirstCheckEffect(checkIns, days),
       ...detectChains(habits, days),
-      ...detectGoalCalibration(habits, checkIns, today),
+      ...detectGoalCalibration(habits, checkIns, days, today),
       ...detectCannibalization(habits, days),
       ...detectWeekendDrift(habits, days, today),
       ...detectPairSynergy(habits, days),
