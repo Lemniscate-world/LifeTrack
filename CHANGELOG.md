@@ -9,6 +9,7 @@ All notable changes to LifeTrack are documented in this file.
 - **Streak accentué** - bord gauche coloré (3px/4px), fond teinté et badge pulsant pour les séries longues, lisible en Noir & Blanc.
 - **Onboarding** - état vide enrichi avec 3 habitudes suggérées (Méditation/Sport/Lecture) en un clic + astuce thème.
 - **Insights profonds** - TREND et Burnout avec h de Cohen, p (approx. normale), n, magnitude et caveat puissance ; force basée sur effet + significativité, textes en français avec nuance réelle.
+- **Thèmes journal/notes profonds** - lexique 80+ mots FR/EN (fatigue, stress, anxiété, victoire…), normalisation des accents, TF-IDF (les thèmes rares pèsent plus), 10 thèmes (Travail/Famille/Sommeil/Argent/Sport/Stress/Alimentation/Émotion/Social/Santé), scores et totaux affichés.
 
 ### Fixed
 - **Noir & Blanc polish** - radius 0 cohérent (override des hardcodés 4/6/8/12px), scrollbar carrée, hard-shadows éditoriales sur boutons/onglets, navbar sans blur, swatch et onglet actif lisibles, focus ring, transition couleur/bordure, fix mobile radius.

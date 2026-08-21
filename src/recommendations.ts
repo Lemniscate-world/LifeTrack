@@ -754,31 +754,42 @@ function detectMantraMatches(
 // --- Rule 13: Note Keyword Insights ---
 // Scan recent check-in notes for keywords indicating triggers, wins, or obstacles.
 // Pure local analysis — no AI needed.
+function normalizeForMatch(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
 const NOTE_KEYWORDS: Record<string, { label: string; sentiment: 'positive' | 'negative' | 'neutral' }> = {
-  tired: { label: 'fatigue', sentiment: 'negative' },
-  exhausted: { label: 'épuisement', sentiment: 'negative' },
-  stress: { label: 'stress', sentiment: 'negative' },
-  anxious: { label: 'anxiété', sentiment: 'negative' },
-  'hard day': { label: 'journée difficile', sentiment: 'negative' },
-  sick: { label: 'maladie', sentiment: 'negative' },
-  'no energy': { label: "manque d'énergie", sentiment: 'negative' },
-  skipped: { label: 'oubli', sentiment: 'negative' },
-  forgot: { label: 'oubli', sentiment: 'negative' },
-  'didn\'t feel': { label: 'manque de motivation', sentiment: 'negative' },
-  lazy: { label: 'paresse', sentiment: 'negative' },
-  great: { label: 'super journée', sentiment: 'positive' },
-  awesome: { label: 'excellente session', sentiment: 'positive' },
-  amazing: { label: 'session incroyable', sentiment: 'positive' },
-  proud: { label: 'fierté', sentiment: 'positive' },
-  'felt good': { label: 'bien-être', sentiment: 'positive' },
-  energized: { label: 'plein d\'énergie', sentiment: 'positive' },
-  'best streak': { label: 'record personnel', sentiment: 'positive' },
-  easy: { label: 'facilité', sentiment: 'positive' },
-  morning: { label: 'routine du matin', sentiment: 'neutral' },
-  evening: { label: 'routine du soir', sentiment: 'neutral' },
-  weekend: { label: 'week-end', sentiment: 'neutral' },
-  travel: { label: 'voyage', sentiment: 'neutral' },
-  busy: { label: 'emploi du temps chargé', sentiment: 'negative' },
+  // fatigue / énergie — FR + EN, avec variantes
+  tired: { label: 'fatigue', sentiment: 'negative' }, fatigue: { label: 'fatigue', sentiment: 'negative' }, fatiguee: { label: 'fatigue', sentiment: 'negative' },
+  exhausted: { label: 'épuisement', sentiment: 'negative' }, epuise: { label: 'épuisement', sentiment: 'negative' }, epuisee: { label: 'épuisement', sentiment: 'negative' }, creve: { label: 'épuisement', sentiment: 'negative' }, videe: { label: 'épuisement', sentiment: 'negative' },
+  'no energy': { label: "manque d'énergie", sentiment: 'negative' }, 'sans energie': { label: "manque d'énergie", sentiment: 'negative' }, 'pas d\'energie': { label: "manque d'énergie", sentiment: 'negative' }, drained: { label: "manque d'énergie", sentiment: 'negative' },
+  // stress / anxiété
+  stress: { label: 'stress', sentiment: 'negative' }, stresse: { label: 'stress', sentiment: 'negative' }, pressure: { label: 'stress', sentiment: 'negative' }, pression: { label: 'stress', sentiment: 'negative' }, overwhelmed: { label: 'stress', sentiment: 'negative' }, submerge: { label: 'stress', sentiment: 'negative' }, deborde: { label: 'stress', sentiment: 'negative' },
+  anxious: { label: 'anxiété', sentiment: 'negative' }, anxieux: { label: 'anxiété', sentiment: 'negative' }, anxieuse: { label: 'anxiété', sentiment: 'negative' }, angoisse: { label: 'anxiété', sentiment: 'negative' }, inquiet: { label: 'anxiété', sentiment: 'negative' }, inquiete: { label: 'anxiété', sentiment: 'negative' },
+  // humeur basse / déprime
+  sad: { label: 'tristesse', sentiment: 'negative' }, triste: { label: 'tristesse', sentiment: 'negative' }, depressed: { label: 'déprime', sentiment: 'negative' }, deprime: { label: 'déprime', sentiment: 'negative' }, deprimee: { label: 'déprime', sentiment: 'negative' }, down: { label: 'déprime', sentiment: 'negative' }, morose: { label: 'déprime', sentiment: 'negative' },
+  // obstacles / manques
+  'hard day': { label: 'journée difficile', sentiment: 'negative' }, 'journee difficile': { label: 'journée difficile', sentiment: 'negative' }, difficile: { label: 'journée difficile', sentiment: 'negative' },
+  sick: { label: 'maladie', sentiment: 'negative' }, malade: { label: 'maladie', sentiment: 'negative' }, fievre: { label: 'maladie', sentiment: 'negative' }, fever: { label: 'maladie', sentiment: 'negative' },
+  skipped: { label: 'oubli', sentiment: 'negative' }, forgot: { label: 'oubli', sentiment: 'negative' }, oublie: { label: 'oubli', sentiment: 'negative' }, rate: { label: 'oubli', sentiment: 'negative' },
+  'didn\'t feel': { label: 'manque de motivation', sentiment: 'negative' }, 'pas motive': { label: 'manque de motivation', sentiment: 'negative' }, 'pas motivee': { label: 'manque de motivation', sentiment: 'negative' }, demotive: { label: 'manque de motivation', sentiment: 'negative' },
+  lazy: { label: 'paresse', sentiment: 'negative' }, paresse: { label: 'paresse', sentiment: 'negative' }, flemme: { label: 'paresse', sentiment: 'negative' }, procrastine: { label: 'paresse', sentiment: 'negative' },
+  busy: { label: 'emploi du temps chargé', sentiment: 'negative' }, charge: { label: 'emploi du temps chargé', sentiment: 'negative' }, rush: { label: 'emploi du temps chargé', sentiment: 'negative' },
+  // victoires / énergie haute
+  great: { label: 'super journée', sentiment: 'positive' }, genial: { label: 'super journée', sentiment: 'positive' }, super: { label: 'super journée', sentiment: 'positive' }, top: { label: 'super journée', sentiment: 'positive' },
+  awesome: { label: 'excellente session', sentiment: 'positive' }, excellent: { label: 'excellente session', sentiment: 'positive' }, excellente: { label: 'excellente session', sentiment: 'positive' },
+  amazing: { label: 'session incroyable', sentiment: 'positive' }, incroyable: { label: 'session incroyable', sentiment: 'positive' },
+  proud: { label: 'fierté', sentiment: 'positive' }, fier: { label: 'fierté', sentiment: 'positive' }, fiere: { label: 'fierté', sentiment: 'positive' }, fierte: { label: 'fierté', sentiment: 'positive' },
+  'felt good': { label: 'bien-être', sentiment: 'positive' }, bien: { label: 'bien-être', sentiment: 'positive' }, heureux: { label: 'bien-être', sentiment: 'positive' }, heureuse: { label: 'bien-être', sentiment: 'positive' }, content: { label: 'bien-être', sentiment: 'positive' }, contente: { label: 'bien-être', sentiment: 'positive' },
+  energized: { label: 'plein d\'énergie', sentiment: 'positive' }, energie: { label: 'plein d\'énergie', sentiment: 'positive' }, dynamique: { label: 'plein d\'énergie', sentiment: 'positive' }, motive: { label: 'plein d\'énergie', sentiment: 'positive' }, motivee: { label: 'plein d\'énergie', sentiment: 'positive' },
+  'best streak': { label: 'record personnel', sentiment: 'positive' }, record: { label: 'record personnel', sentiment: 'positive' }, victoire: { label: 'record personnel', sentiment: 'positive' }, win: { label: 'record personnel', sentiment: 'positive' }, reussi: { label: 'record personnel', sentiment: 'positive' }, reussite: { label: 'record personnel', sentiment: 'positive' },
+  easy: { label: 'facilité', sentiment: 'positive' }, facile: { label: 'facilité', sentiment: 'positive' }, fluide: { label: 'facilité', sentiment: 'positive' },
+  grateful: { label: 'gratitude', sentiment: 'positive' }, gratitude: { label: 'gratitude', sentiment: 'positive' }, reconnaissant: { label: 'gratitude', sentiment: 'positive' },
+  focus: { label: 'concentration', sentiment: 'positive' }, concentre: { label: 'concentration', sentiment: 'positive' }, flow: { label: 'concentration', sentiment: 'positive' },
+  // neutres / routines
+  morning: { label: 'routine du matin', sentiment: 'neutral' }, matin: { label: 'routine du matin', sentiment: 'neutral' }, matinee: { label: 'routine du matin', sentiment: 'neutral' },
+  evening: { label: 'routine du soir', sentiment: 'neutral' }, soir: { label: 'routine du soir', sentiment: 'neutral' }, soiree: { label: 'routine du soir', sentiment: 'neutral' },
+  weekend: { label: 'week-end', sentiment: 'neutral' }, 'week-end': { label: 'week-end', sentiment: 'neutral' },
+  travel: { label: 'voyage', sentiment: 'neutral' }, voyage: { label: 'voyage', sentiment: 'neutral' }, deplacement: { label: 'voyage', sentiment: 'neutral' },
 };
 
 function detectNoteInsights(
@@ -1468,32 +1479,65 @@ function detectExperimentResults(experiments: Experiment[]): Recommendation[] {
 // --- Rule 25: Note themes ---
 // v0.4.0: Recurring life themes across the user's free-form notes.
 const THEME_KEYWORDS: Record<string, string> = {
-  travail: 'Travail', work: 'Travail', boss: 'Travail', meeting: 'Travail', réunion: 'Travail',
-  famille: 'Famille', family: 'Famille', kids: 'Famille', enfant: 'Famille', parents: 'Famille',
-  sommeil: 'Sommeil', sleep: 'Sommeil', tired: 'Sommeil', fatigue: 'Sommeil',
-  argent: 'Argent', money: 'Argent', budget: 'Argent', debt: 'Argent', dette: 'Argent',
-  sport: 'Sport', gym: 'Sport', exercise: 'Sport', running: 'Sport', course: 'Sport',
-  stress: 'Stress', anxious: 'Stress', deadline: 'Stress', pressure: 'Stress',
-  food: 'Alimentation', nourriture: 'Alimentation', repas: 'Alimentation', meal: 'Alimentation',
+  // Travail — FR+EN, avec variantes
+  travail: 'Travail', work: 'Travail', job: 'Travail', bureau: 'Travail', office: 'Travail', boss: 'Travail', patron: 'Travail', meeting: 'Travail', reunion: 'Travail', projet: 'Travail', project: 'Travail', client: 'Travail', equipe: 'Travail', team: 'Travail', carriere: 'Travail', career: 'Travail',
+  // Famille
+  famille: 'Famille', family: 'Famille', kids: 'Famille', enfant: 'Famille', enfants: 'Famille', parents: 'Famille', mere: 'Famille', pere: 'Famille', couple: 'Famille', partenaire: 'Famille', partner: 'Famille', maison: 'Famille', home: 'Famille',
+  // Sommeil
+  sommeil: 'Sommeil', sleep: 'Sommeil', dormir: 'Sommeil', tired: 'Sommeil', fatigue: 'Sommeil', insomnia: 'Sommeil', insomnie: 'Sommeil', reveil: 'Sommeil', nuit: 'Sommeil', night: 'Sommeil', sieste: 'Sommeil', nap: 'Sommeil',
+  // Argent
+  argent: 'Argent', money: 'Argent', budget: 'Argent', debt: 'Argent', dette: 'Argent', finance: 'Argent', salaire: 'Argent', salary: 'Argent', economie: 'Argent', depenses: 'Argent', facture: 'Argent',
+  // Sport
+  sport: 'Sport', gym: 'Sport', exercise: 'Sport', running: 'Sport', course: 'Sport', musculation: 'Sport', yoga: 'Sport', velo: 'Sport', bike: 'Sport', entrainement: 'Sport', workout: 'Sport', seance: 'Sport',
+  // Stress
+  stress: 'Stress', stresse: 'Stress', pressure: 'Stress', pression: 'Stress', deadline: 'Stress', anxious: 'Stress', anxiete: 'Stress', angoisse: 'Stress', overwhelm: 'Stress', burnout: 'Stress', epuisement: 'Stress', tension: 'Stress',
+  // Alimentation
+  food: 'Alimentation', nourriture: 'Alimentation', repas: 'Alimentation', meal: 'Alimentation', diet: 'Alimentation', regime: 'Alimentation', nutrition: 'Alimentation', manger: 'Alimentation', cuisine: 'Alimentation', cooking: 'Alimentation',
+  // Émotion / humeur
+  emotion: 'Émotion', humeur: 'Émotion', mood: 'Émotion', joie: 'Émotion', tristesse: 'Émotion', colere: 'Émotion', peur: 'Émotion', gratitude: 'Émotion',
+  // Social
+  amis: 'Social', friends: 'Social', social: 'Social', sortie: 'Social', fete: 'Social', party: 'Social', solitude: 'Social', lonely: 'Social',
+  // Santé
+  sante: 'Santé', health: 'Santé', medecin: 'Santé', doctor: 'Santé', douleur: 'Santé', pain: 'Santé', maladie: 'Santé', sick: 'Santé',
 };
 
-function detectNoteThemes(notes: Note[]): Recommendation[] {
+function scoreThemesWithTfIdf(texts: string[]): Map<string, number> {
+  const normTexts = texts.map((t) => normalizeForMatch(t));
+  const N = normTexts.length || 1;
+  // df per keyword
+  const df = new Map<string, number>();
+  for (const [kw] of Object.entries(THEME_KEYWORDS)) {
+    const nkw = normalizeForMatch(kw);
+    let c = 0;
+    for (const txt of normTexts) if (txt.includes(nkw)) c++;
+    if (c > 0) df.set(kw, c);
+  }
   const themes = new Map<string, number>();
-  for (const n of notes) {
-    const text = n.content.toLowerCase();
-    for (const [keyword, theme] of Object.entries(THEME_KEYWORDS)) {
-      if (text.includes(keyword)) themes.set(theme, (themes.get(theme) ?? 0) + 1);
+  for (const txt of normTexts) {
+    for (const [kw, theme] of Object.entries(THEME_KEYWORDS)) {
+      const nkw = normalizeForMatch(kw);
+      if (!txt.includes(nkw)) continue;
+      const dfi = df.get(kw) ?? 1;
+      const idf = Math.log(N / dfi) + 1; // +1 smoothing, rarer = heavier
+      themes.set(theme, (themes.get(theme) ?? 0) + idf);
     }
   }
+  return themes;
+}
+
+function detectNoteThemes(notes: Note[]): Recommendation[] {
+  if (notes.length === 0) return [];
+  const themes = scoreThemesWithTfIdf(notes.map((n) => n.content));
   const sorted = [...themes.entries()].sort((a, b) => b[1] - a[1]);
-  if (sorted.length === 0 || sorted[0][1] < 3) return [];
+  if (sorted.length === 0 || sorted[0][1] < 2.5) return [];
   const top = sorted.slice(0, 3);
+  const totalScore = sorted.reduce((s, [, v]) => s + v, 0);
   return [{
     kind: 'NOTE_THEME',
     title: `🗂️ Your notes revolve around: ${top.map(([t]) => t).join(', ')}`,
-    detail: `Across your notes, ${top.map(([t, c]) => `${t} (${c} mention${c > 1 ? 's' : ''})`).join(', ')} come up most. This is where your focus — or worry — lives. Aim your energy there deliberately.`,
+    detail: `Across ${notes.length} notes, ${top.map(([t, c]) => `${t} (score ${c.toFixed(1)})`).join(', ')} dominent (TF-IDF, total ${totalScore.toFixed(1)}). Les thèmes rares pèsent plus — c'est là que ton attention se fixe. Creuse le top thème en journal.`,
     habitIds: [],
-    strength: Math.min(80, 50 + sorted[0][1] * 5),
+    strength: Math.min(85, Math.round(45 + sorted[0][1] * 8)),
     actionLabel: 'View notes',
   }];
 }
@@ -1502,20 +1546,16 @@ function detectNoteThemes(notes: Note[]): Recommendation[] {
 // v0.6.4: Recurring topics across journal entries (like detectNoteThemes, but on
 // the journal where people actually express their inner world).
 function detectJournalThemes(entries: JournalEntry[]): Recommendation[] {
-  const themes = new Map<string, number>();
-  for (const e of entries) {
-    const text = e.content.toLowerCase();
-    for (const [keyword, theme] of Object.entries(THEME_KEYWORDS)) {
-      if (text.includes(keyword)) themes.set(theme, (themes.get(theme) ?? 0) + 1);
-    }
-  }
+  if (entries.length === 0) return [];
+  const themes = scoreThemesWithTfIdf(entries.map((e) => e.content));
   const sorted = [...themes.entries()].sort((a, b) => b[1] - a[1]);
   if (sorted.length === 0 || sorted[0][1] < 2) return [];
   const top = sorted.slice(0, 3);
+  const totalScore = sorted.reduce((s, [, v]) => s + v, 0);
   return [{
     kind: 'JOURNAL_THEME',
     title: `📓 Your journal revolves around: ${top.map(([t]) => t).join(', ')}`,
-    detail: `Across your ${entries.length} journal entr${entries.length > 1 ? 'ies' : 'y'}, ${top.map(([t, c]) => `${t} (${c}×)`).join(', ')} appear most. That recurring topic is worth a deliberate session — journal about what you can actually change.`,
+    detail: `Sur ${entries.length} entrées, ${top.map(([t, c]) => `${t} (${c.toFixed(1)})`).join(', ')} ressortent (TF-IDF, total ${totalScore.toFixed(1)}). Le thème le plus distinctif mérite une session ciblée — écris sur ce que tu peux changer.`,
     habitIds: [],
     strength: Math.min(82, 50 + sorted[0][1] * 6),
     actionLabel: 'Open journal',
