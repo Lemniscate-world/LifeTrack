@@ -110,6 +110,7 @@ import { runFeedCycle, pickFetcher, enrichWithAi } from './autoIngest';
 import { runAutoMissions } from './missionEngine';
 import { runAutoKnowledge } from './knowledgeEngine';
 import { rotateRecommendations, recKey } from './recRotation';
+import { generateDeepInsights, type DeepInsight } from './deepInsights';
 
 // Detected at module load (window is always present in browser and Tauri).
 // In test environments this is false. Module-level constant is acceptable
@@ -2783,6 +2784,44 @@ function InsightsView({
     AI_RISK: () => onView('journal'),
   };
 
+  // --- Deep analysis (chains, streak risk, own-words, dose, interference) ---
+  const deepInsights = useMemo((): DeepInsight[] => {
+    try {
+      const allData = exportAllData();
+      return generateDeepInsights(habits, checkIns, allData.moods ?? {}, allData.energies ?? {});
+    } catch { return []; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [habits, checkIns, storeTick]);
+
+  const deepSection = deepInsights.length > 0 && (
+    <div className="deep-section">
+      <h3 className="deep-section-title">🔬 Analyse en profondeur</h3>
+      <div className="deep-list">
+        {deepInsights.map((card) => (
+          <div key={card.id} className="deep-card">
+            <div className="deep-icon">{card.icon}</div>
+            <div className="deep-body">
+              <div className="deep-title">{card.title}</div>
+              <div className="deep-text">{card.body}</div>
+              <div className="deep-stat">{card.stat}</div>
+            </div>
+            {card.action && (
+              <button
+                className="btn btn-sm btn-primary deep-action"
+                onClick={() => onView(card.action!.view)}
+              >
+                {card.action.label}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="deep-note">
+        Chaque carte porte son échantillon et sa significativité — si c'est écrit, c'est mesuré sur TES données.
+      </p>
+    </div>
+  );
+
   // AI Section component (always rendered, even when no recommendations yet)
   const aiSection = (
     <div className="ai-section">
@@ -2906,7 +2945,7 @@ function InsightsView({
     </div>
   );
 
-  if (recommendations.length === 0) {
+  if (recommendations.length === 0 && deepInsights.length === 0) {
     return (
       <div className="insights-view">
         {aiSection}
@@ -2931,6 +2970,9 @@ function InsightsView({
     <div className="insights-view">
       {/* --- AI Analysis Section (auto-runs, always visible at top) --- */}
       {aiSection}
+
+      {/* --- Deep analysis (chains, streak risk, own words, dose) --- */}
+      {deepSection}
 
       {/* --- Local Recommendations --- */}
       <div className="insights-header">
