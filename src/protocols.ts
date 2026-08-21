@@ -169,6 +169,21 @@ export function protocolKeywordHits(protocol: Protocol, texts: string[]): number
  * 1-Click adoption of a protocol: automatically creates missing linked habits,
  * populates target goals, and attaches the evidence claim as Simon Sinek intention ("WHY").
  */
+/**
+ * Detects habit names that are actually raw feed artifacts (arXiv announce
+ * blocks, DOIs, paper titles) rather than real habits. Used both to BLOCK
+ * auto-creation and to quarantine already-created junk on load.
+ */
+export function isJunkyHabitName(name: string): boolean {
+  const n = name.trim();
+  if (n.length === 0) return true;
+  if (n.length > 48) return true;
+  const words = n.split(/\s+/).length;
+  if (words > 7) return true;
+  if (/arxiv|doi[:\s]|10\.\d{4,9}\/|et al\.?\b|proceedings of|abstract:/i.test(n)) return true;
+  return false;
+}
+
 export function adoptProtocol(
   protocolId: string,
   allProtocols: Protocol[] = SEED_PROTOCOLS,
@@ -182,10 +197,14 @@ export function adoptProtocol(
     ? proto.habitSuggestions
     : [proto.title];
 
+  // Never turn raw feed artifacts (paper titles, announce blocks) into habits.
+  const usable = suggestions.filter((s) => !isJunkyHabitName(s));
+  if (usable.length === 0) return { created: [], existing: [] };
+
   const created: import('./types').Habit[] = [];
   const existing: import('./types').Habit[] = [];
 
-  for (const suggestion of suggestions) {
+  for (const suggestion of usable) {
     const normalized = suggestion.toLowerCase().trim();
     const found = storeHabits.find((h) => h.name.toLowerCase().trim() === normalized);
 

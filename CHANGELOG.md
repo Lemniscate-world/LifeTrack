@@ -4,6 +4,9 @@ All notable changes to LifeTrack are documented in this file.
 
 ## [Unreleased] - Science des plans + Revue hebdo (2026-08-20)
 
+### Fixed
+- **Habitudes arXiv indigestes** - l'adoption automatique de protocoles (`knowledgeAutoAdopt`, activé par défaut) créait des habitudes nommées d'après les blocs announce arXiv bruts ("arXiv:2510.15911v4 Announce Type: replace-cross…"). Triple correction : (1) `isJunkyHabitName()` bloque toute création depuis un titre de papier/DOI/announce block, (2) l'adoption auto devient opt-in dans Réglages > IA, (3) quarantaine au chargement : les habitudes indigestes existantes sont archivées (catégorie auto-cleanup), pas supprimées.
+
 ### Added
 - **Plans ancrés dans la science** - le plan d'objectif cite et applique 3 principes validés : progression ≤+20% vs médiane réalisée (surcharge progressive), intentions d'implémentation de Gollwitzer (jours précis choisis sur tes meilleurs taux), Tiny Habits (Fogg) + never-miss-twice (Clear) en repli.
 - **📋 Revue hebdo** - panneau compilé en tête d'Insights : coches de la semaine vs précédente, adhérence au plan (jours cerclés réellement cochés), heatmap d'intensité des 8 dernières semaines.

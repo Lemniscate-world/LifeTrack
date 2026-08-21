@@ -11,7 +11,7 @@ import {
 } from './stacks';
 import { createDefaultMantras, DEFAULT_MANTRA_SETTINGS } from './mantras';
 import { bindUrgeStore } from './urgeSurfing';
-import { SEED_PROTOCOLS } from './protocols';
+import { SEED_PROTOCOLS, isJunkyHabitName } from './protocols';
 import { mergeProtocols } from './ingest';
 import { DEFAULT_FEEDS } from './autoIngest';
 import type { FeedCycleOutcome } from './autoIngest';
@@ -526,7 +526,7 @@ function sanitizePreferences(raw: unknown): UserPreferences {
     knowledgeAutoSuggest: p.knowledgeAutoSuggest === false ? false : true,
     stickyMax: typeof p.stickyMax === 'number' && p.stickyMax >= 1 && p.stickyMax <= 8 ? p.stickyMax : 3,
     ingestAiEnabled: p.ingestAiEnabled === false ? false : true,
-    knowledgeAutoAdopt: p.knowledgeAutoAdopt === false ? false : true,
+    knowledgeAutoAdopt: p.knowledgeAutoAdopt === true, // opt-in: never auto-create habits from feeds by default
     autoIngestEnabled: p.autoIngestEnabled === false ? false : true,
     autoIngestIntervalHours: typeof p.autoIngestIntervalHours === 'number' && p.autoIngestIntervalHours >= 1 && p.autoIngestIntervalHours <= 72 ? p.autoIngestIntervalHours : 6,
     autostartEnabled: p.autostartEnabled === false ? false : true,
@@ -1666,6 +1666,16 @@ if (Array.isArray(data.protocols) && data.protocols.length === 0) {
 // feels "manual".
 if (!Array.isArray(data.feeds) || data.feeds.length === 0) {
   data.feeds = DEFAULT_FEEDS.map((f) => ({ ...f, lastGuids: [] }));
+}
+
+// One-time quarantine: habits auto-created from raw feed items (arXiv announce
+// blocks, DOIs, paper titles) are archived, not deleted — non-destructive.
+// Idempotent: already-archived entries are left alone.
+for (const h of data.habits ?? []) {
+  if (!h.archived && isJunkyHabitName(h.name)) {
+    h.archived = true;
+    h.category = 'auto-cleanup';
+  }
 }
 
 // Note: diagnoseStorage() and restoreFromBackupIfNewer() are called by

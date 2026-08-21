@@ -10,7 +10,7 @@ import {
   exportAllData, getPreferences, getHabits, getProtocols, addHabit,
 } from './store';
 import { buildPreferenceReport } from './preferences';
-import { adoptProtocol, SEED_PROTOCOLS } from './protocols';
+import { adoptProtocol, SEED_PROTOCOLS, isJunkyHabitName } from './protocols';
 import type { AppData } from './types';
 
 /**
@@ -45,7 +45,7 @@ export function runAutoKnowledge(maxAuto = 2): number {
         ranked.protocol.id,
         allProtocols.length > 0 ? allProtocols : SEED_PROTOCOLS,
         habits,
-        (hData) => addHabit(hData.name ?? ranked.protocol.title),
+        (hData) => addHabit(hData.name && !isJunkyHabitName(hData.name) ? hData.name : ranked.protocol.title),
       );
       if (res.created.length > 0) {
         adopted++;

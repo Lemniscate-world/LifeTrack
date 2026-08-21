@@ -9,6 +9,7 @@ import {
   buildIcsForPlan,
   generateDeepInsights,
 } from '../deepInsights';
+import { isJunkyHabitName, adoptProtocol } from '../protocols';
 import type { Habit, CheckIn } from '../types';
 
 const habit = (id: string, name: string): Habit => ({
@@ -131,6 +132,26 @@ describe('firstCheckHours', () => {
     ]);
     expect(map.get('2026-08-01')).toBe(7); // 07:30 local, failed 06:00 ignored
     expect(map.has('2026-08-02')).toBe(false);
+  });
+});
+
+describe('isJunkyHabitName / adoptProtocol guard', () => {
+  it('flags arXiv announce blocks, DOIs and overlong titles', () => {
+    expect(isJunkyHabitName('arXiv:2510.15911v4 Announce Type: replace-cross Abstract: The Sleeping')).toBe(true);
+    expect(isJunkyHabitName('Dense-caption retrieval for egocentric video understanding tasks')).toBe(true);
+    expect(isJunkyHabitName('DOI 10.1038/s41586-026-08888-x')).toBe(true);
+    expect(isJunkyHabitName('Gym')).toBe(false);
+    expect(isJunkyHabitName('No Sodas After Noon')).toBe(false);
+  });
+
+  it('adoptProtocol never creates habits from junk suggestions', () => {
+    const proto = {
+      id: 'p1', title: 'Some dense paper title that is way too long to be a habit name here',
+      source: 'arXiv', claim: 'x', evidenceLevel: 'B', domain: 'sleep', protocol: 'y',
+      keywords: [], habitSuggestions: ['arXiv:2608.18521v2 Announce Type: new Abstract: Dense-caption'],
+    } as unknown as import('../types').Protocol;
+    const res = adoptProtocol('p1', [proto], []);
+    expect(res.created.length).toBe(0);
   });
 });
 
