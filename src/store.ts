@@ -1977,8 +1977,8 @@ export function getNextStackSuggestionFor(today: Date): {
  * order and are reinserted at the end if they were caught in the array.
  */
 export function reorderHabits(sourceIndex: number, destIndex: number): void {
-  // Operate on the non-archived list (what the UI shows), preserving order.
-  const visible = data.habits.filter((h) => !h.archived);
+  // Operate on the non-archived list (what the UI shows), sorted by current order.
+  const visible = data.habits.filter((h) => !h.archived).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   if (sourceIndex < 0 || sourceIndex >= visible.length) return;
   const clampedDest = Math.max(0, Math.min(destIndex, visible.length));
   if (sourceIndex === clampedDest) return;

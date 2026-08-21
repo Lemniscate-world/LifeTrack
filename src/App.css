@@ -8426,11 +8426,20 @@ body {
 .habit-row-dropping {
   transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
 }
-/* Visible drop placeholder */
+/* Visible drop placeholder — high-contrast line + faint fill so you see exactly where it lands */
 .habit-grid tbody [data-rbd-placeholder-context-id] {
-  background: color-mix(in srgb, var(--primary) 8%, transparent) !important;
+  background: color-mix(in srgb, var(--primary) 10%, transparent) !important;
   border: 2px dashed var(--primary) !important;
   border-radius: var(--radius);
+  min-height: 32px;
+}
+.habit-grid tbody tr[data-rbd-placeholder-context-id] {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+.theme-bw .habit-grid tbody [data-rbd-placeholder-context-id] {
+  background: color-mix(in srgb, var(--text) 8%, transparent) !important;
+  border-color: var(--text) !important;
 }
 
 /* Compact: keep grip tappable */

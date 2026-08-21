@@ -19,7 +19,11 @@ export function DraggableHabitRow({ habitId, index, children, className }: Props
         <tr
           ref={provided.innerRef}
           {...provided.draggableProps}
-          style={provided.draggableProps.style}
+          style={{
+            ...provided.draggableProps.style,
+            // <tr> + transform is flaky in some browsers — force table layout while dragging
+            ...(snapshot.isDragging ? { display: 'table', width: '100%', tableLayout: 'fixed' } : null),
+          } as React.CSSProperties}
           className={[
             snapshot.isDragging ? 'habit-row-dragging' : '',
             snapshot.isDropAnimating ? 'habit-row-dropping' : '',

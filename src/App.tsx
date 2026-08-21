@@ -1053,6 +1053,11 @@ const DEFAULT_CATEGORIES = [
   // null — we ignore that.
   function handleDragEnd(result: { source: { index: number }; destination?: { index: number } | null }) {
     if (!result.destination) return;
+    // Diagnostic: log to help chase the "1-2 lines off" report
+    try {
+      console.log('[drag] source', result.source.index, '→ dest', result.destination.index);
+    } catch {}
+    // hello-pangea gives dest as post-removal index; reorderHabits handles that.
     reorderHabits(result.source.index, result.destination.index);
   }
 

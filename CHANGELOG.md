@@ -12,6 +12,7 @@ All notable changes to LifeTrack are documented in this file.
 ### Fixed
 - **Noir & Blanc polish** - radius 0 cohérent (override des hardcodés 4/6/8/12px), scrollbar carrée, hard-shadows éditoriales sur boutons/onglets, navbar sans blur, swatch et onglet actif lisibles, focus ring, transition couleur/bordure, fix mobile radius.
 - **Drag & drop** - handle agrandi (24px, 20px en compact) et plus visible (opacité 0.55), sticky de la colonne habitudes désactivé pendant le drag, placeholder en pointillés visible, transition fluide, fix du remount du DragDropContext qui empêchait le drop, bouton Compact reflète l'état effectif (auto → forcé).
+- **Drop au bon endroit** - tri des habitudes par `order` avant reorder (évite le décalage de 1-2 lignes), `<tr>` forcé en `display: table` pendant le drag pour que le `transform` soit fiable, log `[drag]` pour diagnostiquer.
 
 ## [0.6.2] - Reinstalled build, recovery hardening (2026-08-19)
 
