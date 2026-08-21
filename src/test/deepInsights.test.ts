@@ -6,6 +6,7 @@ import {
   twoMeanP,
   contrastiveWords,
   firstCheckHours,
+  buildIcsForPlan,
   generateDeepInsights,
 } from '../deepInsights';
 import type { Habit, CheckIn } from '../types';
@@ -133,6 +134,17 @@ describe('firstCheckHours', () => {
   });
 });
 
+describe('buildIcsForPlan', () => {
+  it('produces a valid VCALENDAR with one all-day event per date', () => {
+    const ics = buildIcsForPlan('LifeTrack — Gym', 'Plan Gym — mois prochain', ['2026-09-01', '2026-09-03']);
+    expect(ics).toContain('BEGIN:VCALENDAR');
+    expect(ics).toContain('END:VCALENDAR');
+    expect(ics.match(/BEGIN:VEVENT/g)?.length).toBe(2);
+    expect(ics).toContain('DTSTART;VALUE=DATE:20260901');
+    expect(ics).toContain('SUMMARY:LifeTrack \\— Gym'.replace('\\—', '—')); // em-dash preserved unescaped
+  });
+});
+
 describe('twoMeanP', () => {
   it('separates clearly shifted samples', () => {
     const a = [0.9, 0.85, 0.8, 0.95, 0.88, 0.92];
@@ -177,7 +189,9 @@ describe('generateDeepInsights — goal calibration', () => {
     const insights = generateDeepInsights(habits, checkIns, {}, {}, new Date('2026-08-19T12:00:00Z'));
     const calib = insights.find((x) => x.id === 'goalcal|gym');
     expect(calib).toBeDefined();
-    expect(calib!.title).toContain('calibré trop haut');
+    expect(calib!.title).toContain('Plan progressif');
     expect(calib!.body).toContain('médiane');
+    expect(calib!.plan).toBeDefined();
+    expect(calib!.plan!.dates.length).toBeGreaterThan(0);
   });
 });

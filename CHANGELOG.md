@@ -2,6 +2,13 @@
 
 All notable changes to LifeTrack are documented in this file.
 
+## [Unreleased] - Science des plans + Revue hebdo (2026-08-20)
+
+### Added
+- **Plans ancrés dans la science** - le plan d'objectif cite et applique 3 principes validés : progression ≤+20% vs médiane réalisée (surcharge progressive), intentions d'implémentation de Gollwitzer (jours précis choisis sur tes meilleurs taux), Tiny Habits (Fogg) + never-miss-twice (Clear) en repli.
+- **📋 Revue hebdo** - panneau compilé en tête d'Insights : coches de la semaine vs précédente, adhérence au plan (jours cerclés réellement cochés), heatmap d'intensité des 8 dernières semaines.
+- **⬇ Export .ics du plan** - un clic télécharge les jours planifiés en fichier calendrier importable dans Google Calendar / Outlook.
+
 ## [Unreleased] - Grid pilotée par Insights + Stacks visuels (2026-08-20)
 
 ### Added

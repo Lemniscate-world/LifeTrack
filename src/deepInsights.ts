@@ -513,7 +513,16 @@ function detectGoalCalibration(habits: Habit[], checkIns: CheckIn[], days: Map<s
 
     if (medianRatio < 0.65) {
       // --- Plan A : objectif réaliste + calendrier pré-rempli ---
-      const suggested = Math.max(4, Math.round(h.goal * Math.max(0.5, medianRatio + 0.15)));
+      // Ancrage scientifique explicite :
+      // - Progression graduelle (progressive overload appliqué aux habitudes) :
+      //   la nouvelle cible ne dépasse JAMAIS +20% de ta médiane réalisée.
+      // - Implementation intentions (Gollwitzer 1999) : des jours précis,
+      //   choisis sur tes meilleurs taux historiques, valent mieux que
+      //   "je ferai de mon mieux".
+      // - Tiny Habits (Fogg) + Never miss twice (Clear) : version 2 minutes
+      //   en repli, jamais deux échecs consécutifs.
+      const medianDone = Math.round(medianRatio * h.goal);
+      const suggested = Math.min(h.goal, Math.max(4, Math.round(medianDone * 1.2)));
       // Rank weekdays by historical success (need n>=2)
       const ranked = [1, 2, 3, 4, 5, 6, 0]
         .map((idx) => ({ idx, rate: dowN[idx] >= 2 ? dowK[idx] / dowN[idx] : 0.5 }))
@@ -553,9 +562,9 @@ function detectGoalCalibration(habits: Habit[], checkIns: CheckIn[], days: Map<s
       out.push({
         id: `goalcal|${h.id}`,
         icon: '🎯',
-        title: `Objectif "${h.name}" calibré trop haut — voici le plan`,
-        body: `Objectif actuel : ${h.goal}/mois. Réalisé : ${rates.map((r) => `${r.month.slice(5)}=${r.done}`).join(', ')} — médiane ${Math.round(medianRatio * 100)}%. Un objectif raté 3 mois de suite est un reproche, pas une motivation. Nouvelle cible réaliste : ${suggested}. Ton plan sur tes meilleurs créneaux historiques : ${topTxt} — le calendrier du mois prochain est pré-rempli ci-dessous.`,
-        stat: `médiane ${Math.round(medianRatio * 100)}% · cible ${h.goal}→${suggested} · plan ${picked.length} jours`,
+        title: `Plan progressif pour "${h.name}" — ${suggested} jours, calendrier prêt`,
+        body: `Ta médiane réelle : ${medianDone}/mois pour un objectif affiché à ${h.goal}. Le plan suit 3 principes validés : (1) progression ≤+20% par palier — cible ${suggested}, tenable ; (2) intentions d'implémentation — voici LES jours, calés sur tes meilleurs créneaux : ${topTxt} ; (3) si tu rates, version « 2 minutes » le lendemain et jamais deux ratés de suite. Calendrier pré-rempli ci-dessous + exportable vers ton agenda.`,
+        stat: `médiane ${Math.round(medianRatio * 100)}% · cible ${h.goal}→${suggested} (+≤20%) · plan ${picked.length}j · Gollwitzer/Fogg/Clear`,
         action: { label: 'Voir la grille', view: 'grid' },
         plan: { label: `Plan "${h.name}" — mois prochain`, dates: picked },
       });
@@ -858,6 +867,55 @@ function detectKnowledgeBridge(
     });
   }
   return out.slice(0, 2);
+}
+
+// ---------- .ics export: the plan goes into any calendar ----------
+
+/**
+ * Build a valid VCALENDAR string with one all-day VEVENT per planned date.
+ * Imports cleanly into Google Calendar / Outlook / Fastmail.
+ */
+export function buildIcsForPlan(summary: string, description: string, dates: string[]): string {
+  const stamp = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15) + 'Z';
+  const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+  const lines: string[] = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Lemniscate//LifeTrack Plan//FR',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+  ];
+  dates.forEach((d, i) => {
+    lines.push(
+      'BEGIN:VEVENT',
+      `UID:lifetrack-plan-${d}-${i}@lifetrack.local`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART;VALUE=DATE:${d.replace(/-/g, '')}`,
+      `SUMMARY:${esc(summary)}`,
+      `DESCRIPTION:${esc(description)}`,
+      'TRANSP:TRANSPARENT',
+      'END:VEVENT',
+    );
+  });
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n') + '\r\n';
+}
+
+/** Download the plan as an .ics file (works in WebView2 and browsers). */
+export function downloadPlanIcs(fileName: string, summary: string, description: string, dates: string[]): boolean {
+  try {
+    if (dates.length === 0) return false;
+    const ics = buildIcsForPlan(summary, description, dates);
+    const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName.endsWith('.ics') ? fileName : `${fileName}.ics`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 500);
+    return true;
+  } catch { return false; }
 }
 
 // ---------- entry ----------

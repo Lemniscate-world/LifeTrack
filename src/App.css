@@ -10399,6 +10399,44 @@ body {
 .ai-section.ai-collapsed {
   opacity: 0.85;
 }
+
+/* Weekly review + 8-week heatmap */
+.weekly-review {
+  margin-bottom: 10px;
+}
+.heatmap8-wrap { margin-top: 10px; }
+.heatmap8-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.heatmap8-grid {
+  display: flex;
+  gap: 3px;
+}
+.heatmap8-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.heatmap8-cell {
+  width: 13px;
+  height: 13px;
+  border-radius: calc(var(--radius) / 2);
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+}
+.theme-bw .heatmap8-cell { border-radius: 0; }
+.heatmap8-cell.future { opacity: 0.25; }
+.heatmap8-cell.none { opacity: 0.45; }
+.heatmap8-cell.l0 { background: color-mix(in srgb, var(--primary) 6%, transparent); }
+.heatmap8-cell.l1 { background: color-mix(in srgb, var(--primary) 25%, transparent); }
+.heatmap8-cell.l2 { background: color-mix(in srgb, var(--primary) 45%, transparent); }
+.heatmap8-cell.l3 { background: color-mix(in srgb, var(--primary) 70%, transparent); }
+.heatmap8-cell.l4 { background: var(--primary); }
+.plan-ics-btn {
+  margin-top: 8px;
+}
 /* ============ v0.7.x - NOIR & BLANC POLISH ============ */
 /* Cohérence radius 0 + overrides hardcodés */
 .theme-bw .btn-icon,

@@ -108,7 +108,7 @@ import { runFeedCycle, pickFetcher, enrichWithAi } from './autoIngest';
 import { runAutoMissions } from './missionEngine';
 import { runAutoKnowledge } from './knowledgeEngine';
 import { rotateRecommendations, recKey } from './recRotation';
-import { generateDeepInsights, type DeepInsight } from './deepInsights';
+import { generateDeepInsights, downloadPlanIcs, type DeepInsight } from './deepInsights';
 
 // Detected at module load (window is always present in browser and Tauri).
 // In test environments this is false. Module-level constant is acceptable
@@ -2820,10 +2820,119 @@ function MiniPlanCalendar({ dates, label }: { dates: string[]; label: string }) 
   );
 }
 
-// --- Deep analysis cards (data hoisted from App so Grid can circle plan days) ---
+/** 8-week completion heatmap (Mon-first columns), clickable → grid. */
+function EightWeekHeatmap({ checkIns }: { checkIns: CheckIn[] }) {
+  const weeks = useMemo(() => {
+    const byDay = new Map<string, { k: number; n: number }>();
+    for (const ci of checkIns) {
+      const e = byDay.get(ci.date) ?? { k: 0, n: 0 };
+      e.n++;
+      if (ci.completed) e.k++;
+      byDay.set(ci.date, e);
+    }
+    const today = new Date();
+    const end = new Date(today);
+    end.setUTCDate(end.getUTCDate() - ((end.getUTCDay() + 6) % 7) + 6); // Sunday of current week
+    const cols: { iso: string; rate: number | null; future: boolean }[][] = [];
+    for (let w = 7; w >= 0; w--) {
+      const col: { iso: string; rate: number | null; future: boolean }[] = [];
+      for (let d = 0; d < 7; d++) {
+        const dt = new Date(end);
+        dt.setUTCDate(end.getUTCDate() - w * 7 + d - 6);
+        void d;
+        const iso = dt.toISOString().slice(0, 10);
+        const e = byDay.get(iso);
+        col.push({ iso, rate: e && e.n > 0 ? e.k / e.n : null, future: iso > today.toISOString().slice(0, 10) });
+      }
+      cols.push(col);
+    }
+    return cols;
+  }, [checkIns]);
+  return (
+    <div className="heatmap8">
+      <div className="heatmap8-title">🗓️ 8 dernières semaines — intensité de complétion</div>
+      <div className="heatmap8-grid" role="img" aria-label="Heatmap des 8 dernières semaines">
+        {weeks.map((col, i) => (
+          <div key={i} className="heatmap8-col">
+            {col.map((c) => (
+              <span
+                key={c.iso}
+                className={`heatmap8-cell ${c.future ? 'future' : c.rate === null ? 'none' : c.rate >= 0.75 ? 'l4' : c.rate >= 0.5 ? 'l3' : c.rate >= 0.25 ? 'l2' : c.rate > 0 ? 'l1' : 'l0'}`}
+                title={`${c.iso}${c.rate !== null ? ` — ${Math.round(c.rate * 100)}%` : ''}`}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// --- Weekly review: one compiled panel, computed from the last 14 days ---
+  const weeklyReview = useMemo(() => {
+    try {
+      const today = new Date();
+      const t = today.toISOString().slice(0, 10);
+      const monday = new Date(today);
+      monday.setUTCDate(today.getUTCDate() - ((today.getUTCDay() + 6) % 7));
+      const s0 = monday.toISOString().slice(0, 10);
+      const prevStart = new Date(monday);
+      prevStart.setUTCDate(monday.getUTCDate() - 7);
+      const doneByDay = new Map<string, number>();
+      for (const ci of checkIns) {
+        if (!ci.completed) continue;
+        doneByDay.set(ci.date, (doneByDay.get(ci.date) ?? 0) + (ci.count ?? 1));
+      }
+      let cur = 0; let daysCur = 0;
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(monday);
+        d.setUTCDate(monday.getUTCDate() + i);
+        const iso = d.toISOString().slice(0, 10);
+        if (iso > t) break;
+        cur += doneByDay.get(iso) ?? 0;
+        daysCur++;
+      }
+      let prev = 0;
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(prevStart);
+        d.setUTCDate(prevStart.getUTCDate() + i);
+        prev += doneByDay.get(d.toISOString().slice(0, 10)) ?? 0;
+      }
+      // Plan adherence (circled days already past)
+      let plannedPast = 0; let planHit = 0;
+      for (const c of deepInsights) {
+        if (!c.plan) continue;
+        const hid = c.id.split('|')[1];
+        for (const d of c.plan.dates) {
+          if (d > t || !hid) continue;
+          plannedPast++;
+          if (checkIns.some((x) => x.habitId === hid && x.date === d && x.completed)) planHit++;
+        }
+      }
+      const perDay = daysCur > 0 ? (cur / daysCur).toFixed(1) : '0';
+      const deltaTxt = prev > 0 ? ` (${cur >= prev ? '+' : ''}${Math.round(((cur - prev) / prev) * 100)}%)` : '';
+      return (
+        <div className="deep-card weekly-review">
+          <div className="deep-icon">📋</div>
+          <div className="deep-body">
+            <div className="deep-title">Revue — semaine du {s0}</div>
+            <div className="deep-text">
+              {cur} coches en {daysCur} j (~{perDay}/jour){deltaTxt} vs semaine passée ({prev}).
+              {plannedPast > 0 && <> Adhérence au plan : <strong>{planHit}/{plannedPast}</strong> jours cerclés cochés.</>}
+              {' '}Objectif simple : battre ~{perDay}/jour la semaine prochaine.
+            </div>
+            <div className="heatmap8-wrap"><EightWeekHeatmap checkIns={checkIns} /></div>
+          </div>
+        </div>
+      );
+    } catch { return null; }
+  }, [checkIns, deepInsights]);
+
+  // --- Deep analysis cards (data hoisted from App so Grid can circle plan days) ---
   const deepSection = deepInsights.length > 0 && (
     <div className="deep-section">
       <h3 className="deep-section-title">🔬 Analyse en profondeur</h3>
+      {weeklyReview}
       <div className="deep-list">
         {deepInsights.map((card) => (
           <div key={card.id} className="deep-card">
@@ -2832,7 +2941,20 @@ function MiniPlanCalendar({ dates, label }: { dates: string[]; label: string }) 
               <div className="deep-title">{card.title}</div>
               <div className="deep-text">{card.body}</div>
               {card.plan && card.plan.dates.length > 0 && (
-                <MiniPlanCalendar dates={card.plan.dates} label={card.plan.label} />
+                <>
+                  <MiniPlanCalendar dates={card.plan.dates} label={card.plan.label} />
+                  <button
+                    className="btn btn-sm btn-ghost plan-ics-btn"
+                    onClick={() => {
+                      const hid = card.id.split('|')[1];
+                      const name = habitById.get(hid)?.name ?? 'habitude';
+                      downloadPlanIcs(`lifetrack-plan-${name}`, `LifeTrack — ${name}`, card.plan!.label, card.plan!.dates);
+                    }}
+                    title="Importer les jours planifiés dans Google Calendar / Outlook"
+                  >
+                    ⬇ Exporter le plan (.ics)
+                  </button>
+                </>
               )}
               <div className="deep-stat">{card.stat}</div>
             </div>
