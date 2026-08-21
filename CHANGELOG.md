@@ -10,6 +10,9 @@ All notable changes to LifeTrack are documented in this file.
 - **Onboarding** - état vide enrichi avec 3 habitudes suggérées (Méditation/Sport/Lecture) en un clic + astuce thème.
 - **Insights profonds** - TREND et Burnout avec h de Cohen, p (approx. normale), n, magnitude et caveat puissance ; force basée sur effet + significativité, textes en français avec nuance réelle.
 - **Thèmes journal/notes profonds** - lexique 80+ mots FR/EN (fatigue, stress, anxiété, victoire…), normalisation des accents, TF-IDF (les thèmes rares pèsent plus), 10 thèmes (Travail/Famille/Sommeil/Argent/Sport/Stress/Alimentation/Émotion/Social/Santé), scores et totaux affichés.
+- **Insights dédoublonnés** - les cartes TREND/WEEKLY_TREND et la section "Correlations & Trends" quittent Insights (redondant avec l'onglet Corrélations) ; simple compteur + lien.
+- **Rotation 6h** - les recommandations tournent par créneau de 6h au lieu de 24h : matin/soir ne montrent plus le même top.
+- **Onglet Corrélations amélioré** - atterrit sur Top insights (au lieu de la matrice brute), nuage de points SVG dans l'inspecteur de paire (jours alignés, droite des moindres carrés, tooltips par jour).
 
 ### Fixed
 - **Noir & Blanc polish** - radius 0 cohérent (override des hardcodés 4/6/8/12px), scrollbar carrée, hard-shadows éditoriales sur boutons/onglets, navbar sans blur, swatch et onglet actif lisibles, focus ring, transition couleur/bordure, fix mobile radius.

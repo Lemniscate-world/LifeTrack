@@ -2543,8 +2543,10 @@ function InsightsView({
     try { return getDismissedRecs(); } catch { return []; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeTick]);
+  // TREND/WEEKLY_TREND live in the Correlations tab (Trends sub-tab) — not here.
   const visibleRecs = useMemo(
-    () => rotateRecommendations(recommendations, dismissed, new Date(), 10),
+    () => rotateRecommendations(recommendations, dismissed, new Date(), 10)
+      .filter((r) => r.kind !== 'TREND' && r.kind !== 'WEEKLY_TREND'),
     [recommendations, dismissed],
   );
   const dismissAll = recommendations.length > 0 && visibleRecs.length === 0;
@@ -3014,32 +3016,12 @@ function InsightsView({
         })}
       </div>
 
-      {/* Correlations & Trends → consolidated in the dedicated view */}
-      {correlations.length > 0 && (
-        <div className="correlations-section">
-          <h3>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}>
-              <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
-            </svg>
-            Correlations &amp; Trends
-          </h3>
-          <div className="correlations-list">
-            {correlations.filter((c) => c.significant).slice(0, 3).map((c, i) => (
-              <div key={i} className={`correlation-item ${c.direction} ${c.strength}`}>
-                <span className="correlation-pair">{c.metricA} ↔ {c.metricB}</span>
-                <span className={`correlation-value ${c.direction}`}>
-                  {c.direction === 'positive' ? '↑' : '↓'} {Math.abs(c.coefficient).toFixed(2)}
-                </span>
-                <span className="correlation-strength">{c.strength}</span>
-                <span className={`correlation-signif ${c.significant ? 'sig' : 'ns'}`}>✓</span>
-              </div>
-            ))}
-          </div>
-          <p className="correlations-note">
-            Analyse complète (matrice, lag-1, week-end, tendances, caveats de causalité) dans l’onglet{' '}
-            <button className="btn btn-sm btn-ghost" onClick={() => onView('correlations')}>Corr. →</button>
-          </p>
-        </div>
+      {/* Correlations live in the dedicated tab — just point to it */}
+      {correlations.filter((c) => c.significant).length > 0 && (
+        <p className="correlations-note" style={{ margin: '0.5rem 0 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+          🔗 {correlations.filter((c) => c.significant).length} corrélation(s) significative(s) — matrice, lag, scatter dans l'onglet{' '}
+          <button className="btn btn-sm btn-ghost" onClick={() => onView('correlations')}>Corrélations →</button>
+        </p>
       )}
 
       {/* Urge & mood analysis — Wilson CI, lag correlations, volatility */}

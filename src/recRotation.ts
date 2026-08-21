@@ -17,11 +17,13 @@ export function recKey(rec: Recommendation): string {
   return `${rec.kind}|${(rec.habitIds ?? []).join(',')}|${rec.title}`;
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+// Rotate every 6h instead of every 24h: someone who checks Insights morning
+// and evening should not see the identical top cards twice a day.
+const ROTATION_MS = 6 * 60 * 60 * 1000;
 
 /**
- * Filter out dismissed recs, rotate the survivors deterministically by day and
- * return at most `take` of them — so a user who checks Insights daily sees a
+ * Filter out dismissed recs, rotate the survivors deterministically by
+ * 6-hour slot and return at most `take` of them — so repeated visits see a
  * fresh top of the list instead of the identical headline every time.
  */
 export function rotateRecommendations(
@@ -33,8 +35,8 @@ export function rotateRecommendations(
   const remaining = recs.filter((r) => !dismissed.includes(recKey(r)));
   if (remaining.length === 0) return [];
 
-  const day = Math.floor(now.getTime() / DAY_MS);
-  const start = day % remaining.length;
+  const slot = Math.floor(now.getTime() / ROTATION_MS);
+  const start = slot % remaining.length;
   const rotated = [...remaining.slice(start), ...remaining.slice(0, start)];
   return rotated.slice(0, Math.max(1, Math.min(take, remaining.length)));
 }

@@ -6,7 +6,7 @@
 
 import { useState, useMemo } from 'react';
 import type { CorrelationResult, CorrelationCell } from './types';
-import { computeCorrelations, computeCorrelationAnalysis, isTrustworthy, clusterOrder } from './correlations';
+import { computeCorrelations, computeCorrelationAnalysis, isTrustworthy, clusterOrder, buildScatterPoints } from './correlations';
 import { topInsights, gapInsights, actionableLevers, contrastInsights, type Insight } from './insights';
 import { exportAllData, getHabits } from './store';
 import { computeHabitTrends, moodTrend, WEEKDAY_LABELS } from './timeseries';
@@ -53,8 +53,66 @@ function InsightCard({ ins }: { ins: Insight }) {
   );
 }
 
-function InsightList({ list, emptyTitle, emptyText }: { list: Insight[]; emptyTitle: string; emptyText: string }) {
-  if (list.length === 0) {
+/** Scatter of the aligned daily points for the inspected pair (SVG, no deps). */
+function PairScatter({ metricA, metricB, lag }: { metricA: string; metricB: string; lag?: number }) {
+  const pts = useMemo(
+    () => buildScatterPoints(metricA, metricB, getHabits().filter(h => !h.archived), (exportAllData().checkIns ?? []), exportAllData().moods ?? {}, (exportAllData().capacities ?? []).map(c => ({ id: c.id, name: c.name })), exportAllData().capacityRatings ?? [], exportAllData().energies ?? {}, exportAllData().concentrations ?? {}, undefined, lag ?? 0),
+    [metricA, metricB, lag],
+  );
+  const W = 440;
+  const H = 200;
+  const PAD = 28;
+  if (pts.xs.length < 3) {
+    return (
+      <p style={{ margin: '0.75rem 0 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+        Nuage de points indisponible (moins de 3 jours alignés pour cette paire).
+      </p>
+    );
+  }
+  const xMin = Math.min(...pts.xs);
+  const xMax = Math.max(...pts.xs);
+  const yMin = Math.min(...pts.ys);
+  const yMax = Math.max(...pts.ys);
+  const sx = (v: number) => PAD + ((v - xMin) / Math.max(1e-9, xMax - xMin)) * (W - 2 * PAD);
+  const sy = (v: number) => H - PAD - ((v - yMin) / Math.max(1e-9, yMax - yMin)) * (H - 2 * PAD);
+  return (
+    <div style={{ marginTop: '0.75rem', background: 'var(--border)', borderRadius: '8px', padding: '0.5rem' }}>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Nuage de points ${metricA} vs ${metricB}`}>
+        {/* axes */}
+        <line x1={PAD} y1={H - PAD} x2={W - PAD / 2} y2={H - PAD} stroke="var(--text-muted)" strokeWidth="1" />
+        <line x1={PAD} y1={PAD / 2} x2={PAD} y2={H - PAD} stroke="var(--text-muted)" strokeWidth="1" />
+        {/* trend line (least squares) */}
+        {(() => {
+          const n = pts.xs.length;
+          const mx = pts.xs.reduce((a, b) => a + b, 0) / n;
+          const my = pts.ys.reduce((a, b) => a + b, 0) / n;
+          let num = 0; let den = 0;
+          for (let i = 0; i < n; i++) { num += (pts.xs[i] - mx) * (pts.ys[i] - my); den += (pts.xs[i] - mx) ** 2; }
+          if (den === 0) return null;
+          const slope = num / den;
+          const intercept = my - slope * mx;
+          return <line
+            x1={sx(xMin)} y1={sy(slope * xMin + intercept)}
+            x2={sx(xMax)} y2={sy(slope * xMax + intercept)}
+            stroke="#38bdf8" strokeWidth="2" strokeDasharray="5 4" opacity="0.85"
+          />;
+        })()}
+        {pts.xs.map((x, i) => (
+          <circle key={i} cx={sx(x)} cy={sy(pts.ys[i])} r="4" fill="var(--primary)" opacity="0.75">
+            <title>{pts.dates[i]} : {metricA}={x} · {metricB}={pts.ys[i]}</title>
+          </circle>
+        ))}
+        <text x={W - PAD} y={H - 8} textAnchor="end" fontSize="10" fill="var(--text-muted)">{metricA} →</text>
+        <text x={6} y={14} fontSize="10" fill="var(--text-muted)">↑ {metricB}</text>
+      </svg>
+      <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+        {pts.xs.length} jours alignés{lag ? ` · décalé de ${lag}j` : ''} · pointillé = droite des moindres carrés.
+      </p>
+    </div>
+  );
+}
+
+function InsightList({ list, emptyTitle, emptyText }: { list: Insight[]; emptyTitle: string; emptyText: string }) {  if (list.length === 0) {
     return (
       <div style={{ padding: '3rem 1rem', background: 'var(--bg-alt)', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border)' }}>
         <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>💡</div>
@@ -84,7 +142,7 @@ export default function CorrelationsView() {
   const capacities = useMemo(() => (data.capacities ?? []).map(c => ({ id: c.id, name: c.name })), [data]);
   const ratings = useMemo(() => data.capacityRatings ?? [], [data]);
 
-  const [tab, setTab] = useState<Tab>('matrix');
+  const [tab, setTab] = useState<Tab>('insights');
   const isResultsTab = tab === 'same' || tab === 'lag' || tab === 'lag2' || tab === 'lag3' || tab === 'lag7' || tab === 'weekend' || tab === 'weekday';
 
   const analysis = useMemo(() => {
@@ -630,6 +688,7 @@ export default function CorrelationsView() {
             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 1rem 0' }}>
               {selectedPair.method === 'pearson' ? 'Pearson (continue × continue)' : 'Spearman (rang ordinal)'}
             </p>
+            <PairScatter metricA={selectedPair.metricA} metricB={selectedPair.metricB} lag={selectedPair.lag} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem', marginBottom: '1rem' }}>
               {[
                 { label: 'Coefficient', value: `${selectedPair.coefficient >= 0 ? '+' : ''}${selectedPair.coefficient.toFixed(3)}`, color: selectedPair.coefficient >= 0 ? '#10b981' : '#f59e0b' },

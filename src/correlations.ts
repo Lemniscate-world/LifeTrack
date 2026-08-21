@@ -387,8 +387,7 @@ interface Raw { item: Omit<CorrelationResult, 'qValue' | 'significant'>; p: numb
  * and its direction is stable under jackknife. Used by the UI to de-emphasise
  * fragile results instead of treating every star as a real discovery.
  */
-export function isTrustworthy(r: CorrelationResult): boolean {
-  return Boolean(
+export function isTrustworthy(r: CorrelationResult): boolean {  return Boolean(
     r.significant && !r.outlierDriven && (r.stability === undefined || r.stability >= 0.7)
     && !r.trendDriven && !r.weekdayConfounded,
   );
@@ -817,8 +816,7 @@ function buildMatrix(
  * together become adjacent, so correlated blocks are visible at a glance.
  * Returns the same labels, reordered (idempotent for ≤2 metrics).
  */
-export function clusterOrder(metrics: string[], matrix: CorrelationCell[]): string[] {
-  if (metrics.length <= 2) return [...metrics];
+export function clusterOrder(metrics: string[], matrix: CorrelationCell[]): string[] {  if (metrics.length <= 2) return [...metrics];
   const r = (a: string, b: string): number => {
     const c = matrix.find((m) => (m.row === a && m.col === b) || (m.row === b && m.col === a));
     return c && c.coefficient !== null ? Math.abs(c.coefficient) : 0;
@@ -844,4 +842,35 @@ export function clusterOrder(metrics: string[], matrix: CorrelationCell[]): stri
     clusters.splice(bestJ, 1);
   }
   return clusters[0];
+}
+
+/**
+ * Aligned daily points for two metric labels — powers the scatter plot in the
+ * pair inspector. Uses the exact same series construction as the correlation
+ * engine (same naming: habit names, 'Mood', 'Énergie', 'Concentration',
+ * 'Dépression', capacity names), so the plot always matches the numbers.
+ */
+export function buildScatterPoints(
+  metricA: string,
+  metricB: string,
+  habits: Habit[],
+  checkIns: CheckIn[],
+  moods: Record<string, string>,
+  capacities: { id: string; name: string }[],
+  ratings: CapacityRating[],
+  energies?: Record<string, number>,
+  concentrations?: Record<string, number>,
+  depressions?: Record<string, number>,
+  lag = 0,
+): { dates: string[]; xs: number[]; ys: number[] } {
+  try {
+    const set = buildSeries(habits, checkIns, moods, capacities, ratings, undefined, energies, concentrations, depressions);
+    const sa = seriesForLabel(metricA, set, capacities);
+    const sb = seriesForLabel(metricB, set, capacities);
+    if (!sa || !sb) return { dates: [], xs: [], ys: [] };
+    const aligned = lag > 0 ? alignLag(sa, sb, lag) : align(sa, sb);
+    return aligned;
+  } catch {
+    return { dates: [], xs: [], ys: [] };
+  }
 }
