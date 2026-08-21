@@ -1102,6 +1102,7 @@ export async function attemptFileRecovery(): Promise<boolean> {
 
     console.info(`[LifeTrack] Filesystem recovery: restoring ${best.habits.length} habits, ${best.checkIns.length} check-ins, ${best.notes.length} notes.`);
     deduplicateDataInPlace(best);
+    quarantineJunkInto(best);
     writeEnvelope(STORAGE_KEY, best);
     writeEnvelope(BACKUP_KEY, best);
     try { localStorage.setItem(RAW_JSON_KEY, JSON.stringify(best)); } catch { /* best-effort */ }
@@ -1670,13 +1671,21 @@ if (!Array.isArray(data.feeds) || data.feeds.length === 0) {
 
 // One-time quarantine: habits auto-created from raw feed items (arXiv announce
 // blocks, DOIs, paper titles) are archived, not deleted — non-destructive.
-// Idempotent: already-archived entries are left alone.
-for (const h of data.habits ?? []) {
-  if (!h.archived && isJunkyHabitName(h.name)) {
-    h.archived = true;
-    h.category = 'auto-cleanup';
+// Idempotent: already-archived entries are left alone. Runs on module load AND
+// after every restore path (backup/file recovery), which otherwise would
+// resurrect un-quarantined copies.
+function quarantineJunkInto(d: AppData): number {
+  let n = 0;
+  for (const h of d.habits ?? []) {
+    if (!h.archived && isJunkyHabitName(h.name)) {
+      h.archived = true;
+      h.category = 'auto-cleanup';
+      n++;
+    }
   }
+  return n;
 }
+quarantineJunkInto(data);
 
 // Note: diagnoseStorage() and restoreFromBackupIfNewer() are called by
 // the App component at mount time (not here) to avoid side-effects in tests.
@@ -1724,6 +1733,7 @@ export function restoreFromBackupIfNewer(): boolean {
   // Backup has more data — restore it as primary
   console.warn(`Restoring from backup: ${backup.habits.length} habits, ${backup.checkIns.length} check-ins, ${backup.skills?.length || 0} skills`);
   deduplicateDataInPlace(backup);
+  quarantineJunkInto(backup);
   writeEnvelope(STORAGE_KEY, backup);
   writeEnvelope(BACKUP_KEY, backup);
   try { localStorage.setItem(RAW_JSON_KEY, JSON.stringify(backup)); } catch { /* ignore */ }
