@@ -8361,22 +8361,25 @@ body {
   text-align: center !important;
   cursor: grab;
   color: var(--text-muted);
-  opacity: 0.35;
-  transition: opacity 0.12s, background 0.12s;
+  opacity: 0.55;
+  transition: opacity 0.12s, background 0.12s, transform 0.12s;
   user-select: none;
   vertical-align: middle !important;
   border-radius: 4px;
+}
+.col-drag-handle:active {
+  transform: scale(1.15);
 }
 
 .drag-grip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: 5px;
   background: transparent;
-  transition: background 0.12s, color 0.12s;
+  transition: background 0.12s, color 0.12s, transform 0.12s;
 }
 
 .drag-grip:hover {
@@ -8415,9 +8418,34 @@ body {
 .habit-row-dragging td {
   border-color: transparent !important;
 }
+.habit-row-dragging td.col-habits {
+  position: static !important;
+  background: var(--bg-alt) !important;
+}
 
 .habit-row-dropping {
-  transition: none;
+  transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+/* Visible drop placeholder */
+.habit-grid tbody [data-rbd-placeholder-context-id] {
+  background: color-mix(in srgb, var(--primary) 8%, transparent) !important;
+  border: 2px dashed var(--primary) !important;
+  border-radius: var(--radius);
+}
+
+/* Compact: keep grip tappable */
+.table-scroll.compact-grid .col-drag-handle {
+  width: 28px !important;
+  min-width: 28px !important;
+  opacity: 0.6;
+}
+.table-scroll.compact-grid .drag-grip {
+  width: 20px !important;
+  height: 20px !important;
+}
+.table-scroll.compact-grid .drag-grip svg {
+  width: 12px !important;
+  height: 12px !important;
 }
 
 /* ============ MULTI-NOTE POPUP v0.3.2 ============ */

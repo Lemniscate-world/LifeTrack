@@ -1062,6 +1062,13 @@ const DEFAULT_CATEGORIES = [
     dayHeaders.push({ day: d, letter: getDayLetter(year, month, d) });
   }
 
+  // Compact grid effective state (auto-compact + densité)
+  const compactPrefs = getPreferences();
+  const activeHabitsCount = habits.filter((h) => !h.archived).length;
+  const autoCompactOn = compactPrefs.autoCompact !== false && activeHabitsCount >= (compactPrefs.compactThreshold ?? 30);
+  const effectiveCompact = compactPrefs.compactGrid === true || autoCompactOn;
+  const densityCls = compactPrefs.compactLevel === 1 ? ' compact-density-1' : compactPrefs.compactLevel === 2 ? ' compact-density-2' : '';
+
   return (
     <div className="app">
       {showLevelUp && <Confetti message={levelUpLabel} />}
@@ -1191,10 +1198,10 @@ const DEFAULT_CATEGORIES = [
                   {habits.filter((h) => !h.archived).length} active · {habits.filter((h) => h.archived).length} archived
                 </span>
                 <button
-                  className={`btn btn-sm ${getPreferences().compactGrid ? 'btn-primary' : 'btn-ghost'}`}
+                  className={`btn btn-sm ${effectiveCompact ? 'btn-primary' : 'btn-ghost'}`}
                   onClick={() => updatePreferences({ compactGrid: !getPreferences().compactGrid })}
-                  title={getPreferences().compactGrid ? 'Compact grid: on — click to switch to normal density' : 'Compact grid: off — smaller cells so more habits fit on screen'}
-                  aria-pressed={!!getPreferences().compactGrid}
+                  title={effectiveCompact ? (autoCompactOn && !compactPrefs.compactGrid ? `Compact grid: auto (≥${compactPrefs.compactThreshold ?? 30} habitudes) — click to force on` : 'Compact grid: on — click to switch to normal density') : 'Compact grid: off — smaller cells so more habits fit on screen'}
+                  aria-pressed={effectiveCompact}
                 >
                   ⚡ Compact
                 </button>
@@ -1206,16 +1213,9 @@ const DEFAULT_CATEGORIES = [
                   {showArchived ? 'Hide archived' : 'Show archived'}
                 </button>
               </div>
-              {(() => {
-                const cp = getPreferences();
-                const activeCount = habits.filter((h) => !h.archived).length;
-                const autoCompactOn = cp.autoCompact !== false && activeCount >= (cp.compactThreshold ?? 30);
-                const compactOn = cp.compactGrid === true || autoCompactOn;
-                const densityCls = cp.compactLevel === 1 ? ' compact-density-1' : cp.compactLevel === 2 ? ' compact-density-2' : '';
-                return (
-                  <DragDropContext onDragEnd={handleDragEnd}>
-                    <div className={`table-scroll${compactOn ? ' compact-grid' : ''}${densityCls}`}>
-                      <table className="habit-grid">
+              <DragDropContext onDragEnd={handleDragEnd}>
+                <div className={`table-scroll${effectiveCompact ? ' compact-grid' : ''}${densityCls}`}>
+                  <table className="habit-grid">
               <thead>
                 <tr>
                   <th className="col-drag-handle"></th>
@@ -1795,9 +1795,7 @@ const DEFAULT_CATEGORIES = [
               </Droppable>
             </table>
           </div>
-          </DragDropContext>
-                );
-              })()}
+        </DragDropContext>
             </>
           )}
         </div>
