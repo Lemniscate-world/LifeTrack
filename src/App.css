@@ -10324,6 +10324,81 @@ body {
   background: var(--primary);
   border-radius: 2px;
 }
+
+/* ============ v0.7.x - PLAN DAYS IN GRID + STACK RAILS ============ */
+/* Goal-plan days: circled in the grid so you SEE what to do today */
+.day-cell.plan-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: 1px;
+}
+.day-cell.plan-target::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: inherit;
+  pointer-events: none;
+}
+.theme-bw .day-cell.plan-target {
+  outline-color: var(--text);
+}
+.grid-plan-banner {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-alt);
+  white-space: nowrap;
+}
+.theme-bw .grid-plan-banner {
+  background: var(--text);
+  color: var(--bg);
+}
+
+/* Stack rails: parent gets a top marker, children get an indent + arrow rail */
+.habit-grid tbody tr.is-stack-parent td.col-habits .habit-name::after {
+  content: ' ⤵';
+  color: var(--primary);
+  font-weight: 800;
+}
+.habit-grid tbody tr.has-stack td.col-habits .habit-row {
+  position: relative;
+  padding-left: 14px;
+}
+.habit-grid tbody tr.has-stack td.col-habits .habit-row::before {
+  content: '↳';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-52%);
+  color: var(--primary);
+  font-weight: 900;
+  font-size: 13px;
+}
+.theme-bw .habit-grid tbody tr.has-stack td.col-habits .habit-row::before,
+.theme-bw .habit-grid tbody tr.is-stack-parent td.col-habits .habit-name::after {
+  color: var(--text);
+}
+.habit-stack-badge {
+  cursor: pointer;
+}
+
+/* AI coach collapse */
+.ai-collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font-size: inherit;
+  padding: 0;
+}
+.ai-section.ai-collapsed {
+  opacity: 0.85;
+}
 /* ============ v0.7.x - NOIR & BLANC POLISH ============ */
 /* Cohérence radius 0 + overrides hardcodés */
 .theme-bw .btn-icon,

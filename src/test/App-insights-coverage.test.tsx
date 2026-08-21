@@ -85,13 +85,16 @@ describe('InsightsView — with recommendations', () => {
     expect(screen.getByText(/100% local/)).toBeInTheDocument();
   });
 
-  it('AI Coach section is present', async () => {
+  it('AI Coach section is present (collapsed by default)', async () => {
     const user = userEvent.setup();
     addHabit('Test');
     render(<App />);
     await user.click(screen.getByText('Insights'));
 
-    expect(screen.getByText(/AI Coach/)).toBeInTheDocument();
+    // Collapsed: only the toggle is visible — expand it, then assert.
+    expect(screen.getByRole('button', { name: /Coach IA/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Coach IA/i }));
+    expect(screen.getByText(/Coach IA/)).toBeInTheDocument();
   });
 });
 

@@ -98,8 +98,6 @@ import { parseAiAnalysis, aiAnalysisToInsights, type AiAnalysis, type AiChatMess
 // (Mood view removed — emotional state is tracked via the 'emotional' chaos dimension.)
 import { generateInsights, type Recommendation, type RecKind } from './recommendations';
 import { computeCorrelations } from './correlations';
-import { computeUrgeInsights } from './urgeInsights';
-import { validateLevers, detectRelapses } from './leverInsights';
 import PsychoanalysisView from './PsychoanalysisView';
 import LeversView from './LeversView';
 import { computeXp, levelForXp, rankForLevel } from './gamification';
@@ -1007,8 +1005,10 @@ const DEFAULT_CATEGORIES = [
 
   // Compute stats for all habits: current/best streak, longest gap, completion
   // rates for 7/30/90/365-day windows, and a weighted score.
-  const habitStats = useMemo(() => {
-    const now = new Date();
+  // Habits that act as stack PARENTS (some other habit hangs off them)
+  const stackParentIds = useMemo(() => new Set(habits.map((h) => h.stackParent).filter(Boolean) as string[]), [habits]);
+
+  const habitStats = useMemo(() => {    const now = new Date();
     return habits.map((habit) => {
       // Prefer the persisted record (kept in sync by store) to stay consistent
       // with what gets shown after a reload. Fall back to a live compute when
@@ -1072,6 +1072,34 @@ const DEFAULT_CATEGORIES = [
   const autoCompactOn = compactPrefs.autoCompact !== false && activeHabitsCount >= (compactPrefs.compactThreshold ?? 30);
   const effectiveCompact = compactPrefs.compactGrid === true || autoCompactOn;
   const densityCls = compactPrefs.compactLevel === 1 ? ' compact-density-1' : compactPrefs.compactLevel === 2 ? ' compact-density-2' : '';
+
+  // --- Deep analysis hoisted to App level so the Grid can render the plans ---
+  const deepInsights = useMemo((): DeepInsight[] => {
+    try {
+      const allData = exportAllData();
+      return generateDeepInsights(habits, allCheckIns, allData.moods ?? {}, allData.energies ?? {}, new Date(), getProtocols());
+    } catch { return []; }
+  }, [habits, allCheckIns]);
+
+  // habitId → planned ISO dates (from goal plan cards) — circles in the grid.
+  const planDatesByHabit = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const c of deepInsights) {
+      if (!c.plan || c.plan.dates.length === 0) continue;
+      const hid = c.id.split('|')[1];
+      if (!hid) continue;
+      const set = m.get(hid) ?? new Set<string>();
+      for (const d of c.plan.dates) set.add(d);
+      m.set(hid, set);
+    }
+    return m;
+  }, [deepInsights]);
+  const plannedThisMonth = useMemo(() => {
+    let n = 0;
+    const mm = `${year}-${String(month + 1).padStart(2, '0')}`;
+    for (const set of planDatesByHabit.values()) for (const d of set) if (d.startsWith(mm)) n++;
+    return n;
+  }, [planDatesByHabit, year, month]);
 
   return (
     <div className="app">
@@ -1201,6 +1229,11 @@ const DEFAULT_CATEGORIES = [
                 <span className="grid-toolbar-info">
                   {habits.filter((h) => !h.archived).length} active · {habits.filter((h) => h.archived).length} archived
                 </span>
+                {plannedThisMonth > 0 && (
+                  <span className="grid-plan-banner" title="Jours planifiés par ton plan d'objectif (voir Insights)">
+                    🎯 {plannedThisMonth} jour{plannedThisMonth > 1 ? 's' : ''} planifié{plannedThisMonth > 1 ? 's' : ''} cerclé{plannedThisMonth > 1 ? 's' : ''}
+                  </span>
+                )}
                 <button
                   className={`btn btn-sm ${effectiveCompact ? 'btn-primary' : 'btn-ghost'}`}
                   onClick={() => updatePreferences({ compactGrid: !getPreferences().compactGrid })}
@@ -1265,7 +1298,7 @@ const DEFAULT_CATEGORIES = [
                   const goal = habit.goal || daysInMonth;
 
                   return (
-                    <DraggableHabitRow key={habit.id} habitId={habit.id} index={habitIdx} className={habit.stackParent ? 'has-stack' : ''}>
+                    <DraggableHabitRow key={habit.id} habitId={habit.id} index={habitIdx} className={`${habit.stackParent ? 'has-stack' : ''} ${stackParentIds.has(habit.id) ? 'is-stack-parent' : ''}`}>
                       <td className={`col-habits streak-level-${streakLevel}`}>
                         <div className="habit-row">
                           {editingHabitId === habit.id ? (
@@ -1575,6 +1608,10 @@ const DEFAULT_CATEGORIES = [
                         // toggle mode the count is always 1 (or 0) and a number
                         // next to the checkmark would just be visual noise.
                         const showCount = isMultiClick && currentCount >= 1;
+                        // Goal-plan circle: this day is part of a catch-up/next-month
+                        // plan computed by the deep engine for THIS habit.
+                        const cellIso = `${year}-${String(month + 1).padStart(2, '0')}-${String(h.day).padStart(2, '0')}`;
+                        const isPlanned = !checked && (planDatesByHabit.get(habit.id)?.has(cellIso) ?? false);
                         return (
                           <td
                             key={h.day}
@@ -1583,7 +1620,7 @@ const DEFAULT_CATEGORIES = [
                             onContextMenu={(e) => handleCellContextMenu(e, habit.id, habit.name, h.day)}
                             title={hasNote ? noteTooltip : isMultiClick ? `Click +1 · Shift+Click −1 · Ctrl+Click reset · Right-click note` : `Click to toggle · Right-click to add note`}
                           >
-                            <div className={`day-cell ${checked ? 'checked' : ''} ${hasNote ? 'has-note' : ''}`}>
+                            <div className={`day-cell ${checked ? 'checked' : ''} ${hasNote ? 'has-note' : ''} ${isPlanned ? 'plan-target' : ''}`}>
                               {checked && (
                                 <svg className="check-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                                   <polyline points="5,13 10,18 19,7"/>
@@ -1911,7 +1948,7 @@ const DEFAULT_CATEGORIES = [
           }}
         />
       ) : view === 'insights' ? (
-        <InsightsView habits={habits} checkIns={allCheckIns} onLink={(childId, parentId) => {
+        <InsightsView habits={habits} checkIns={allCheckIns} deepInsights={deepInsights} onLink={(childId, parentId) => {
           if (parentId) linkHabitToParentStore(childId, parentId);
           else void unlinkHabitFromParentStore(childId);
         }} onView={(newView) => setView(newView)} />
@@ -2505,11 +2542,13 @@ function InsightsView({
   checkIns,
   onLink,
   onView,
+  deepInsights,
 }: {
   habits: Habit[];
   checkIns: CheckIn[];
   onLink: (childId: string, parentId: string | null) => void;
-  onView: (_v: 'grid' | 'stats' | 'correlations' | 'history' | 'stacks' | 'chaos' | 'insights' | 'mantras' | 'settings' | 'today' | 'year' | 'challenge' | 'experiments' | 'skills' | 'urges' | 'journal') => void;
+  onView: (_v: 'grid' | 'stats' | 'correlations' | 'history' | 'stacks' | 'chaos' | 'insights' | 'mantras' | 'settings' | 'today' | 'year' | 'challenge' | 'experiments' | 'skills' | 'urges' | 'journal' | 'knowledge') => void;
+  deepInsights: DeepInsight[];
 }) {
 // Data change tick: urges/moods/levers/capacities are read via exportAllData()
   // inside the memos below, so the deps alone (habits, checkIns) never recompute
@@ -2557,29 +2596,6 @@ function InsightsView({
     } catch { return []; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [habits, checkIns, storeTick]);
-
-  // Urge & mood analysis (Wilson CI, lag correlations, emotional volatility)
-  const urgeInsights = useMemo(() => {
-    try {
-      const allData = exportAllData();
-      return computeUrgeInsights(allData.urges ?? [], allData.moods ?? {}, habits, checkIns);
-    } catch { return null; }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [habits, checkIns, storeTick]);
-
-  // Lever before/after validation + statistical relapse detection
-  const leverValidations = useMemo(() => {
-    try {
-      const allData = exportAllData();
-      return validateLevers(allData.levers ?? [], habits, checkIns, allData.moods ?? {});
-    } catch { return []; }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [habits, checkIns, storeTick]);
-  const relapses = useMemo(() => {
-    try {
-      return detectRelapses(habits, checkIns);
-    } catch { return []; }
-  }, [habits, checkIns]);
 
   const habitById = useMemo(() => {
     const m = new Map<string, Habit>();
@@ -2804,15 +2820,7 @@ function MiniPlanCalendar({ dates, label }: { dates: string[]; label: string }) 
   );
 }
 
-// --- Deep analysis (chains, streak risk, own-words, dose, interference) ---
-  const deepInsights = useMemo((): DeepInsight[] => {
-    try {
-      const allData = exportAllData();
-      return generateDeepInsights(habits, checkIns, allData.moods ?? {}, allData.energies ?? {});
-    } catch { return []; }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [habits, checkIns, storeTick]);
-
+// --- Deep analysis cards (data hoisted from App so Grid can circle plan days) ---
   const deepSection = deepInsights.length > 0 && (
     <div className="deep-section">
       <h3 className="deep-section-title">🔬 Analyse en profondeur</h3>
@@ -2845,22 +2853,24 @@ function MiniPlanCalendar({ dates, label }: { dates: string[]; label: string }) 
     </div>
   );
 
-  // AI Section component (always rendered, even when no recommendations yet)
+  // AI Section — collapsible, sits BELOW the local deep analysis. The local
+  // engine is the source of truth; the AI coach is a bonus lens, not the hero.
+  const [aiCollapsed, setAiCollapsed] = useState(true);
   const aiSection = (
-    <div className="ai-section">
+    <div className={`ai-section ${aiCollapsed ? 'ai-collapsed' : ''}`}>
       <div className="ai-section-header">
-        <span className="ai-section-title">
-          🤖 AI Coach <span className="ai-badge">Ollama</span>
-        </span>
+        <button className="ai-collapse-toggle" onClick={() => setAiCollapsed((v) => !v)} aria-expanded={!aiCollapsed}>
+          {aiCollapsed ? '▸' : '▾'} <span className="ai-section-title">🤖 Coach IA</span>
+        </button>
         <span className="ai-section-status">
           {aiLoading ? (
-            <span className="ai-loading">Analyzing your habits...</span>
+            <span className="ai-loading">Analyse en cours…</span>
           ) : aiResponse ? (
-            <span className="ai-fresh">Updated {new Date(aiLastRun).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
+            <span className="ai-fresh">maj {new Date(aiLastRun).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
           ) : aiError ? (
             <span className="ai-error-text">{aiError}</span>
           ) : (
-            <span className="ai-pending">Starting analysis...</span>
+            <span className="ai-pending">en attente…</span>
           )}
         </span>
         <button
@@ -2872,6 +2882,7 @@ function MiniPlanCalendar({ dates, label }: { dates: string[]; label: string }) 
           {aiLoading ? '⏳' : '🔄'}
         </button>
       </div>
+      {!aiCollapsed && (<>
       {aiResponse ? (
         aiStructured ? (
           <div className="ai-analysis">
@@ -2965,6 +2976,7 @@ function MiniPlanCalendar({ dates, label }: { dates: string[]; label: string }) 
           </form>
         </div>
       )}
+      </>)}
     </div>
   );
 
@@ -2991,10 +3003,7 @@ function MiniPlanCalendar({ dates, label }: { dates: string[]; label: string }) 
 
   return (
     <div className="insights-view">
-      {/* --- AI Analysis Section (auto-runs, always visible at top) --- */}
-      {aiSection}
-
-      {/* --- Deep analysis (chains, streak risk, own words, dose) --- */}
+      {/* --- Deep analysis FIRST: local, measured, visual --- */}
       {deepSection}
 
       {/* --- Local Recommendations --- */}
@@ -3089,87 +3098,8 @@ function MiniPlanCalendar({ dates, label }: { dates: string[]; label: string }) 
         </p>
       )}
 
-      {/* Urge & mood analysis — Wilson CI, lag correlations, volatility */}
-      {urgeInsights && (urgeInsights.survival?.n || urgeInsights.nextDayMood || urgeInsights.nextDayCompletion || urgeInsights.surfVsGiveIn || urgeInsights.successTrend || urgeInsights.emotionalVolatility) && (
-        <div className="trends-section">
-          <h3>⚡ Urge &amp; Mood</h3>
-          <div className="trends-list">
-            {urgeInsights.survival && urgeInsights.survival.n > 0 && (
-              <div className="trend-row">
-                <span className="trend-name">Taux de surf</span>
-                <span className="trend-detail">
-                  {urgeInsights.survival.rate.toFixed(0)}%
-                  <span className="trend-p">CI 95% {urgeInsights.survival.low.toFixed(0)}-{urgeInsights.survival.high.toFixed(0)}% · {urgeInsights.survival.k}/{urgeInsights.survival.n}</span>
-                </span>
-              </div>
-            )}
-            {urgeInsights.nextDayMood && (
-              <div className="trend-row">
-                <span className="trend-name">Urge → humeur lendemain</span>
-                <span className={`trend-arrow ${urgeInsights.nextDayMood.direction}`}>{urgeInsights.nextDayMood.direction === 'positive' ? '↑' : '↓'}</span>
-                <span className="trend-detail">ρ={urgeInsights.nextDayMood.rho.toFixed(2)}<span className="trend-p">p={urgeInsights.nextDayMood.p.toFixed(3)}</span></span>
-                {!urgeInsights.nextDayMood.significant && <span className="trend-ns">(n.s.)</span>}
-              </div>
-            )}
-            {urgeInsights.nextDayCompletion && (
-              <div className="trend-row">
-                <span className="trend-name">Urge → complétion lendemain</span>
-                <span className={`trend-arrow ${urgeInsights.nextDayCompletion.direction}`}>{urgeInsights.nextDayCompletion.direction === 'positive' ? '↑' : '↓'}</span>
-                <span className="trend-detail">ρ={urgeInsights.nextDayCompletion.rho.toFixed(2)}<span className="trend-p">p={urgeInsights.nextDayCompletion.p.toFixed(3)}</span></span>
-                {!urgeInsights.nextDayCompletion.significant && <span className="trend-ns">(n.s.)</span>}
-              </div>
-            )}
-            {urgeInsights.surfVsGiveIn && (
-              <div className="trend-row">
-                <span className="trend-name">Humeur lendemain</span>
-                <span className="trend-detail">surf {urgeInsights.surfVsGiveIn.surfedNextMood.toFixed(1)} <span className="trend-p">vs</span> céder {urgeInsights.surfVsGiveIn.gaveInNextMood.toFixed(1)}</span>
-              </div>
-            )}
-            {urgeInsights.successTrend && (
-              <div className="trend-row">
-                <span className="trend-name">Progression du surf</span>
-                <span className={`trend-arrow ${urgeInsights.successTrend.direction}`}>
-                  {urgeInsights.successTrend.direction === 'up' ? '▲' : urgeInsights.successTrend.direction === 'down' ? '▼' : '→'}
-                </span>
-                <span className="trend-detail">τ={urgeInsights.successTrend.tau.toFixed(2)}<span className="trend-p">p={urgeInsights.successTrend.p.toFixed(3)}</span></span>
-                {!urgeInsights.successTrend.significant && <span className="trend-ns">(n.s.)</span>}
-              </div>
-            )}
-            {urgeInsights.emotionalVolatility && (
-              <div className="trend-row">
-                <span className="trend-name">Volatilité émotionnelle</span>
-                <span className="trend-detail">σ={urgeInsights.emotionalVolatility.stdDev.toFixed(2)}<span className="trend-p">{urgeInsights.emotionalVolatility.n} j.</span></span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Lever before/after validation + relapse detection */}
-      {(leverValidations.length > 0 || relapses.length > 0) && (
-        <div className="trends-section">
-          <h3>🔬 Leviers &amp; Rechute</h3>
-          <div className="trends-list">
-            {leverValidations.filter((v) => !v.needMoreData).map((v) => (
-              <div key={v.leverId} className="trend-row">
-                <span className="trend-name" title={v.content}>
-                  {v.content.length > 26 ? `${v.content.slice(0, 26)}…` : v.content}
-                </span>
-                <span className="trend-detail">{v.beforeRate.toFixed(0)}% → {v.afterRate.toFixed(0)}%<span className="trend-p">p={v.p.toFixed(3)}</span></span>
-                {v.significant
-                  ? <span className="trend-weekday">✓ efficace</span>
-                  : <span className="trend-ns">(n.s.)</span>}
-              </div>
-            ))}
-            {relapses.filter((r) => r.relapse).map((r) => (
-              <div key={r.habitId} className="trend-row">
-                <span className="trend-name">⚠ Rechute : {r.name}</span>
-                <span className="trend-detail">{r.recentMean.toFixed(0)}%<span className="trend-p">vs {r.baselineMean.toFixed(0)}% · p={r.p.toFixed(3)}</span></span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* --- AI Coach LAST (collapsible): bonus lens, not the hero --- */}
+      {aiSection}
 
       </div>
   );

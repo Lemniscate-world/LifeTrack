@@ -10,6 +10,7 @@
 
 import type { Habit, CheckIn, Note, UrgeEntry, Capacity, CapacityRating, Experiment, JournalEntry, ReflectionEntry } from './types';
 import { computeStreakStats } from './stats';
+import { twoMeanP } from './deepInsights';
 
 // --- helpers for statistical depth (Cohen's h, Wilson, normal approx) ---
 function cohenH(p1: number, p2: number): number {
@@ -369,19 +370,23 @@ function detectPrimeTime(
       dayCounts[isoToDayIndex(ds)]++;
     }
     const max = Math.max(...dayCounts);
-    if (max < 3) continue;
+    const mean = completedDates.length / 7;
+    // Deep gate: the "prime" day must be meaningfully above the habit's own
+    // average weekday (×1.5) with enough volume — kills the old noise where
+    // any 3-day cluster became a "prime time".
+    if (max < 5 || max < mean * 1.5) continue;
     const bestDays = dayCounts
       .map((count, i) => ({ day: DAY_NAMES[i], count }))
       .filter((d) => d.count >= max * 0.75)
       .map((d) => d.day);
 
-    if (bestDays.length >= 1 && bestDays.length <= 3) {
+    if (bestDays.length >= 1 && bestDays.length <= 2) {
       recs.push({
         kind: 'PRIME_TIME',
-        title: `"${habit.name}" prime days: ${bestDays.join(', ')}`,
-        detail: `Over your tracking history, you complete "${habit.name}" most consistently on ${bestDays.join(' and ')}. These are the days where your routine is strongest — protect them.`,
+        title: `⭐ "${habit.name}" : tes jours forts — ${bestDays.join(' et ')}`,
+        detail: `${max} réussites le ${bestDays[0]} contre ~${mean.toFixed(1)} par jour en moyenne (×${(max / Math.max(0.1, mean)).toFixed(1)}). Ta routine est structurellement plus forte ce jour-là : mets-y les versions exigeantes, et protège-le.`,
         habitIds: [habit.id],
-        strength: Math.min(100, Math.round((max / completedDates.length) * 100)),
+        strength: Math.min(100, Math.round((max / Math.max(0.1, mean)) * 30 + 40)),
       });
     }
   }
@@ -677,30 +682,35 @@ function detectMoodHabitLink(
       }
     }
 
-    if (withHabitMoods.length < 3 || withoutHabitMoods.length < 3) continue;
+    if (withHabitMoods.length < 6 || withoutHabitMoods.length < 6) continue;
 
     const avgWith = withHabitMoods.reduce((a, b) => a + b, 0) / withHabitMoods.length;
     const avgWithout = withoutHabitMoods.reduce((a, b) => a + b, 0) / withoutHabitMoods.length;
     const delta = avgWith - avgWithout;
 
-    // Only flag meaningful differences
-    if (delta >= 1.0) {
+    // Deep gate: require statistical significance (z-test on means), not just
+    // a raw delta — this killed the stream of false "mood link" cards.
+    const pMood = twoMeanP(withHabitMoods, withoutHabitMoods);
+    const sig = pMood !== null && pMood < 0.05;
+
+    // Only flag meaningful AND significant differences
+    if (delta >= 0.7 && sig) {
       recs.push({
         kind: 'CORRELATION',
-        title: `😊 "${habit.name}" linked to better mood days`,
-        detail: `On days you complete "${habit.name}", your average mood is ${avgWith.toFixed(1)}/5 vs ${avgWithout.toFixed(1)}/5 when you skip it (${withHabitMoods.length} vs ${withoutHabitMoods.length} days). This habit seems to lift your mood — protect it.`,
+        title: `😊 "${habit.name}" liée à de meilleures journées`,
+        detail: `Humeur moyenne ${avgWith.toFixed(1)} les jours où tu fais "${habit.name}" vs ${avgWithout.toFixed(1)} sinon (Δ${delta > 0 ? '+' : ''}${delta.toFixed(1)}, n=${withHabitMoods.length}+${withoutHabitMoods.length}, ${pMood !== null ? (pMood < 0.001 ? 'p<0.001' : `p=${pMood.toFixed(3)}`) : '?'}). Protège-la.`,
         habitIds: [habit.id],
-        strength: Math.min(90, Math.round(delta * 20 + 40)),
-        actionLabel: 'Track mood',
+        strength: Math.min(90, Math.round(delta * 20 + 40 + (sig ? 10 : 0))),
+        actionLabel: 'Voir stats',
       });
-    } else if (delta <= -1.0) {
+    } else if (delta <= -0.7 && sig) {
       recs.push({
         kind: 'CORRELATION',
-        title: `🤔 "${habit.name}" — lower mood on completion days`,
-        detail: `Interestingly, your mood averages ${avgWith.toFixed(1)}/5 on days you complete "${habit.name}" vs ${avgWithout.toFixed(1)}/5 on days you skip. It might be a tough habit — or it might be something you turn to on harder days. Either way, awareness helps.`,
+        title: `🤔 "${habit.name}" — humeur plus basse les jours faits`,
+        detail: `Ton humeur moyenne est ${avgWith.toFixed(1)} les jours où tu fais "${habit.name}" vs ${avgWithout.toFixed(1)} sinon (${pMood !== null ? (pMood < 0.001 ? 'p<0.001' : `p=${pMood.toFixed(3)}`) : '?'}). Habitude exigeante, ou refuge sur les jours durs — la nuance compte.`,
         habitIds: [habit.id],
         strength: Math.min(80, Math.round(Math.abs(delta) * 15 + 30)),
-        actionLabel: 'View stats',
+        actionLabel: 'Voir stats',
       });
     }
   }

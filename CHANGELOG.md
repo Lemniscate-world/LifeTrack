@@ -2,6 +2,21 @@
 
 All notable changes to LifeTrack are documented in this file.
 
+## [Unreleased] - Grid pilotée par Insights + Stacks visuels (2026-08-20)
+
+### Added
+- **Plan visible dans la grille** - les jours du plan d'objectif sont CERCLÉS en pointillé directement dans la grid (`plan-target`), avec bandeau "🎯 N jours planifiés" dans la toolbar. L'insight ne dit plus seulement quoi faire : la grille te le montre.
+- **Stacks visuels** - les parents de stack portent un marqueur ⤵, les enfants sont indentés sur un rail vertical avec ↳ + flèche vers le parent. La chaîne se lit d'un coup d'œil.
+- **Pont Savoir ↔ Insights** - nouveau moteur `detectKnowledgeBridge` : pour tes habitudes au plus bas taux, il pêche un protocole gradué de la base de connaissances (match mots-clés/domaine) et l'affiche comme carte actionnable avec dosage et source.
+- **Design System « Ledger Brutal »** - DESIGN_SYSTEM.md versionné + règle permanente kuro-rules R108 (interdictions anti-AI-slop, composants signatures, motion unique). Toute future UI suit le système.
+
+### Changed
+- **Insights réordonnés** - Analyse profonde EN PREMIER, recommandations locales ensuite, Coach IA DERNIER et replié par défaut (toggle ▸/▾) : le local mesuré est la source de vérité.
+- **Sections Leviers & Rechute et Urge & Mood retirées d'Insights** (redondantes avec leurs onglets dédiés).
+
+### Fixed
+- **Auto-ingestion silencieuse** - les feeds seedés ne s'appliquaient pas aux données existantes (`feeds=[]` → cycle ignoré sans message). Le seed couvre maintenant aussi ce cas : l'ingestion démarre seule au lancement.
+
 ## [Unreleased] - Polish + Grid sticky + Gamification (2026-08-20)
 
 ### Added

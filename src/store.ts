@@ -1661,7 +1661,10 @@ if (Array.isArray(data.protocols) && data.protocols.length === 0) {
 }
 
 // Seed the permanent auto-ingest feeds on first load (idempotent).
-if (Array.isArray(data.feeds) && data.feeds.length === 0) {
+// Covers BOTH fresh installs (feeds undefined) and legacy data where the key
+// exists as an empty array — otherwise auto-ingestion silently never runs and
+// feels "manual".
+if (!Array.isArray(data.feeds) || data.feeds.length === 0) {
   data.feeds = DEFAULT_FEEDS.map((f) => ({ ...f, lastGuids: [] }));
 }
 

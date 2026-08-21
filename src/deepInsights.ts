@@ -7,7 +7,7 @@
 // quotes the user's own data (notes words, weekday rates) so nothing feels
 // generic. Pure module — fully unit-testable.
 
-import type { Habit, CheckIn } from './types';
+import type { Habit, CheckIn, Protocol } from './types';
 import { moodRank } from './correlations';
 
 export interface DeepInsight {
@@ -16,7 +16,7 @@ export interface DeepInsight {
   title: string;
   body: string;
   stat: string;
-  action?: { label: string; view: 'grid' | 'stats' | 'correlations' | 'history' | 'journal' };
+  action?: { label: string; view: 'grid' | 'stats' | 'correlations' | 'history' | 'journal' | 'knowledge' };
   /** Concrete schedule: days to check, rendered as a mini calendar. */
   plan?: { label: string; dates: string[] };
 }
@@ -793,6 +793,73 @@ function detectWeeklyLoad(days: Map<string, DayRow>, today: Date): DeepInsight[]
   }];
 }
 
+// ---------- 12. knowledge bridge: protocol → weakest habit ----------
+
+/**
+ * Connects the Savoir (knowledge base) to the rest of the app: finds the
+ * habit with the worst completion rate and matches an evidence-graded
+ * protocol whose domain/keywords fit it, so Insights can say "here is WHAT
+ * to do, from the science base" instead of only "here is what's wrong".
+ */
+function detectKnowledgeBridge(
+  habits: Habit[],
+  days: Map<string, DayRow>,
+  today: Date,
+  protocols: Protocol[],
+): DeepInsight[] {
+  if (protocols.length === 0) return [];
+  const todayStr = today.toISOString().slice(0, 10);
+  // Rank active habits by 30-day completion rate, weakest first.
+  const scored = habits
+    .filter((h) => !h.archived)
+    .map((h) => {
+      let k = 0; let n = 0;
+      for (let i = 1; i <= 30; i++) {
+        const d = shiftDate(todayStr, -i);
+        const r = days.get(d);
+        if (!r || !r.tracked.has(h.id)) continue;
+        n++;
+        if (r.done.has(h.id)) k++;
+      }
+      return { h, rate: n >= 5 ? k / n : -1 }; // -1 = not enough data
+    })
+    .filter((s) => s.rate >= 0)
+    .sort((a, b) => a.rate - b.rate);
+  const weak = scored.slice(0, 3); // the three strugglers
+  if (weak.length === 0) return [];
+
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const out: DeepInsight[] = [];
+  const usedProtocols = new Set<string>();
+  for (const { h, rate } of weak) {
+    const hn = norm(h.name);
+    let best: Protocol | null = null;
+    let bestScore = 0;
+    for (const p of protocols) {
+      if (usedProtocols.has(p.id)) continue;
+      if (p.risky) continue;
+      let score = 0;
+      for (const kw of p.keywords ?? []) {
+        const nk = norm(kw);
+        if (nk.length >= 3 && (hn.includes(nk) || nk.includes(hn))) score += 3;
+      }
+      if ((p.habitSuggestions ?? []).some((s) => norm(s).includes(hn) || hn.includes(norm(s)))) score += 2;
+      if (score > bestScore) { bestScore = score; best = p; }
+    }
+    if (!best || bestScore === 0) continue;
+    usedProtocols.add(best.id);
+    out.push({
+      id: `know|${h.id}|${best.id}`,
+      icon: '📚',
+      title: `Le savoir pour "${h.name}" (${Math.round(rate * 100)}% de réussite)`,
+      body: `"${h.name}" est dans ton bas du classement. La base de connaissances contient un protocole gradué qui colle : « ${best.title} » — ${best.claim} Dosage concret : ${best.protocol}.${best.metric ? ` À mesurer : ${best.metric}.` : ''} Source : ${best.source}${best.evidenceLevel ? ` · niveau ${best.evidenceLevel}` : ''}.`,
+      stat: `${bestScore >= 5 ? 'match fort' : 'match partiel'} · ${norm(best.domain)} · ${rate >= 0 ? `${Math.round(rate * 100)}%` : 'n faible'}`,
+      action: { label: 'Ouvrir le Savoir', view: 'knowledge' },
+    });
+  }
+  return out.slice(0, 2);
+}
+
 // ---------- entry ----------
 
 export function generateDeepInsights(
@@ -801,6 +868,7 @@ export function generateDeepInsights(
   moods: Record<string, string> = {},
   energies: Record<string, number> = {},
   today: Date = new Date(),
+  protocols: Protocol[] = [],
 ): DeepInsight[] {
   try {
     const days = buildDayTable(checkIns, moods, energies);
@@ -814,6 +882,7 @@ export function generateDeepInsights(
       ...detectPairSynergy(habits, days),
       ...detectWeeklyLoad(days, today),
       ...detectOwnWords(checkIns, today),
+      ...detectKnowledgeBridge(habits, days, today, protocols),
       ...detectDoseResponse(days),
       ...detectRestartPattern(habits, checkIns, days, today),
     ];
