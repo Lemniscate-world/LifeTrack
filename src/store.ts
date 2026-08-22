@@ -1453,6 +1453,9 @@ function doSave(d: AppData): void {
   }
   saveInFlight = true;
   try {
+    // Self-healing quarantine: whatever path mutated data (restore, import,
+    // legacy migration), junk entries never survive a save.
+    if (quarantineJunkInto(d) > 0) console.info('[LifeTrack] quarantined feed-junk habit(s) during save');
     const primaryOk = writeEnvelope(STORAGE_KEY, d);
     if (primaryOk) {
       const backupOk = writeEnvelope(BACKUP_KEY, d);

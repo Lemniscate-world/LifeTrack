@@ -10437,6 +10437,29 @@ body {
 .plan-ics-btn {
   margin-top: 8px;
 }
+
+/* Today's single directive — the answer to "qu'est-ce que je fais maintenant ?" */
+.today-directive {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--primary);
+  color: #fff;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+}
+.dark .today-directive,
+.dark.theme-bw .today-directive {
+  color: var(--bg);
+}
+.theme-bw .today-directive {
+  box-shadow: var(--shadow-sm);
+  background: var(--text);
+  color: var(--bg);
+}
+.td-icon { font-size: 20px; }
+.td-text { font-size: 13.5px; line-height: 1.45; }
 /* ============ v0.7.x - NOIR & BLANC POLISH ============ */
 /* Cohérence radius 0 + overrides hardcodés */
 .theme-bw .btn-icon,

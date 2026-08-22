@@ -527,17 +527,15 @@ function detectGoalCalibration(habits: Habit[], checkIns: CheckIn[], days: Map<s
       const ranked = [1, 2, 3, 4, 5, 6, 0]
         .map((idx) => ({ idx, rate: dowN[idx] >= 2 ? dowK[idx] / dowN[idx] : 0.5 }))
         .sort((a, b) => b.rate - a.rate);
-      // Next month occurrences per weekday
-      const nextMonth = new Date(now);
-      nextMonth.setUTCDate(1);
-      nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
-      const ym = nextMonth.toISOString().slice(0, 7);
+      // Next 31 days STARTING TOMORROW (not strict next month) so the plan is
+      // visible in the grid immediately — circles appear from day 1.
       const occ: string[][] = Array.from({ length: 7 }, () => []);
-      for (let dd = 1; dd <= 31; dd++) {
-        const iso = `${ym}-${String(dd).padStart(2, '0')}`;
+      const horizonEnd = shiftDate(todayStr, 32);
+      const ymA = shiftDate(todayStr, 1);
+      for (let iso = ymA; iso <= horizonEnd; ) {
         const dt = new Date(`${iso}T00:00:00Z`);
-        if (dt.getUTCMonth() !== nextMonth.getUTCMonth()) break;
         occ[dt.getUTCDay()].push(iso);
+        iso = shiftDate(iso, 1);
       }
       // Greedy: cycle through best weekdays, one occurrence each, up to suggested
       const picked: string[] = [];
@@ -559,11 +557,13 @@ function detectGoalCalibration(habits: Habit[], checkIns: CheckIn[], days: Map<s
         .filter((rw) => used[rw.idx] > 0)
         .map((rw) => `${DAY_NAMES[rw.idx]} (${Math.round(rw.rate * 100)}%)`)
         .join(', ');
+      const firstDay = picked[0] ?? '';
+      const startsToday = firstDay === shiftDate(todayStr, 1) ? 'dès demain' : `à partir du ${firstDay}`;
       out.push({
         id: `goalcal|${h.id}`,
         icon: '🎯',
-        title: `Plan progressif pour "${h.name}" — ${suggested} jours, calendrier prêt`,
-        body: `Ta médiane réelle : ${medianDone}/mois pour un objectif affiché à ${h.goal}. Le plan suit 3 principes validés : (1) progression ≤+20% par palier — cible ${suggested}, tenable ; (2) intentions d'implémentation — voici LES jours, calés sur tes meilleurs créneaux : ${topTxt} ; (3) si tu rates, version « 2 minutes » le lendemain et jamais deux ratés de suite. Calendrier pré-rempli ci-dessous + exportable vers ton agenda.`,
+        title: `Plan progressif pour "${h.name}" — ${suggested} jours, ${startsToday}`,
+        body: `Ta médiane réelle : ${medianDone}/mois pour un objectif affiché à ${h.goal}. Le plan suit 3 principes validés : (1) progression ≤+20% par palier — cible ${suggested}, tenable ; (2) intentions d'implémentation — voici LES jours, calés sur tes meilleurs créneaux : ${topTxt} ; (3) si tu rates, version « 2 minutes » le lendemain et jamais deux ratés de suite. Les jours sont cerclés dans la grille + exportables vers ton agenda.`,
         stat: `médiane ${Math.round(medianRatio * 100)}% · cible ${h.goal}→${suggested} (+≤20%) · plan ${picked.length}j · Gollwitzer/Fogg/Clear`,
         action: { label: 'Voir la grille', view: 'grid' },
         plan: { label: `Plan "${h.name}" — mois prochain`, dates: picked },

@@ -2928,10 +2928,37 @@ function EightWeekHeatmap({ checkIns }: { checkIns: CheckIn[] }) {
     } catch { return null; }
   }, [checkIns, deepInsights]);
 
+  // --- ONE directive: the single highest-leverage action for TODAY ---
+  const todayDirective = useMemo((): { icon: string; text: string } | null => {
+    const t = new Date().toISOString().slice(0, 10);
+    // 1. A planned day for today? → check it.
+    for (const c of deepInsights) {
+      if (!c.plan) continue;
+      const hid = c.id.split('|')[1];
+      if (!hid || !c.plan.dates.includes(t)) continue;
+      const name = habits.find((h) => h.id === hid)?.name ?? 'ton habitude';
+      return { icon: '🎯', text: `Aujourd'hui = jour planifié : coche « ${name} ». C'est LE geste du plan.` };
+    }
+    // 2. Streak at risk? → its mitigation.
+    const risk = deepInsights.find((c) => c.id.startsWith('streakrisk'));
+    if (risk) return { icon: risk.icon, text: risk.body.split('. ').slice(0, 2).join('.') + '.' };
+    // 3. Interference? → avoid the cannibal pair today.
+    const inter = deepInsights.find((c) => c.id.startsWith('cannibal'));
+    if (inter) return { icon: inter.icon, text: inter.title.replace('Interférence : ', '') + ' — décale la seconde aujourd\'hui.' };
+    // 4. Fallback: weakest habit micro-check (2-minute version).
+    return null;
+  }, [deepInsights, habits]);
+
   // --- Deep analysis cards (data hoisted from App so Grid can circle plan days) ---
   const deepSection = deepInsights.length > 0 && (
     <div className="deep-section">
       <h3 className="deep-section-title">🔬 Analyse en profondeur</h3>
+      {todayDirective && (
+        <div className="today-directive">
+          <span className="td-icon">{todayDirective.icon}</span>
+          <span className="td-text"><strong>Action du jour :</strong> {todayDirective.text}</span>
+        </div>
+      )}
       {weeklyReview}
       <div className="deep-list">
         {deepInsights.map((card) => (
