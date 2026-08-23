@@ -9,6 +9,7 @@ import {
   flushSave,
   exportAllData,
   listUpgradeBackups,
+  getHabits,
 } from './store';
 import type { MantraSettings, UserPreferences } from './types';
 import { INSIGHT_RULES_COUNT } from './recommendations';
@@ -481,6 +482,33 @@ export default function SettingsView({
       {/* DATA */}
       {activeTab === 'data' && (
         <div className="settings-panel">
+          <div className="settings-group">
+            <h3>Santé des données</h3>
+            {(() => {
+              const habits = getHabits();
+              const hIds = new Set(habits.map((h) => h.id));
+              const ci = exportAllData().checkIns ?? [];
+              const orphans = ci.filter((c) => !hIds.has(c.habitId)).length;
+              const seen = new Set<string>();
+              let dups = 0;
+              for (const c of ci) {
+                const k = `${c.habitId}|${c.date}`;
+                if (seen.has(k)) dups++;
+                else seen.add(k);
+              }
+              const future = ci.filter((c) => c.date > new Date().toISOString().slice(0, 10)).length;
+              const ok = orphans === 0 && future === 0;
+              return (
+                <p className="settings-hint" style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                  <span>✓ {ci.length} check-ins</span>
+                  <span>{orphans === 0 ? '✓' : '⚠'} {orphans} orphelin(s)</span>
+                  <span>{dups === 0 ? '✓' : '⚠'} {dups} doublon(s) jour</span>
+                  <span>{future === 0 ? '✓' : '⚠'} {future} datés dans le futur</span>
+                  {ok && <span style={{ color: 'var(--text-muted)' }}>— base saine</span>}
+                </p>
+              );
+            })()}
+          </div>
           <div className="settings-group">
             <h3>Export</h3>
             <p className="settings-hint">Save your data as a file you can keep anywhere.</p>

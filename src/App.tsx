@@ -210,6 +210,13 @@ const DEFAULT_CATEGORIES = [
   const [editWhyText, setEditWhyText] = useState('');
   // v0.3.2: Toggle to display archived habits in the grid
   const [showArchived, setShowArchived] = useState(false);
+  // Undo toast for accidental archive
+  const [undoArchive, setUndoArchive] = useState<{ id: string; name: string } | null>(null);
+  useEffect(() => {
+    if (!undoArchive) return;
+    const t = setTimeout(() => setUndoArchive(null), 8000);
+    return () => clearTimeout(t);
+  }, [undoArchive]);
   const [view, setView] = useState<ViewKey>('grid');
   const [savedMsg, setSavedMsg] = useState('');
   // Shortcuts help + toast
@@ -545,6 +552,17 @@ const DEFAULT_CATEGORIES = [
         flushSave();
         setSavedMsg('Saved just now');
       }
+      // Alt+←/→: previous/next month; T: jump to today (grid months)
+      if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); prevMonth(); }
+      if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); nextMonth(); }
+      if ((e.key === 't' || e.key === 'T') && !ctrl && !e.metaKey) {
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA' && view === 'grid') {
+          const now = new Date();
+          setYear(now.getFullYear());
+          setMonth(now.getMonth());
+        }
+      }
       // ?: Show shortcuts help
       if (e.key === '?' && !ctrl && !e.metaKey) {
         const tag = (e.target as HTMLElement).tagName;
@@ -556,7 +574,7 @@ const DEFAULT_CATEGORIES = [
     }
     window.addEventListener('keydown', onGlobalKey);
     return () => window.removeEventListener('keydown', onGlobalKey);
-  }, []);
+  });
 
   useEffect(() => {
     if (darkMode) {
@@ -1008,6 +1026,25 @@ const DEFAULT_CATEGORIES = [
   // Habits that act as stack PARENTS (some other habit hangs off them)
   const stackParentIds = useMemo(() => new Set(habits.map((h) => h.stackParent).filter(Boolean) as string[]), [habits]);
 
+  // habitId → set of ISO dates completed in the last 14 days (sparklines + recovery flag)
+  const last14DoneByHabit = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const today = new Date();
+    for (let i = 0; i < 14; i++) {
+      const dd = new Date(today);
+      dd.setDate(dd.getDate() - i);
+      const iso = `${dd.getFullYear()}-${pad(dd.getMonth() + 1)}-${pad(dd.getDate())}`;
+      for (const ci of allCheckIns) {
+        if (ci.date !== iso || !ci.completed) continue;
+        let s = m.get(ci.habitId);
+        if (!s) { s = new Set(); m.set(ci.habitId, s); }
+        s.add(iso);
+      }
+    }
+    return m;
+  }, [allCheckIns]);
+
   const habitStats = useMemo(() => {    const now = new Date();
     return habits.map((habit) => {
       // Prefer the persisted record (kept in sync by store) to stay consistent
@@ -1101,9 +1138,43 @@ const DEFAULT_CATEGORIES = [
     return n;
   }, [planDatesByHabit, year, month]);
 
+  // --- ONE directive: the single highest-leverage action for TODAY ---
+  const todayDirective = useMemo((): { icon: string; text: string } | null => {
+    const t = new Date().toISOString().slice(0, 10);
+    // 1. A planned day for today? → check it.
+    for (const c of deepInsights) {
+      if (!c.plan) continue;
+      const hid = c.id.split('|')[1];
+      if (!hid || !c.plan.dates.includes(t)) continue;
+      const name = habits.find((h) => h.id === hid)?.name ?? 'ton habitude';
+      return { icon: '🎯', text: `Aujourd'hui = jour planifié : coche « ${name} ». C'est LE geste du plan.` };
+    }
+    // 2. Streak at risk? → its mitigation.
+    const risk = deepInsights.find((c) => c.id.startsWith('streakrisk'));
+    if (risk) return { icon: risk.icon, text: risk.body.split('. ').slice(0, 2).join('.') + '.' };
+    // 3. Interference? → avoid the cannibal pair today.
+    const inter = deepInsights.find((c) => c.id.startsWith('cannibal'));
+    if (inter) return { icon: inter.icon, text: inter.title.replace('Interférence : ', '') + ' — décale la seconde aujourd\'hui.' };
+    return null;
+  }, [deepInsights, habits]);
+
   return (
     <div className="app">
       {showLevelUp && <Confetti message={levelUpLabel} />}
+      {undoArchive && (
+        <div className="undo-toast" role="status">
+          <span>« {undoArchive.name} » archivée</span>
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() => {
+              updateHabit(undoArchive.id, { archived: false });
+              setUndoArchive(null);
+            }}
+          >
+            ↺ Annuler
+          </button>
+        </div>
+      )}
       {/* Skip link for keyboard users */}
       <a href="#main-content" className="skip-link">Skip to main content</a>
       {/* Navbar — minimal */}
@@ -1203,11 +1274,19 @@ const DEFAULT_CATEGORIES = [
 
       <div className="view-scroll">
       {view === 'today' ? (
-        <TodayView
-          habits={habits}
-          checkIns={allCheckIns}
-          todayMantra={dailyEntryMantra}
-        />
+        <div>
+          {todayDirective && (
+            <div className="today-directive" style={{ margin: '0 auto 12px', maxWidth: 900 }}>
+              <span className="td-icon">{todayDirective.icon}</span>
+              <span className="td-text"><strong>Action du jour :</strong> {todayDirective.text}</span>
+            </div>
+          )}
+          <TodayView
+            habits={habits}
+            checkIns={allCheckIns}
+            todayMantra={dailyEntryMantra}
+          />
+        </div>
       ) : view === 'grid' ? (
         <div className="grid-area" key={gridKey} onClick={() => setKeyboardUsed(false)}>
           {habits.length === 0 ? (
@@ -1282,6 +1361,22 @@ const DEFAULT_CATEGORIES = [
                       const habitChecks = checkIns.get(habit.id) || new Map();
                   const hs = habitStats.find(s => s.habitId === habit.id);
                   const streakLevel = hs ? (hs.currentStreak >= 30 ? 3 : hs.currentStreak >= 7 ? 2 : hs.currentStreak >= 3 ? 1 : 0) : 0;
+                  // 14-day sparkline (real dates) + never-miss-twice recovery flag
+                  const spark: boolean[] = [];
+                  let missedYesterday = false;
+                  {
+                    const pad = (n: number) => String(n).padStart(2, '0');
+                    const todayD = new Date();
+                    const doneSet = last14DoneByHabit.get(habit.id);
+                    for (let i = 14; i >= 1; i--) {
+                      const dd = new Date(todayD);
+                      dd.setDate(dd.getDate() - i);
+                      spark.push(doneSet?.has(`${dd.getFullYear()}-${pad(dd.getMonth() + 1)}-${pad(dd.getDate())}`) ?? false);
+                    }
+                    const yd = new Date(todayD);
+                    yd.setDate(yd.getDate() - 1);
+                    missedYesterday = doneSet !== undefined && !doneSet.has(`${yd.getFullYear()}-${pad(yd.getMonth() + 1)}-${pad(yd.getDate())}`) && (doneSet.size > 0);
+                  }
                   // Count total executions this month (sum of counts across all days)
                   let totalExecs = 0;
                   for (let d = 1; d <= daysInMonth; d++) {
@@ -1319,6 +1414,9 @@ const DEFAULT_CATEGORIES = [
                               title="Click to rename"
                             >
                               {habit.name}
+                              {hs && hs.currentStreak >= 3 && (
+                                <span className="flame-chip" title={`Série en cours : ${hs.currentStreak} j`}>🔥{hs.currentStreak}</span>
+                              )}
                               {habit.focusMonth && (
                                 <span className="focus-badge" title={`Focus of ${habit.focusMonth}`}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg></span>
                               )}
@@ -1344,6 +1442,9 @@ const DEFAULT_CATEGORIES = [
                               </span>
                             );
                           })()}
+                          <span className="spark14" aria-hidden="true">
+                            {spark.map((v, i) => <i key={i} className={v ? 'on' : ''} />)}
+                          </span>
                           <select
                             className="habit-category-select"
                             value={habit.category ?? ''}
@@ -1358,7 +1459,10 @@ const DEFAULT_CATEGORIES = [
                           </select>
                           <button
                             className="habit-archive"
-                            onClick={() => archiveHabit(habit.id)}
+                            onClick={() => {
+                              archiveHabit(habit.id);
+                              setUndoArchive({ id: habit.id, name: habit.name });
+                            }}
                             title="Archive"
                           >
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1620,7 +1724,7 @@ const DEFAULT_CATEGORIES = [
                             onContextMenu={(e) => handleCellContextMenu(e, habit.id, habit.name, h.day)}
                             title={hasNote ? noteTooltip : isMultiClick ? `Click +1 · Shift+Click −1 · Ctrl+Click reset · Right-click note` : `Click to toggle · Right-click to add note`}
                           >
-                            <div className={`day-cell ${checked ? 'checked' : ''} ${hasNote ? 'has-note' : ''} ${isPlanned ? 'plan-target' : ''}`}>
+                            <div className={`day-cell ${checked ? 'checked' : ''} ${hasNote ? 'has-note' : ''} ${isPlanned ? 'plan-target' : ''} ${missedYesterday && isToday && !checked ? 'recovery-day' : ''}`}>
                               {checked && (
                                 <svg className="check-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                                   <polyline points="5,13 10,18 19,7"/>
@@ -1948,7 +2052,7 @@ const DEFAULT_CATEGORIES = [
           }}
         />
       ) : view === 'insights' ? (
-        <InsightsView habits={habits} checkIns={allCheckIns} deepInsights={deepInsights} onLink={(childId, parentId) => {
+        <InsightsView habits={habits} checkIns={allCheckIns} deepInsights={deepInsights} todayDirective={todayDirective} onLink={(childId, parentId) => {
           if (parentId) linkHabitToParentStore(childId, parentId);
           else void unlinkHabitFromParentStore(childId);
         }} onView={(newView) => setView(newView)} />
@@ -2543,11 +2647,13 @@ function InsightsView({
   onLink,
   onView,
   deepInsights,
+  todayDirective: todayDirectiveProp,
 }: {
   habits: Habit[];
   checkIns: CheckIn[];
   onLink: (childId: string, parentId: string | null) => void;
   onView: (_v: 'grid' | 'stats' | 'correlations' | 'history' | 'stacks' | 'chaos' | 'insights' | 'mantras' | 'settings' | 'today' | 'year' | 'challenge' | 'experiments' | 'skills' | 'urges' | 'journal' | 'knowledge') => void;
+  todayDirective: { icon: string; text: string } | null;
   deepInsights: DeepInsight[];
 }) {
 // Data change tick: urges/moods/levers/capacities are read via exportAllData()
@@ -2928,35 +3034,15 @@ function EightWeekHeatmap({ checkIns }: { checkIns: CheckIn[] }) {
     } catch { return null; }
   }, [checkIns, deepInsights]);
 
-  // --- ONE directive: the single highest-leverage action for TODAY ---
-  const todayDirective = useMemo((): { icon: string; text: string } | null => {
-    const t = new Date().toISOString().slice(0, 10);
-    // 1. A planned day for today? → check it.
-    for (const c of deepInsights) {
-      if (!c.plan) continue;
-      const hid = c.id.split('|')[1];
-      if (!hid || !c.plan.dates.includes(t)) continue;
-      const name = habits.find((h) => h.id === hid)?.name ?? 'ton habitude';
-      return { icon: '🎯', text: `Aujourd'hui = jour planifié : coche « ${name} ». C'est LE geste du plan.` };
-    }
-    // 2. Streak at risk? → its mitigation.
-    const risk = deepInsights.find((c) => c.id.startsWith('streakrisk'));
-    if (risk) return { icon: risk.icon, text: risk.body.split('. ').slice(0, 2).join('.') + '.' };
-    // 3. Interference? → avoid the cannibal pair today.
-    const inter = deepInsights.find((c) => c.id.startsWith('cannibal'));
-    if (inter) return { icon: inter.icon, text: inter.title.replace('Interférence : ', '') + ' — décale la seconde aujourd\'hui.' };
-    // 4. Fallback: weakest habit micro-check (2-minute version).
-    return null;
-  }, [deepInsights, habits]);
 
   // --- Deep analysis cards (data hoisted from App so Grid can circle plan days) ---
   const deepSection = deepInsights.length > 0 && (
     <div className="deep-section">
       <h3 className="deep-section-title">🔬 Analyse en profondeur</h3>
-      {todayDirective && (
+      {todayDirectiveProp && (
         <div className="today-directive">
-          <span className="td-icon">{todayDirective.icon}</span>
-          <span className="td-text"><strong>Action du jour :</strong> {todayDirective.text}</span>
+          <span className="td-icon">{todayDirectiveProp.icon}</span>
+          <span className="td-text"><strong>Action du jour :</strong> {todayDirectiveProp.text}</span>
         </div>
       )}
       {weeklyReview}

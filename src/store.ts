@@ -1413,6 +1413,7 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingSave = false;
 let lastSavedAt: number = 0; // 0 = no save yet; set on first successful write
 let saveInFlight = false; // prevent concurrent writes
+let lastRawJsonAt = 0; // throttle the heavy full-JSON emergency copy
 let pendingData: AppData | null = null; // data to re-save once current save finishes
 
 function doSave(d: AppData): void {
@@ -1464,8 +1465,13 @@ function doSave(d: AppData): void {
         console.warn('Backup write failed; primary is persisted but backup may be stale.');
       }
       lastSavedAt = Date.now();
-      // Emergency raw JSON backup — bypasses envelope entirely
-      try { localStorage.setItem(RAW_JSON_KEY, JSON.stringify(d)); } catch { /* best-effort */ }
+      // Emergency raw JSON backup — bypasses envelope entirely.
+      // Throttled to 5s: it's a full JSON.stringify of the whole dataset and
+      // was firing on EVERY keystroke-adjacent mutation.
+      try {
+        const nowMs = Date.now();
+        if (nowMs - lastRawJsonAt > 5000) { lastRawJsonAt = nowMs; localStorage.setItem(RAW_JSON_KEY, JSON.stringify(d)); }
+      } catch { /* best-effort */ }
       // Also schedule a file backup (best-effort, non-blocking).
       scheduleFileBackup(d);
     } else {

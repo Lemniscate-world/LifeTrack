@@ -16,7 +16,7 @@ export interface DeepInsight {
   title: string;
   body: string;
   stat: string;
-  action?: { label: string; view: 'grid' | 'stats' | 'correlations' | 'history' | 'journal' | 'knowledge' };
+  action?: { label: string; view: 'grid' | 'stats' | 'correlations' | 'history' | 'journal' | 'knowledge' | 'stacks' };
   /** Concrete schedule: days to check, rendered as a mini calendar. */
   plan?: { label: string; dates: string[] };
 }
@@ -918,6 +918,177 @@ export function downloadPlanIcs(fileName: string, summary: string, description: 
   } catch { return false; }
 }
 
+// ---------- 13. prime window per habit (from checkedAt hours) ----------
+
+export function dominantCheckWindow(habitId: string, checkIns: CheckIn[]): { label: string; share: number; n: number } | null {
+  const buckets = [
+    { label: '5h-9h', lo: 5, hi: 9 },
+    { label: '9h-12h', lo: 9, hi: 12 },
+    { label: '12h-17h', lo: 12, hi: 17 },
+    { label: '17h-21h', lo: 17, hi: 21 },
+    { label: '21h-1h', lo: 21, hi: 25 },
+    { label: '1h-5h', lo: -3, hi: 5 },
+  ];
+  const counts = new Array(buckets.length).fill(0);
+  let total = 0;
+  for (const ci of checkIns) {
+    if (ci.habitId !== habitId || !ci.completed || !ci.checkedAt) continue;
+    const h = new Date(ci.checkedAt).getHours();
+    total++;
+    buckets.forEach((b, i) => {
+      const hh = h < 5 ? h + 24 : h;
+      if (hh >= b.lo && hh < b.hi) counts[i]++;
+    });
+  }
+  if (total < 8) return null;
+  let bi = 0;
+  for (let i = 1; i < counts.length; i++) if (counts[i] > counts[bi]) bi = i;
+  const share = counts[bi] / total;
+  if (share < 0.55) return null;
+  return { label: buckets[bi].label, share, n: total };
+}
+
+function detectPrimeWindows(habits: Habit[], checkIns: CheckIn[]): DeepInsight[] {
+  const out: DeepInsight[] = [];
+  for (const h of habits.filter((x) => !x.archived)) {
+    const w = dominantCheckWindow(h.id, checkIns);
+    if (!w) continue;
+    out.push({
+      id: `primewin|${h.id}`,
+      icon: '⏰',
+      title: `"${h.name}" vit entre ${w.label}`,
+      body: `${Math.round(w.share * 100)}% de tes ${w.n} réussites "${h.name}" sont cochées entre ${w.label}. Ce n'est pas de la discipline générale, c'est un CRÉNEAU. Bloque-le (rappel à heure fixe) et le taux suit tout seul.`,
+      stat: `${w.n} cochages · seuil ≥55%`,
+    });
+  }
+  return out.slice(0, 1);
+}
+
+// ---------- 14. regime flip: a link that stopped working ----------
+
+function detectRegimeFlips(habits: Habit[], days: Map<string, DayRow>): DeepInsight[] {
+  const active = habits.filter((h) => !h.archived);
+  const dates = [...days.keys()].sort();
+  if (dates.length < 40) return [];
+  interface Flip { a: Habit; b: Habit; before: number; after: number; }
+  const flips: Flip[] = [];
+  for (let i = 0; i < active.length; i++) {
+    for (let j = i + 1; j < active.length; j++) {
+      const a = active[i];
+      const b = active[j];
+      // same-day co-occurrence lift, recent 14d vs prior 45d
+      const calc = (from: string, to: string): { k: number; na: number; base: number; nb: number } => {
+        let k = 0; let na = 0; let nb = 0;
+        for (const d of dates) {
+          if (d < from || d > to) continue;
+          const r = days.get(d)!;
+          if (!r.tracked.has(a.id)) continue;
+          na++;
+          if (r.done.has(a.id)) {
+            nb++;
+            if (r.tracked.has(b.id) && r.done.has(b.id)) k++;
+          }
+        }
+        let bt = 0; let bd = 0;
+        for (const d of dates) {
+          if (d < from || d > to) continue;
+          const r = days.get(d)!;
+          if (!r.tracked.has(b.id)) continue;
+          bt++;
+          if (r.done.has(b.id)) bd++;
+        }
+        return { k, na, base: bt > 0 ? bd / bt : 0, nb };
+      };
+      const todayStr = dates[dates.length - 1];
+      const rec14From = shiftDate(todayStr, -13);
+      const priorTo = shiftDate(todayStr, -14);
+      const priorFrom = shiftDate(todayStr, -58);
+      const rec = calc(rec14From, todayStr);
+      const pri = calc(priorFrom, priorTo);
+      if (rec.na < 5 || pri.na < 8 || rec.base <= 0 || pri.base <= 0) continue;
+      const liftNow = (rec.k / rec.na) / rec.base;
+      const liftBefore = (pri.k / pri.na) / pri.base;
+      if (liftBefore >= 1.6 && liftNow <= 1.05) {
+        flips.push({ a, b, before: liftBefore, after: liftNow });
+      }
+    }
+  }
+  flips.sort((x, y) => y.before - x.before);
+  const f = flips[0];
+  if (!f) return [];
+  return [{
+    id: `flip|${f.a.id}|${f.b.id}`,
+    icon: '📉',
+    title: `Régime changé : « ${f.a.name} » n'entraîne plus « ${f.b.name} »`,
+    body: `Avant (6 semaines), faire « ${f.a.name} » s'accompagnait de « ${f.b.name} » ×${f.before.toFixed(1)} plus souvent que la normale. Sur les 2 dernières semaines : ×${f.after.toFixed(1)} — l'effet a disparu. Cause probable : la routine s'est mechanicalisée ou ton contexte a changé. Re-ancre-les explicitement (stack) ou accepte que le lien soit terminé.`,
+    stat: `lift ×${f.before.toFixed(1)}→×${f.after.toFixed(1)} · fenêtres 45j vs 14j`,
+    action: { label: 'Voir stacks', view: 'stacks' as const },
+  }];
+}
+
+// ---------- 15. habit ROI ranking (mood lift per check) ----------
+
+function detectHabitRoi(habits: Habit[], days: Map<string, DayRow>): DeepInsight[] {
+  const active = habits.filter((h) => !h.archived);
+  const dates = [...days.keys()].sort().filter((d) => days.get(d)!.mood !== null);
+  if (dates.length < 25 || active.length < 4) return [];
+  const rois: { h: Habit; delta: number; k: number }[] = [];
+  for (const h of active) {
+    const withMood: number[] = [];
+    const withoutMood: number[] = [];
+    for (const d of dates) {
+      const r = days.get(d)!;
+      if (r.done.has(h.id)) withMood.push(r.mood!);
+      else withoutMood.push(r.mood!);
+    }
+    if (withMood.length < 8 || withoutMood.length < 8) continue;
+    const delta = mean(withMood) - mean(withoutMood);
+    const p = twoMeanP(withMood, withoutMood);
+    if (p === null || p >= 0.15 || delta <= 0.15) continue;
+    rois.push({ h, delta, k: withMood.length });
+  }
+  if (rois.length < 3) return [];
+  rois.sort((a, b) => b.delta - a.delta);
+  const top = rois.slice(0, 3).map((r) => `« ${r.h.name} » (+${r.delta.toFixed(1)}, n=${r.k})`).join(' · ');
+  return [{
+    id: 'roi',
+    icon: '🏆',
+    title: 'Ton top 3 rendement/humeur',
+    body: `Par humeur gagnée les jours faits vs non faits : ${top}. Si une semaine doit être serrée, ce sont CES trois-là à protéger en premier — le reste peut passer en version minimale.`,
+    stat: `seuils Δ≥+0.15 · p<0.15 · n≥8 par côté`,
+  }];
+}
+
+// ---------- 16. archive candidates ----------
+
+function detectArchiveCandidates(habits: Habit[], days: Map<string, DayRow>, today: Date): DeepInsight[] {
+  const out: DeepInsight[] = [];
+  const todayStr = today.toISOString().slice(0, 10);
+  for (const h of habits.filter((x) => !x.archived)) {
+    const createdAgo = Math.floor((Date.now() - new Date(`${h.createdAt.slice(0, 10)}T00:00:00Z`).getTime()) / 86400000);
+    if (createdAgo < 45) continue;
+    let k = 0; let n = 0;
+    for (let i = 1; i <= 30; i++) {
+      const d = shiftDate(todayStr, -i);
+      const r = days.get(d);
+      if (!r || !r.tracked.has(h.id)) continue;
+      n++;
+      if (r.done.has(h.id)) k++;
+    }
+    if (n >= 10 && k / n < 0.25) {
+      out.push({
+        id: `archivecand|${h.id}`,
+        icon: '📦',
+        title: `« ${h.name} » : 45+ jours, ${Math.round((k / n) * 100)}% sur 30j`,
+        body: `Créée il y a ${createdAgo} jours, complétée ${k}/${n} jours le mois dernier. Trois options honnêtes : archiver (la liste reste un moteur, pas un musée), réduire l'objectif au strict minimum, ou la fusionner dans une stack existante. Garder une habitude fantôme coûte de l'attention chaque jour.`,
+        stat: `âge ${createdAgo}j · taux ${Math.round((k / n) * 100)}% · seuil <25%`,
+        action: { label: 'Voir grille', view: 'grid' },
+      });
+    }
+  }
+  return out.slice(0, 1);
+}
+
 // ---------- entry ----------
 
 export function generateDeepInsights(
@@ -941,10 +1112,14 @@ export function generateDeepInsights(
       ...detectWeeklyLoad(days, today),
       ...detectOwnWords(checkIns, today),
       ...detectKnowledgeBridge(habits, days, today, protocols),
+      ...detectPrimeWindows(habits, checkIns),
+      ...detectRegimeFlips(habits, days),
+      ...detectHabitRoi(habits, days),
+      ...detectArchiveCandidates(habits, days, today),
       ...detectDoseResponse(days),
       ...detectRestartPattern(habits, checkIns, days, today),
     ];
-    return out.slice(0, 9);
+    return out.slice(0, 11);
   } catch {
     return [];
   }

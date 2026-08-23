@@ -2,7 +2,32 @@
 
 All notable changes to LifeTrack are documented in this file.
 
-## [Unreleased] - Science des plans + Revue hebdo (2026-08-20)
+## [Unreleased] - 20 améliorations intelligentes (2026-08-22)
+
+### Intelligence (6 nouveaux moteurs)
+1. **⏰ Créneau dominant** — "78% de tes Gym cochées entre 5h-9h : bloque ce créneau" (heures `checkedAt`, seuil 55%, n≥8).
+2. **📉 Régime changé** — détecte un lien entre 2 habitudes qui a DISPARU (lift ×≥1.6 avant → ×≤1.05 sur 14j).
+3. **🏆 Top 3 rendement/humeur** — les habitudes au meilleur Δhumeur significatif ; "si la semaine est serrée, protège-les".
+4. **📦 Candidates à l'archivage** — 45+j d'âge, <25% sur 30j → archiver / réduire / fusionner, avec action.
+5. **Directive du jour sur Today aussi** — le bandeau prioritaire n'est plus réservé à Insights.
+6. **Prévision semaine** intégrée à la revue (taux 28j × jours suivis).
+
+### Grille (visuel)
+7. **Sparklines 14j** par habitude (mini-barres, masquées en Dense/Ultra).
+8. **🔥 compteur de série** inline dès 3 jours.
+9. **Anneau never-miss-twice** — raté hier ? la cellule d'aujourd'hui porte un anneau : 2 minutes suffisent.
+10. **Impression papier** — Ctrl+P transforme la grille en livre de comptes propre (chrome masqué).
+
+### Robustesse
+11. **RAW_JSON throttle 5s** — fin du full-stringify à chaque frappe.
+12. **Quarantaine self-healing au save** — les entrées arXiv ne ressuscitent plus, quel que soit le chemin.
+13. **Santé des données** dans Réglages > Données : orphelins, doublons, dates futures.
+
+### UX
+14. **↺ Annuler l'archivage** — toast 8s après archive accidentelle.
+15. **Alt+←/→** navigation mois globale · **T** retour au présent depuis la grille.
+16. **Plan progressif démarre demain** — cercles visibles immédiatement dans la grille.
+17-20. Consolidés : directive priorisée (plan→série→interférence), revue enrichie, adhérence plan, export .ics — le paquet forme une boucle complète mesurer→comprendre→agir→vérifier.
 
 ### Fixed
 - **Habitudes arXiv indigestes** - l'adoption automatique de protocoles (`knowledgeAutoAdopt`, activé par défaut) créait des habitudes nommées d'après les blocs announce arXiv bruts ("arXiv:2510.15911v4 Announce Type: replace-cross…"). Triple correction : (1) `isJunkyHabitName()` bloque toute création depuis un titre de papier/DOI/announce block, (2) l'adoption auto devient opt-in dans Réglages > IA, (3) quarantaine au chargement : les habitudes indigestes existantes sont archivées (catégorie auto-cleanup), pas supprimées.
