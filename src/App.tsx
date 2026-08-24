@@ -1361,22 +1361,15 @@ const DEFAULT_CATEGORIES = [
                       const habitChecks = checkIns.get(habit.id) || new Map();
                   const hs = habitStats.find(s => s.habitId === habit.id);
                   const streakLevel = hs ? (hs.currentStreak >= 30 ? 3 : hs.currentStreak >= 7 ? 2 : hs.currentStreak >= 3 ? 1 : 0) : 0;
-                  // 14-day sparkline (real dates) + never-miss-twice recovery flag
-                  const spark: boolean[] = [];
-                  let missedYesterday = false;
-                  {
-                    const pad = (n: number) => String(n).padStart(2, '0');
-                    const todayD = new Date();
+                  // Never-miss-twice flag: missed yesterday → today deserves a ring
+                  const missedYesterday = (() => {
                     const doneSet = last14DoneByHabit.get(habit.id);
-                    for (let i = 14; i >= 1; i--) {
-                      const dd = new Date(todayD);
-                      dd.setDate(dd.getDate() - i);
-                      spark.push(doneSet?.has(`${dd.getFullYear()}-${pad(dd.getMonth() + 1)}-${pad(dd.getDate())}`) ?? false);
-                    }
-                    const yd = new Date(todayD);
+                    if (!doneSet || doneSet.size === 0) return false;
+                    const pad = (n: number) => String(n).padStart(2, '0');
+                    const yd = new Date();
                     yd.setDate(yd.getDate() - 1);
-                    missedYesterday = doneSet !== undefined && !doneSet.has(`${yd.getFullYear()}-${pad(yd.getMonth() + 1)}-${pad(yd.getDate())}`) && (doneSet.size > 0);
-                  }
+                    return !doneSet.has(`${yd.getFullYear()}-${pad(yd.getMonth() + 1)}-${pad(yd.getDate())}`);
+                  })();
                   // Count total executions this month (sum of counts across all days)
                   let totalExecs = 0;
                   for (let d = 1; d <= daysInMonth; d++) {
@@ -1442,9 +1435,6 @@ const DEFAULT_CATEGORIES = [
                               </span>
                             );
                           })()}
-                          <span className="spark14" aria-hidden="true">
-                            {spark.map((v, i) => <i key={i} className={v ? 'on' : ''} />)}
-                          </span>
                           <select
                             className="habit-category-select"
                             value={habit.category ?? ''}

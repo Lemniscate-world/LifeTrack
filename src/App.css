@@ -10461,37 +10461,49 @@ body {
 .td-icon { font-size: 20px; }
 .td-text { font-size: 13.5px; line-height: 1.45; }
 
-/* ============ v0.8 - 20 IMPROVEMENTS BATCH ============ */
-/* Sparkline 14j dans la ligne d'habitude */
-.spark14 {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 1.5px;
-  height: 12px;
-  margin-left: auto;
+/* ============ v0.8 - DENSITY & CLARITY PASS ============ */
+/* Objectif : le plus d'habitudes à l'écran, le plus lisible possible.
+   (Les sparklines ont été retirées — la place retourne aux habitudes.) */
+
+/* Zébrure ledger GLOBALE : le repère de ligne ne dépend plus du thème */
+.habit-grid tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--bg-alt) 55%, transparent);
 }
-.spark14 i {
-  width: 2.5px;
-  height: 3px;
-  background: var(--border);
-  opacity: 0.5;
-  border-radius: 1px;
+.theme-bw .habit-grid tbody tr:nth-child(even) {
+  background: var(--bg-alt);
 }
-.spark14 i.on {
-  height: 11px;
-  background: var(--primary);
-  opacity: 1;
+
+/* Colonne du jour marquée dans TOUS les modes, pas qu'en compact */
+.col-day.today {
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
 }
-.dark .spark14 i.on { background: var(--text); }
-.table-scroll.compact-grid .spark14 { display: none; }
-.table-scroll.compact-grid.compact-density-0 .spark14 { display: inline-flex; }
+
+/* Colonne des noms : serrée, tronquée proprement, jamais de wrap */
+.col-habits .habit-row {
+  flex-wrap: nowrap;
+}
+.habit-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.habit-category-select {
+  max-width: 96px;
+  min-width: 0;
+}
+.habit-stack-badge {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* 🔥 streak count chip */
 .flame-chip {
-  font-size: 9.5px;
+  font-size: 9px;
+  padding: 0 3px;
+  margin-left: 4px;
   font-weight: 800;
-  margin-left: 5px;
-  padding: 0 4px;
   border-radius: 6px;
   background: color-mix(in srgb, #f59e0b 18%, transparent);
   color: #d97706;
