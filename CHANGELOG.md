@@ -2,6 +2,18 @@
 
 All notable changes to LifeTrack are documented in this file.
 
+## [Unreleased] - Psychologie des plans : acquisition vs abstinence (2026-08-22)
+
+### Added
+- **Deux espèces d'habitudes, deux plans** (`classifyHabitKind`) : les habitudes d'ÉVITEMENT (No PMO, No Sodas, Anger…) ne subissent plus la calibration d'objectif — une réussite basse y est un SUCCÈS. Nouveau moteur `detectVigilancePlans` (Marlatt, relapse prevention) : identifie tes créneaux d'échec historiques (<55%, n≥4), marque les 6 prochains jours de ce type d'un halo de vigilance dans la grille, et arme un plan si-alors.
+- **Si-alors personnalisé (MCII/Oettingen)** — chaque plan extrait ton obstacle signature depuis TES notes d'échec de cette habitude (« Si "fatigue" se présente, ALORS version 2 minutes »).
+- **Fresh-start effect** (Dai & Milkman) nommé quand le 1er jour du plan tombe lundi/1er.
+- **Lapse ≠ rechute** — neutralisation explicite de l'Abstinence Violation Effect dans les cartes vigilance.
+- **Directive du jour v3** — si aujourd'hui est un jour de vigilance : le bandeau passe en mode bouclier 🛡️ avec le si-alors armé.
+
+### Changed
+- Mini-calendriers bimodaux : jours d'action remplis vs jours de vigilance cerclés, légendes distinctes ; export .ics préfixé Plan/Vigilance.
+
 ## [Unreleased] - 20 améliorations intelligentes (2026-08-22)
 
 ### Intelligence (6 nouveaux moteurs)

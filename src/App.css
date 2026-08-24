@@ -10324,6 +10324,17 @@ body {
   background: var(--primary);
   border-radius: 2px;
 }
+.mini-cal-dot.risk {
+  background: transparent;
+  border: 1px solid var(--text);
+}
+.mini-cal-day.planned.risk {
+  background: transparent;
+  color: var(--text);
+  font-weight: 800;
+  outline: 1px solid var(--text);
+  outline-offset: -1px;
+}
 
 /* ============ v0.7.x - PLAN DAYS IN GRID + STACK RAILS ============ */
 /* Goal-plan days: circled in the grid so you SEE what to do today */
@@ -10341,6 +10352,28 @@ body {
 }
 .theme-bw .day-cell.plan-target {
   outline-color: var(--text);
+}
+/* Vigilance days (abstinence): double trait fin + point central — distinct
+   du cercle d'action, même langage monochrome */
+.day-cell.plan-risk {
+  outline: 1px solid var(--text);
+  outline-offset: 2px;
+}
+.day-cell.plan-risk::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, currentColor 1.5px, transparent 2px);
+  opacity: 0.55;
+  pointer-events: none;
+}
+.day-cell.plan-risk::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border: 1px dashed color-mix(in srgb, var(--text) 40%, transparent);
+  border-radius: inherit;
+  pointer-events: none;
 }
 .grid-plan-banner {
   font-size: 11px;

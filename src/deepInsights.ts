@@ -18,7 +18,36 @@ export interface DeepInsight {
   stat: string;
   action?: { label: string; view: 'grid' | 'stats' | 'correlations' | 'history' | 'journal' | 'knowledge' | 'stacks' };
   /** Concrete schedule: days to check, rendered as a mini calendar. */
-  plan?: { label: string; dates: string[] };
+  plan?: {
+    label: string;
+    dates: string[];
+    /** 'go' = action days (acquisition) · 'risk' = vigilance days (abstinence). */
+    kind?: 'go' | 'risk';
+    /** Implementation intention: SI [obstacle], ALORS [réponse]. */
+    ifThen?: string;
+  };
+}
+
+// --- Psychology of habits: two species, two plans ---
+// Acquisition habits (do X): schedule on HIGH-SUCCESS cues — implementation
+// intentions (Gollwitzer), fresh-start landmarks (Dai/Milkman), ≤+20% ramps.
+// Abstinence habits (avoid X): uniform targets are meaningless — relapse is
+// cued by CONTEXT (Marlatt's relapse prevention). Plan VIGILANCE on the
+// historically risky days, with an if-then coping response ready.
+
+const ABSTINENCE_KEYWORDS = [
+  'pmo', 'soda', 'sucr', 'sugar', 'cigarette', 'clope', 'alcool', 'alcohol',
+  'junk', 'fastfood', 'fast food', 'anger', 'colere', 'scroll', 'porn',
+  'douleur', 'procrastin',
+];
+
+export function classifyHabitKind(name: string): 'avoid' | 'do' {
+  const n = normalizeForMatchLocal(name);
+  return ABSTINENCE_KEYWORDS.some((k) => n.includes(k)) ? 'avoid' : 'do';
+}
+
+function normalizeForMatchLocal(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
 // ---------- small stat helpers ----------
@@ -487,6 +516,9 @@ function detectGoalCalibration(habits: Habit[], checkIns: CheckIn[], days: Map<s
   }
   for (const h of habits.filter((x) => !x.archived)) {
     if (!h.goal || h.goal <= 0) continue;
+    // Abstinence habits get VIGILANCE plans, not target calibration — a low
+    // completion rate on "No PMO" is SUCCESS, not underachievement.
+    if (classifyHabitKind(h.name) === 'avoid') continue;
     const rates: { month: string; done: number }[] = [];
     for (const m of months) {
       const done = checkIns.filter((ci) => ci.habitId === h.id && ci.completed && ci.date.startsWith(m)).length;
@@ -559,14 +591,23 @@ function detectGoalCalibration(habits: Habit[], checkIns: CheckIn[], days: Map<s
         .join(', ');
       const firstDay = picked[0] ?? '';
       const startsToday = firstDay === shiftDate(todayStr, 1) ? 'dès demain' : `à partir du ${firstDay}`;
+      // Fresh-start effect (Dai & Milkman 2014): si le 1er jour planifié tombe
+      // un lundi ou un 1er du mois, la motivation initiale est mécaniquement
+      // plus haute — on le nomme pour que l'utilisateur s'y accroche.
+      const fresh = firstDay ? new Date(`${firstDay}T00:00:00Z`) : null;
+      const freshTxt = fresh && (fresh.getUTCDay() === 1 || fresh.getUTCDate() === 1)
+        ? ' Le premier jour tombe sur un point de départ temporel (lundi/1er) — profite de l\'effet fresh-start.'
+        : '';
+      // Obstacle n°1 = le mot contrasté des échecs DE CETTE habitude (WOOP).
+      const ifThen = buildIfThenForHabit(h.id, checkIns);
       out.push({
         id: `goalcal|${h.id}`,
         icon: '🎯',
         title: `Plan progressif pour "${h.name}" — ${suggested} jours, ${startsToday}`,
-        body: `Ta médiane réelle : ${medianDone}/mois pour un objectif affiché à ${h.goal}. Le plan suit 3 principes validés : (1) progression ≤+20% par palier — cible ${suggested}, tenable ; (2) intentions d'implémentation — voici LES jours, calés sur tes meilleurs créneaux : ${topTxt} ; (3) si tu rates, version « 2 minutes » le lendemain et jamais deux ratés de suite. Les jours sont cerclés dans la grille + exportables vers ton agenda.`,
-        stat: `médiane ${Math.round(medianRatio * 100)}% · cible ${h.goal}→${suggested} (+≤20%) · plan ${picked.length}j · Gollwitzer/Fogg/Clear`,
+        body: `Ta médiane réelle : ${medianDone}/mois pour un objectif affiché à ${h.goal}. Principes appliqués : (1) progression ≤+20% par palier ; (2) intentions d'implémentation — jours calés sur tes meilleurs créneaux : ${topTxt} ; (3) Tiny Habits + never miss twice en repli.${freshTxt}${ifThen ? ` ${ifThen}` : ''} Jours cerclés dans la grille + export agenda.`,
+        stat: `médiane ${Math.round(medianRatio * 100)}% · cible ${h.goal}→${suggested} (+≤20%) · plan ${picked.length}j`,
         action: { label: 'Voir la grille', view: 'grid' },
-        plan: { label: `Plan "${h.name}" — mois prochain`, dates: picked },
+        plan: { label: `Plan "${h.name}" — 31 jours`, dates: picked, kind: 'go', ifThen: ifThen || undefined },
       });
     } else {
       // --- Plan B : objectif tenu mais rythme du mois courant en retard → rattrapage ciblé ---
@@ -587,7 +628,7 @@ function detectGoalCalibration(habits: Habit[], checkIns: CheckIn[], days: Map<s
         body: `À ce stade du mois tu devrais être à ~${paceExpected}/${h.goal}, tu es à ${doneThisMonth}. Il reste ${remaining} jours : coche les ${upcoming.dates.length} jours surlignés ci-dessous (tes créneaux à meilleur taux : ${upcoming.label}) et l'objectif reste atteignable sans sprint.`,
         stat: `fait ${doneThisMonth}/${paceExpected} attendus · rattrapage ${upcoming.dates.length}j · seuil ≥2`,
         action: { label: 'Voir la grille', view: 'grid' },
-        plan: { label: `Rattrapage "${h.name}" — ce mois`, dates: upcoming.dates },
+        plan: { label: `Rattrapage "${h.name}" — ce mois`, dates: upcoming.dates, kind: 'go' },
       });
     }
   }
@@ -622,6 +663,79 @@ function rankedUpcomingDays(
   }
   const label = ranked.slice(0, 2).map((r) => `${DAY_NAMES[r.idx]} ${Math.round(r.rate * 100)}%`).join(', ');
   return { dates, label };
+}
+
+/** Obstacle n°1 d'UNE habitude : le mot contrasté de SES échecs (WOOP/MCII). */
+function buildIfThenForHabit(habitId: string, checkIns: CheckIn[]): string {
+  const failTexts: string[] = [];
+  const okTexts: string[] = [];
+  for (const ci of checkIns) {
+    if (ci.habitId !== habitId) continue;
+    const texts = [...(ci.notes ?? [])];
+    const legacy = (ci as unknown as Record<string, unknown>).note;
+    if (typeof legacy === 'string' && legacy.trim()) texts.push(legacy);
+    if (texts.length === 0) continue;
+    if (ci.completed) okTexts.push(...texts);
+    else failTexts.push(...texts);
+  }
+  if (failTexts.length < 3 || okTexts.length < 3) return '';
+  const top = contrastiveWords(failTexts, okTexts)[0];
+  if (!top) return '';
+  return `Ton obstacle signature : « ${top.word} ». Si « ${top.word} » se présente avant l'action, ALORS déclenche la version 2 minutes — c'est ton plan si-alors (MCII/Oettingen).`;
+}
+
+// ---------- 7bis. vigilance plans for ABSTINENCE habits ----------
+
+/**
+ * For avoid-type habits (No PMO, No Sodas…), completion = successful
+ * avoidance, so "low rate" logic is inverted and target calibration is
+ * meaningless. Instead: identify the historically RISKY weekdays (lowest
+ * success), mark the upcoming ones as vigilance days in the grid, and arm a
+ * coping if-then (Marlatt's relapse prevention; lapse ≠ relapse — neutralize
+ * the Abstinence Violation Effect).
+ */
+function detectVigilancePlans(habits: Habit[], checkIns: CheckIn[], days: Map<string, DayRow>, today: Date): DeepInsight[] {
+  const out: DeepInsight[] = [];
+  const todayStr = today.toISOString().slice(0, 10);
+  for (const h of habits.filter((x) => !x.archived)) {
+    if (classifyHabitKind(h.name) !== 'avoid') continue;
+    const dowK = Array.from({ length: 7 }, () => 0);
+    const dowN = Array.from({ length: 7 }, () => 0);
+    for (let i = 1; i <= 90; i++) {
+      const d = shiftDate(todayStr, -i);
+      const r = days.get(d);
+      if (!r || !r.tracked.has(h.id)) continue;
+      const idx = new Date(`${d}T00:00:00Z`).getUTCDay();
+      dowN[idx]++;
+      if (r.done.has(h.id)) dowK[idx]++;
+    }
+    // Risk weekdays: enough samples and success < 55%
+    const risky = [0, 1, 2, 3, 4, 5, 6]
+      .filter((idx) => dowN[idx] >= 4 && dowK[idx] / dowN[idx] < 0.55)
+      .sort((a, b) => dowK[a] / dowN[a] - dowK[b] / dowN[b])
+      .slice(0, 2);
+    if (risky.length === 0) continue;
+    const dates: string[] = [];
+    for (let i = 1; i <= 21 && dates.length < 6; i++) {
+      const iso = shiftDate(todayStr, i);
+      const idx = new Date(`${iso}T00:00:00Z`).getUTCDay();
+      if (risky.includes(idx)) dates.push(iso);
+    }
+    if (dates.length === 0) continue;
+    const riskTxt = risky.map((idx) => `${DAY_NAMES[idx]} (${Math.round((dowK[idx] / dowN[idx]) * 100)}%)`).join(' et ');
+    const ifThen = buildIfThenForHabit(h.id, checkIns)
+      || 'Plan si-alors par défaut : SI l\'envie monte, ALORS 10 minutes de délai + changer de pièce — l\'envie crête et retombe (urge surfing).';
+    out.push({
+      id: `vigil|${h.id}`,
+      icon: '🛡️',
+      title: `« ${h.name} » : jours de vigilance ${riskTxt}`,
+      body: `Pour une habitude d'évitement, on ne planifie pas des réussites — on anticipe les contextes à risque. Tes créneaux d'échec historiques : ${riskTxt}. Les ${dates.length} prochains jours de ce type sont marqués d'un halo dans la grille.${ifThen} Et si ça craque quand même : un lapse n'est pas une rechute — l'effet de violation d'abstinence n'est qu'une histoire qu'on se raconte ; reprends dès le prochain repas/lever.`,
+      stat: `risque <55% · ${dowN[risky[0]]} échantillons · fenêtre 21j · Marlatt/AVE`,
+      action: { label: 'Voir la grille', view: 'grid' },
+      plan: { label: `Vigilance "${h.name}"`, dates, kind: 'risk', ifThen },
+    });
+  }
+  return out.slice(0, 2);
 }
 
 // ---------- 8. first-check timing effect ----------
@@ -1106,6 +1220,7 @@ export function generateDeepInsights(
       ...detectFirstCheckEffect(checkIns, days),
       ...detectChains(habits, days),
       ...detectGoalCalibration(habits, checkIns, days, today),
+      ...detectVigilancePlans(habits, checkIns, days, today),
       ...detectCannibalization(habits, days),
       ...detectWeekendDrift(habits, days, today),
       ...detectPairSynergy(habits, days),

@@ -1118,15 +1118,16 @@ const DEFAULT_CATEGORIES = [
     } catch { return []; }
   }, [habits, allCheckIns]);
 
-  // habitId → planned ISO dates (from goal plan cards) — circles in the grid.
+  // habitId → planned dates with kind ('go' action / 'risk' vigilance)
   const planDatesByHabit = useMemo(() => {
-    const m = new Map<string, Set<string>>();
+    const m = new Map<string, Map<string, 'go' | 'risk'>>();
     for (const c of deepInsights) {
       if (!c.plan || c.plan.dates.length === 0) continue;
       const hid = c.id.split('|')[1];
       if (!hid) continue;
-      const set = m.get(hid) ?? new Set<string>();
-      for (const d of c.plan.dates) set.add(d);
+      const set = m.get(hid) ?? new Map<string, 'go' | 'risk'>();
+      const kind = c.plan.kind ?? 'go';
+      for (const d of c.plan.dates) set.set(d, kind);
       m.set(hid, set);
     }
     return m;
@@ -1134,13 +1135,22 @@ const DEFAULT_CATEGORIES = [
   const plannedThisMonth = useMemo(() => {
     let n = 0;
     const mm = `${year}-${String(month + 1).padStart(2, '0')}`;
-    for (const set of planDatesByHabit.values()) for (const d of set) if (d.startsWith(mm)) n++;
+    for (const set of planDatesByHabit.values()) for (const d of set.keys()) if (d.startsWith(mm)) n++;
     return n;
   }, [planDatesByHabit, year, month]);
 
   // --- ONE directive: the single highest-leverage action for TODAY ---
   const todayDirective = useMemo((): { icon: string; text: string } | null => {
     const t = new Date().toISOString().slice(0, 10);
+    // 0. Vigilance day today? → arm the coping plan (abstinence habits).
+    for (const c of deepInsights) {
+      if (!c.plan || c.plan.kind !== 'risk') continue;
+      const hid = c.id.split('|')[1];
+      if (!hid || !c.plan.dates.includes(t)) continue;
+      const name = habits.find((h) => h.id === hid)?.name ?? 'ton habitude';
+      const cue = c.plan.ifThen ?? '';
+      return { icon: '🛡️', text: `Aujourd'hui est un jour à risque pour « ${name} ». ${cue}` };
+    }
     // 1. A planned day for today? → check it.
     for (const c of deepInsights) {
       if (!c.plan) continue;
@@ -1705,7 +1715,7 @@ const DEFAULT_CATEGORIES = [
                         // Goal-plan circle: this day is part of a catch-up/next-month
                         // plan computed by the deep engine for THIS habit.
                         const cellIso = `${year}-${String(month + 1).padStart(2, '0')}-${String(h.day).padStart(2, '0')}`;
-                        const isPlanned = !checked && (planDatesByHabit.get(habit.id)?.has(cellIso) ?? false);
+                        const planKind = !checked ? planDatesByHabit.get(habit.id)?.get(cellIso) : undefined;
                         return (
                           <td
                             key={h.day}
@@ -1714,7 +1724,7 @@ const DEFAULT_CATEGORIES = [
                             onContextMenu={(e) => handleCellContextMenu(e, habit.id, habit.name, h.day)}
                             title={hasNote ? noteTooltip : isMultiClick ? `Click +1 · Shift+Click −1 · Ctrl+Click reset · Right-click note` : `Click to toggle · Right-click to add note`}
                           >
-                            <div className={`day-cell ${checked ? 'checked' : ''} ${hasNote ? 'has-note' : ''} ${isPlanned ? 'plan-target' : ''} ${missedYesterday && isToday && !checked ? 'recovery-day' : ''}`}>
+                            <div className={`day-cell ${checked ? 'checked' : ''} ${hasNote ? 'has-note' : ''} ${planKind === 'go' ? 'plan-target' : ''} ${planKind === 'risk' ? 'plan-risk' : ''} ${missedYesterday && isToday && !checked ? 'recovery-day' : ''}`}>
                               {checked && (
                                 <svg className="check-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                                   <polyline points="5,13 10,18 19,7"/>
@@ -2865,8 +2875,9 @@ function InsightsView({
   };
 
   /** Mini month calendar with planned days highlighted — makes a plan visible. */
-function MiniPlanCalendar({ dates, label }: { dates: string[]; label: string }) {
+function MiniPlanCalendar({ dates, label, kind }: { dates: string[]; label: string; kind?: 'go' | 'risk' }) {
   const planned = useMemo(() => new Set(dates), [dates]);
+  const isRisk = kind === 'risk';
   const todayStr = new Date().toISOString().slice(0, 10);
   // Grid spans from the first to the last planned date (padded to full weeks),
   // so the calendar is compact and always centered on the action days.
@@ -2898,11 +2909,11 @@ function MiniPlanCalendar({ dates, label }: { dates: string[]; label: string }) 
               key={c.iso}
               className={[
                 'mini-cal-day',
-                planned.has(c.iso) ? 'planned' : '',
+                planned.has(c.iso) ? (isRisk ? 'planned risk' : 'planned') : '',
                 c.iso === todayStr ? 'today' : '',
                 c.iso < todayStr ? 'past' : '',
               ].filter(Boolean).join(' ')}
-              title={planned.has(c.iso) ? 'Jour planifié' : ''}
+              title={planned.has(c.iso) ? (isRisk ? 'Jour de vigilance — contexte à risque' : 'Jour planifié') : ''}
             >
               {c.day}
             </span>
@@ -2910,7 +2921,11 @@ function MiniPlanCalendar({ dates, label }: { dates: string[]; label: string }) 
         )}
       </div>
       <div className="mini-cal-legend">
-        <span className="mini-cal-dot planned" /> jours à cocher · {dates.length} jours planifiés
+        {isRisk ? (
+          <><span className="mini-cal-dot risk" /> jours de vigilance · {dates.length} marqués</>
+        ) : (
+          <><span className="mini-cal-dot planned" /> jours à cocher · {dates.length} jours planifiés</>
+        )}
       </div>
     </div>
   );
@@ -3045,13 +3060,14 @@ function EightWeekHeatmap({ checkIns }: { checkIns: CheckIn[] }) {
               <div className="deep-text">{card.body}</div>
               {card.plan && card.plan.dates.length > 0 && (
                 <>
-                  <MiniPlanCalendar dates={card.plan.dates} label={card.plan.label} />
+                  <MiniPlanCalendar dates={card.plan.dates} label={card.plan.label} kind={card.plan.kind} />
                   <button
                     className="btn btn-sm btn-ghost plan-ics-btn"
                     onClick={() => {
                       const hid = card.id.split('|')[1];
                       const name = habitById.get(hid)?.name ?? 'habitude';
-                      downloadPlanIcs(`lifetrack-plan-${name}`, `LifeTrack — ${name}`, card.plan!.label, card.plan!.dates);
+                      const prefix = card.plan!.kind === 'risk' ? 'Vigilance' : 'Plan';
+                      downloadPlanIcs(`lifetrack-${prefix.toLowerCase()}-${name}`, `LifeTrack — ${prefix}: ${name}`, card.plan!.label, card.plan!.dates);
                     }}
                     title="Importer les jours planifiés dans Google Calendar / Outlook"
                   >
