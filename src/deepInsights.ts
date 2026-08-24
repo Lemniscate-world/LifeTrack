@@ -38,11 +38,24 @@ export interface DeepInsight {
 const ABSTINENCE_KEYWORDS = [
   'pmo', 'soda', 'sucr', 'sugar', 'cigarette', 'clope', 'alcool', 'alcohol',
   'junk', 'fastfood', 'fast food', 'anger', 'colere', 'scroll', 'porn',
-  'douleur', 'procrastin',
+  'douleur', 'procrastin', 'cafe control', 'coffee control', 'ecran',
+  'screen time', 'netflix', 'gaming',
 ];
 
-export function classifyHabitKind(name: string): 'avoid' | 'do' {
-  const n = normalizeForMatchLocal(name);
+// Naming conventions of abstinence habits: "No X", "Sans X", "Without X",
+// "Zéro X", "Stop X"…
+const ABSTINENCE_PREFIXES = /^(no|sans|without|zero|stop|quit|arret de|pas de)\b/;
+
+/**
+ * Deterministic classification with user override.
+ * 1. habit.intent === 'avoid' | 'do' → explicit choice, always wins.
+ * 2. Otherwise: name heuristic (no/sans/without prefixes + keyword list).
+ */
+export function classifyHabitKind(h: Pick<Habit, 'name' | 'intent'>): 'avoid' | 'do' {
+  if (h.intent === 'avoid') return 'avoid';
+  if (h.intent === 'do') return 'do';
+  const n = normalizeForMatchLocal(h.name);
+  if (ABSTINENCE_PREFIXES.test(n)) return 'avoid';
   return ABSTINENCE_KEYWORDS.some((k) => n.includes(k)) ? 'avoid' : 'do';
 }
 
@@ -518,7 +531,7 @@ function detectGoalCalibration(habits: Habit[], checkIns: CheckIn[], days: Map<s
     if (!h.goal || h.goal <= 0) continue;
     // Abstinence habits get VIGILANCE plans, not target calibration — a low
     // completion rate on "No PMO" is SUCCESS, not underachievement.
-    if (classifyHabitKind(h.name) === 'avoid') continue;
+    if (classifyHabitKind(h) === 'avoid') continue;
     const rates: { month: string; done: number }[] = [];
     for (const m of months) {
       const done = checkIns.filter((ci) => ci.habitId === h.id && ci.completed && ci.date.startsWith(m)).length;
@@ -698,7 +711,7 @@ function detectVigilancePlans(habits: Habit[], checkIns: CheckIn[], days: Map<st
   const out: DeepInsight[] = [];
   const todayStr = today.toISOString().slice(0, 10);
   for (const h of habits.filter((x) => !x.archived)) {
-    if (classifyHabitKind(h.name) !== 'avoid') continue;
+    if (classifyHabitKind(h) !== 'avoid') continue;
     const dowK = Array.from({ length: 7 }, () => 0);
     const dowN = Array.from({ length: 7 }, () => 0);
     for (let i = 1; i <= 90; i++) {

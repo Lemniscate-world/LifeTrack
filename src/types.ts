@@ -27,6 +27,10 @@ export interface Habit {
   stackParent?: string;       // id of the triggering habit, or undefined
   // When in the parent's flow: before the parent, after it, or with it.
   stackWhen?: 'before' | 'after' | 'with'; // defaults to 'after' when unset
+  // Psychology: acquisition ('do') vs abstinence ('avoid'). When unset, the
+  // deep engine falls back to a deterministic name heuristic — the explicit
+  // value always wins (user override from Insights cards).
+  intent?: 'do' | 'avoid';
   // Intentions: 0-5 short reminders of WHY this habit matters.
   // Displayed when checking in, to reinforce motivation.
   // "Start with Why" — Simon Sinek / BJ Fogg "Tiny Habits" motivation anchor.

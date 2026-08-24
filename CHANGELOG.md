@@ -5,6 +5,7 @@ All notable changes to LifeTrack are documented in this file.
 ## [Unreleased] - Psychologie des plans : acquisition vs abstinence (2026-08-22)
 
 ### Added
+- **Override manuel du type d'habitude** - nouveau champ `intent: 'do' | 'avoid'` sur Habit : le choix explicite prime toujours sur l'heuristique de nom (préfixes no/sans/without/stop + liste élargie café/écran/netflix/gaming…). Détection 100% déterministe et transparente — pas d'IA, pas de boîte noire.
 - **Deux espèces d'habitudes, deux plans** (`classifyHabitKind`) : les habitudes d'ÉVITEMENT (No PMO, No Sodas, Anger…) ne subissent plus la calibration d'objectif — une réussite basse y est un SUCCÈS. Nouveau moteur `detectVigilancePlans` (Marlatt, relapse prevention) : identifie tes créneaux d'échec historiques (<55%, n≥4), marque les 6 prochains jours de ce type d'un halo de vigilance dans la grille, et arme un plan si-alors.
 - **Si-alors personnalisé (MCII/Oettingen)** — chaque plan extrait ton obstacle signature depuis TES notes d'échec de cette habitude (« Si "fatigue" se présente, ALORS version 2 minutes »).
 - **Fresh-start effect** (Dai & Milkman) nommé quand le 1er jour du plan tombe lundi/1er.
