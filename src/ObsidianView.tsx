@@ -149,7 +149,7 @@ export default function ObsidianView() {
 
           {/* Hardest notes */}
           {analysis.hardestNotes.length > 0 && (
-            <div className="lever-card" style={{ marginBottom: '1rem', borderLeft: '4px solid #f59e0b' }}>
+            <div className="lever-card" style={{ marginBottom: '1rem', boxShadow: 'inset 2px 0 0 0 #f59e0b' }}>
               <div className="lever-card-main">
                 <span className="lever-content">⚠️ Notes les plus difficiles</span>
                 <span className="lever-notes">{analysis.hardestNotes.join(' · ')}</span>

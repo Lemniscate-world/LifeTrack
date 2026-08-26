@@ -28,7 +28,7 @@ function InsightCard({ ins }: { ins: Insight }) {
     <div
       style={{
         background: 'var(--bg-alt)', border: '1px solid var(--border)', borderRadius: '12px',
-        padding: '1rem 1.1rem', borderLeft: `4px solid ${ins.direction === 'positive' ? '#10b981' : '#f59e0b'}`,
+        padding: '1rem 1.1rem', boxShadow: `inset 2px 0 0 0 ${ins.direction === 'positive' ? '#10b981' : '#f59e0b'}`,
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}>
@@ -567,7 +567,7 @@ export default function CorrelationsView() {
                     </span>
                   </div>
                   <div style={{ background: 'var(--border)', borderRadius: '3px', height: '5px', overflow: 'hidden' }}>
-                    <div style={{ width: `${Math.min(100, Math.max(4, absR * 100))}%`, height: '100%', background: color, borderRadius: '3px', transition: 'width 0.4s ease' }} />
+                    <div style={{ width: `${Math.min(100, Math.max(4, absR * 100))}%`, height: '100%', background: color, borderRadius: '3px' }} />
                   </div>
                   <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: '0.72rem', background: 'var(--border)', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>
@@ -666,7 +666,7 @@ export default function CorrelationsView() {
 
       {/* Causation caveats */}
       {tab !== 'trends' && analysis.caveats.length > 0 && (
-        <div style={{ background: 'rgba(245,158,11,0.08)', borderLeft: '3px solid #f59e0b', padding: '0.75rem 1rem', borderRadius: '6px', marginTop: '1.25rem', fontSize: '0.82rem' }}>
+        <div style={{ background: 'rgba(245,158,11,0.08)', boxShadow: 'inset 2px 0 0 0 #f59e0b', padding: '0.75rem 1rem', borderRadius: '6px', marginTop: '1.25rem', fontSize: '0.82rem' }}>
           <strong>⚠ Corrélation ≠ causation :</strong>
           <ul style={{ margin: '0.4rem 0 0 1.2rem', padding: 0, color: 'var(--text-muted)' }}>
             {analysis.caveats.slice(0, 4).map((c, i) => <li key={i} style={{ marginBottom: '0.2rem' }}>{c}</li>)}
@@ -704,7 +704,7 @@ export default function CorrelationsView() {
                 </div>
               ))}
             </div>
-            <div style={{ background: 'rgba(99,102,241,0.1)', borderLeft: '3px solid #6366f1', padding: '0.65rem 0.8rem', borderRadius: '4px', fontSize: '0.82rem' }}>
+            <div style={{ background: 'rgba(99,102,241,0.1)', boxShadow: 'inset 2px 0 0 0 #6366f1', padding: '0.65rem 0.8rem', borderRadius: '4px', fontSize: '0.82rem' }}>
               <strong>Puissance statistique (80%) :</strong>{' '}
               {selectedPair.requiredN === Infinity
                 ? 'Effectif insuffisant pour estimer la puissance.'
@@ -717,7 +717,7 @@ export default function CorrelationsView() {
                 style={{
                   marginTop: '0.75rem', borderRadius: '4px', fontSize: '0.8rem',
                   background: selectedPair.outlierDriven ? 'rgba(245,158,11,0.1)' : 'rgba(16,185,129,0.08)',
-                  borderLeft: `3px solid ${selectedPair.outlierDriven ? '#f59e0b' : '#10b981'}`,
+                  boxShadow: `inset 2px 0 0 0 ${selectedPair.outlierDriven ? '#f59e0b' : '#10b981'}`,
                   padding: '0.65rem 0.8rem',
                 }}
               >
@@ -780,7 +780,7 @@ export default function CorrelationsView() {
               </div>
             )}
             {selectedPair.caveat && (
-              <div style={{ background: 'rgba(245,158,11,0.08)', borderLeft: '3px solid #f59e0b', padding: '0.65rem 0.8rem', borderRadius: '4px', fontSize: '0.8rem', marginTop: '0.75rem' }}>
+              <div style={{ background: 'rgba(245,158,11,0.08)', boxShadow: 'inset 2px 0 0 0 #f59e0b', padding: '0.65rem 0.8rem', borderRadius: '4px', fontSize: '0.8rem', marginTop: '0.75rem' }}>
                 {selectedPair.caveat}
               </div>
             )}

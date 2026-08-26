@@ -553,7 +553,7 @@ export default function MissionsView() {
                     </span>
                   </div>
                   <div style={{ height: '8px', background: 'var(--bg)', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border)' }}>
-                    <div style={{ height: '100%', width: `${Math.min(pct, 100)}%`, background: p.quotaReached ? '#10b981' : p.status === 'failed' ? '#f59e0b' : '#38bdf8', transition: 'width .3s' }} />
+                    <div style={{ height: '100%', width: `${Math.min(pct, 100)}%`, background: p.quotaReached ? '#10b981' : p.status === 'failed' ? '#f59e0b' : '#38bdf8' }} />
                   </div>
                   {/* Window elapsed mini-bar */}
                   <div style={{ height: '4px', background: 'var(--border)', borderRadius: '2px', overflow: 'hidden', marginTop: '0.3rem' }}>

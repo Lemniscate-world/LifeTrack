@@ -3,7 +3,7 @@
 // The row is draggable, but only a grip icon acts as the drag handle
 // so buttons (archive, stack, category, etc.) remain fully clickable.
 
-import { type PropsWithChildren } from 'react';
+import { type PropsWithChildren, type CSSProperties } from 'react';
 import { Draggable } from '@hello-pangea/dnd';
 
 interface Props {
@@ -23,7 +23,7 @@ export function DraggableHabitRow({ habitId, index, children, className }: Props
             ...provided.draggableProps.style,
             // <tr> + transform is flaky in some browsers — force table layout while dragging
             ...(snapshot.isDragging ? { display: 'table', width: '100%', tableLayout: 'fixed' } : null),
-          } as React.CSSProperties}
+          } as CSSProperties}
           className={[
             snapshot.isDragging ? 'habit-row-dragging' : '',
             snapshot.isDropAnimating ? 'habit-row-dropping' : '',

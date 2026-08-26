@@ -162,7 +162,7 @@
   --accent: #000000;
   --accent-light: #404040;
   --surface: #ffffff;
-  --radius: 0px;
+  --radius: 6px;
   --shadow-sm: 2px 2px 0 rgba(0, 0, 0, 0.85);
   --shadow-md: 4px 4px 0 rgba(0, 0, 0, 0.85);
 }
@@ -180,7 +180,7 @@
   --accent: #ffffff;
   --accent-light: #bfbfbf;
   --surface: #121212;
-  --radius: 0px;
+  --radius: 6px;
   --shadow-sm: 2px 2px 0 rgba(255, 255, 255, 0.85);
   --shadow-md: 4px 4px 0 rgba(255, 255, 255, 0.85);
 }
@@ -655,7 +655,6 @@ body {
   width: var(--pct);
   background: var(--accent);
   border-radius: 2px;
-  transition: width 0.3s ease;
 }
 
 /* Mood tracker row */
@@ -954,7 +953,6 @@ body {
   height: 100%;
   background: var(--accent, #4f46e5);
   border-radius: 999px;
-  transition: width .3s ease;
 }
 
 .journal-track-question {
@@ -1212,7 +1210,7 @@ body {
   font-size: 14px;
   margin: 0 0 10px;
   padding-left: 10px;
-  border-left: 3px solid var(--border);
+  box-shadow: inset 2px 0 0 0 var(--border);
   color: var(--text);
   white-space: pre-wrap;
 }
@@ -1433,7 +1431,7 @@ body {
   font-size: 12px;
   color: var(--text);
   background: var(--bg-alt);
-  border-left: 3px solid rgba(52, 211, 153, 0.5);
+  box-shadow: inset 2px 0 0 0 rgba(52, 211, 153, 0.5);
   padding: 6px 8px;
   border-radius: 4px;
 }
@@ -1540,7 +1538,7 @@ body {
 }
 
 .experiment-card.active {
-  border-left: 3px solid var(--accent);
+  box-shadow: inset 2px 0 0 0 var(--accent);
 }
 
 .experiment-card-header {
@@ -1978,7 +1976,6 @@ body {
   width: var(--pct);
   background: var(--primary);
   border-radius: 2px;
-  transition: width 0.3s ease;
 }
 
 .urge-active-trigger {
@@ -2146,7 +2143,7 @@ body {
   margin-bottom: 8px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--primary);
+  box-shadow: inset 2px 0 0 0 var(--primary);
   border-radius: 6px;
 }
 
@@ -2295,11 +2292,11 @@ body {
 }
 
 .urge-history-item.surfed {
-  border-left: 3px solid #10b981;
+  box-shadow: inset 2px 0 0 0 #10b981;
 }
 
 .urge-history-item.gave_in {
-  border-left: 3px solid #ef4444;
+  box-shadow: inset 2px 0 0 0 #ef4444;
 }
 
 .urge-history-left {
@@ -2447,10 +2444,9 @@ body {
   pointer-events: none;
 }
 
-/* Check-in animation: scale bounce on check */
+/* Check-in animation: smooth pop on check */
 @keyframes checkPop {
-  0% { transform: scale(0.6); }
-  50% { transform: scale(1.2); }
+  0% { transform: scale(0.7); }
   100% { transform: scale(1); }
 }
 
@@ -3158,7 +3154,7 @@ body {
 
 .history-day {
   margin-bottom: 18px;
-  border-left: 2px solid var(--border, #e5e7eb);
+  box-shadow: inset 2px 0 0 0 var(--border, #e5e7eb);
   padding-left: 14px;
   position: relative;
 }
@@ -3420,7 +3416,6 @@ body {
 .stack-progress-fill {
   height: 100%;
   background: var(--primary, #64748b);
-  transition: width 0.2s ease;
 }
 
 .stack-steps {
@@ -4303,7 +4298,6 @@ body {
   height: 100%;
   background: var(--primary);
   border-radius: 3px;
-  transition: width 0.3s;
 }
 
 .chaos-card.empty {
@@ -4351,16 +4345,16 @@ body {
   padding: 5px 8px;
   border-radius: 6px;
   background: var(--bg);
-  border-left: 3px solid var(--border);
+  box-shadow: inset 2px 0 0 0 var(--border);
 }
 
 .chaos-habit.triggered {
-  border-left-color: #ef4444;
+  box-shadow: inset 2px 0 0 0 #ef4444;
   background: color-mix(in srgb, #ef4444 8%, var(--bg));
 }
 
 .chaos-habit.ok {
-  border-left-color: #22c55e;
+  box-shadow: inset 2px 0 0 0 #22c55e;
 }
 
 .chaos-habit-icon {
@@ -4407,7 +4401,6 @@ body {
   height: 100%;
   border-radius: 999px;
   background: var(--primary);
-  transition: width .3s ease;
 }
 
 .chaos-habit-progress-fill.hot {
@@ -4421,7 +4414,7 @@ body {
   line-height: 1.4;
   color: var(--text-muted);
   font-style: italic;
-  border-left: 2px solid var(--primary);
+  box-shadow: inset 2px 0 0 0 var(--primary);
   padding-left: 6px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -4571,7 +4564,6 @@ body {
   height: 100%;
   background: linear-gradient(90deg, #f59e0b, #22c55e);
   border-radius: 999px;
-  transition: width 0.6s ease;
 }
 .gamification-xp-label {
   font-size: 12px;
@@ -4902,7 +4894,6 @@ body {
   height: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, var(--accent), #a855f7);
-  transition: width 0.5s ease;
 }
 .gamification-persona-pct {
   font-size: 12px;
@@ -5315,7 +5306,7 @@ body {
   gap: 12px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 4px solid var(--accent);
+  box-shadow: inset 2px 0 0 0 var(--accent);
   border-radius: var(--radius);
   padding: 14px 18px;
   box-shadow: var(--shadow-md);
@@ -5448,7 +5439,7 @@ body {
 .mantra-domain-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 4px solid;
+  box-shadow: inset 2px 0 0 0 currentColor;
   border-radius: var(--radius);
   padding: 16px 20px;
   transition: box-shadow var(--transition);
@@ -5548,7 +5539,7 @@ body {
   padding: 12px 14px;
   background: var(--bg-alt);
   border: 1px solid var(--border);
-  border-left: 4px solid;
+  box-shadow: inset 2px 0 0 0 currentColor;
   border-radius: var(--radius);
   cursor: pointer;
   font-size: 14px;
@@ -6029,7 +6020,7 @@ body {
 .today-mantra {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 4px solid;
+  box-shadow: inset 2px 0 0 0 currentColor;
   border-radius: var(--radius);
   padding: 14px 18px;
   margin-bottom: 16px;
@@ -6054,7 +6045,7 @@ body {
 .today-memories {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 4px solid var(--accent, #7c3aed);
+  box-shadow: inset 2px 0 0 0 var(--accent, #7c3aed);
   border-radius: var(--radius);
   padding: 14px 18px;
   margin-bottom: 16px;
@@ -6160,7 +6151,7 @@ body {
   padding: 10px 14px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-left: 3px solid;
+  box-shadow: inset 2px 0 0 0 currentColor;
   border-radius: var(--radius);
 }
 
@@ -6221,7 +6212,7 @@ body {
   padding: 14px 16px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-left: 3px solid;
+  box-shadow: inset 2px 0 0 0 currentColor;
   border-radius: var(--radius);
 }
 
@@ -6576,7 +6567,6 @@ body {
   height: 100%;
   background: var(--accent);
   border-radius: 4px;
-  transition: width 0.5s ease;
 }
 
 .year-habit-pct {
@@ -6734,7 +6724,6 @@ body {
 .challenge-phase-bar-fill {
   height: 100%;
   border-radius: 3px;
-  transition: width 0.4s ease;
 }
 
 .challenge-phase-meta {
@@ -6901,9 +6890,9 @@ body {
   border-radius: var(--radius);
   background: var(--bg);
 }
-.challenge-card.challenge-active { border-left: 3px solid #f59e0b; }
-.challenge-card.challenge-completed { border-left: 3px solid #22c55e; }
-.challenge-card.challenge-failed { border-left: 3px solid #ef4444; }
+.challenge-card.challenge-active { box-shadow: inset 2px 0 0 0 #f59e0b; }
+.challenge-card.challenge-completed { box-shadow: inset 2px 0 0 0 #22c55e; }
+.challenge-card.challenge-failed { box-shadow: inset 2px 0 0 0 #ef4444; }
 
 .challenge-card-head {
   display: flex;
@@ -7323,10 +7312,7 @@ body {
   font-size: 24px;
   font-weight: 700;
   margin: 0 0 6px;
-  background: linear-gradient(135deg, var(--primary), #a78bfa);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--text);
 }
 
 .skills-subtitle {
@@ -7463,7 +7449,6 @@ body {
 .skill-progress-fill {
   height: 100%;
   border-radius: 3px;
-  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
   min-width: 0;
 }
 
@@ -7698,7 +7683,7 @@ body {
   width: 100%;
   max-width: 760px;
   position: relative;
-  animation: slideInModal 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: slideInModal 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
 }
 
@@ -7815,7 +7800,6 @@ body {
 .history-bar-fill {
   width: 100%;
   border-radius: 3px 3px 0 0;
-  transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   min-height: 0;
 }
 
@@ -8698,19 +8682,19 @@ body {
 }
 
 .ai-block-priority {
-  border-left: 3px solid #f97316;
+  box-shadow: inset 2px 0 0 0 #f97316;
 }
 
 .ai-block-trends {
-  border-left: 3px solid #10b981;
+  box-shadow: inset 2px 0 0 0 #10b981;
 }
 
 .ai-block-risks {
-  border-left: 3px solid #ef4444;
+  box-shadow: inset 2px 0 0 0 #ef4444;
 }
 
 .ai-block-next {
-  border-left: 3px solid #6366f1;
+  box-shadow: inset 2px 0 0 0 #6366f1;
 }
 
 .ai-block-title {
@@ -8891,7 +8875,6 @@ body {
 .aspect-card {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-left-width: 4px;
   border-radius: 8px;
   padding: 12px;
   transition: transform 0.15s;
@@ -8943,7 +8926,6 @@ body {
 .aspect-bar-fill {
   height: 100%;
   border-radius: 3px;
-  transition: width 0.3s ease;
 }
 
 .aspect-detail {
@@ -9006,7 +8988,7 @@ body {
 .psycho-card {
   padding: 12px;
   border: 1px solid var(--border);
-  border-left: 3px solid var(--accent, #8b5cf6);
+  box-shadow: inset 2px 0 0 0 var(--accent, #8b5cf6);
   border-radius: 10px;
   background: var(--bg-muted, rgba(127,127,127,0.05));
   display: flex;
@@ -9426,7 +9408,7 @@ body {
   gap: 10px;
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-left: 3px solid var(--accent, #8b5cf6);
+  box-shadow: inset 2px 0 0 0 var(--accent, #8b5cf6);
   border-radius: 10px;
   background: var(--bg-muted, rgba(127,127,127,0.05));
 }
@@ -9470,7 +9452,7 @@ body {
   flex-wrap: wrap;
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-left: 3px solid var(--positive, #22c55e);
+  box-shadow: inset 2px 0 0 0 var(--positive, #22c55e);
   border-radius: 10px;
   background: var(--bg-muted, rgba(127,127,127,0.05));
 }
@@ -9581,7 +9563,6 @@ body {
 .evo-bar {
   width: 100%;
   border-radius: 4px;
-  transition: height 0.3s ease;
 }
 
 .evo-bar-hot {
@@ -9803,7 +9784,7 @@ body {
   gap: 10px;
   padding: 8px 10px;
   border: 1px solid var(--border);
-  border-left: 3px solid #f59e0b;
+  box-shadow: inset 2px 0 0 0 #f59e0b;
   border-radius: 10px;
   background: var(--bg, transparent);
 }
@@ -9901,7 +9882,7 @@ body {
   margin-top: 10px;
   padding: 12px;
   border: 1px solid var(--border);
-  border-left: 3px solid #10b981;
+  box-shadow: inset 2px 0 0 0 #10b981;
   border-radius: 12px;
   background: var(--bg-muted, rgba(127,127,127,0.05));
 }
@@ -10028,14 +10009,8 @@ body {
   height: 10px;
 }
 
-/* ============ v0.7.x - NOIR & BLANC THEME ============ */
-/* Striking editorial monochrome: pure black/white, sharp corners, halftone
-   texture, black bar header, solid-ink day cells, ledger zebra stripes. */
-.theme-bw body {
-  background-image: radial-gradient(color-mix(in srgb, var(--text) 8%, transparent) 1px, transparent 1px);
-  background-size: 18px 18px;
-  background-attachment: fixed;
-}
+/* ============ v0.8 - NOIR & BLANC THEME (adouci) ============ */
+/* Contraste maximal, surface propre — plus de texture halftone. */
 
 /* Grid header: solid ink bar with uppercase letters */
 .theme-bw .habit-grid thead tr {
@@ -10044,9 +10019,8 @@ body {
 }
 .theme-bw .habit-grid thead th {
   color: #ffffff;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 800;
+  letter-spacing: 0.04em;
+  font-weight: 700;
   border-right: 1px solid #ffffff33;
 }
 .dark.theme-bw .habit-grid thead tr {
@@ -10188,10 +10162,9 @@ body {
 }
 .deep-section-title {
   font-size: 15px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-weight: 700;
+  letter-spacing: 0.01em;
   margin: 0 0 0.6rem 0;
-  text-transform: uppercase;
 }
 .theme-bw .deep-section-title {
   border-bottom: 2px solid var(--text);
@@ -10208,7 +10181,7 @@ body {
   align-items: flex-start;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 4px solid var(--primary);
+  box-shadow: inset 2px 0 0 0 var(--primary);
   border-radius: var(--radius);
   padding: 12px 14px;
 }
@@ -10568,7 +10541,7 @@ body {
   gap: 10px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 4px solid var(--primary);
+  box-shadow: inset 2px 0 0 0 var(--primary);
   box-shadow: var(--shadow-md);
   padding: 10px 16px;
   border-radius: var(--radius);
@@ -10787,7 +10760,7 @@ details.ach-fold[open] > .achievements-ai {
   line-height: 1.5;
   padding: 8px 12px;
   background: var(--bg-alt);
-  border-left: 3px solid var(--primary);
+  box-shadow: inset 2px 0 0 0 var(--primary);
   border-radius: var(--radius);
   margin-bottom: 10px;
 }
@@ -10863,31 +10836,17 @@ details.ach-fold[open] > .achievements-ai {
   .table-scroll { overflow: visible !important; max-height: none !important; }
   .habit-grid thead { position: static !important; }
 }
-/* ============ v0.7.x - NOIR & BLANC POLISH ============ */
-/* Cohérence radius 0 + overrides hardcodés */
-.theme-bw .btn-icon,
-.theme-bw .view-tab,
-.theme-bw .settings-theme-btn,
-.theme-bw .day-cell,
-.theme-bw .note-popup,
-.theme-bw .export-menu,
-.theme-bw .habit-card,
-.theme-bw .modal,
-.theme-bw .chip {
-  border-radius: 0 !important;
-}
-.theme-bw .col-day.today {
-  border-radius: 0;
-}
-/* Scrollbar carrée en BW */
+/* ============ v0.8 - NOIR & BLANC POLISH (adouci) ============ */
+/* Le thème B&W reste un thème à contraste maximal — plus du brutalisme :
+   radius hérité (6px), ombres douces, pas de forçages carrés. */
 .theme-bw *::-webkit-scrollbar-thumb {
-  border-radius: 0;
+  border-radius: 6px;
   background: var(--text);
 }
 .theme-bw * {
   scrollbar-color: var(--text) transparent;
 }
-/* Hard shadows éditoriales */
+/* Boutons : bordure encre, élévation douce */
 .theme-bw .btn-primary {
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--border);
@@ -10895,13 +10854,12 @@ details.ach-fold[open] > .achievements-ai {
 .theme-bw .btn-primary:hover {
   background: var(--primary-dark);
   box-shadow: var(--shadow-md);
-  transform: translate(-1px, -1px);
 }
 .theme-bw .view-tab.active {
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--border);
 }
-/* Navbar sans blur, logo sans glow */
+/* Navbar sans blur */
 .theme-bw .navbar {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -10914,15 +10872,13 @@ details.ach-fold[open] > .achievements-ai {
 .theme-bw .settings-theme-btn.active {
   border-color: var(--text);
   border-width: 2px;
-  box-shadow: 2px 2px 0 var(--text);
 }
 .theme-bw .settings-tab.active {
   border-bottom: 2px solid var(--text);
   color: var(--text);
 }
-/* Focus ring suit radius */
+/* Focus ring */
 .theme-bw :focus-visible {
-  border-radius: 0;
   outline-color: var(--text);
 }
 
@@ -10967,26 +10923,21 @@ details.ach-fold[open] > .achievements-ai {
   border-width: 2px;
 }
 
-/* Mobile : garde le radius 0 en BW */
-@media (max-width: 639px) {
-  .theme-bw {
-    --radius: 0px;
-  }
-}
+/* Mobile : le thème B&W suit la grille de radius globale */
 
 /* ============ v0.7.x - STREAK VISUEL ACCENTUÉ ============ */
 .habit-grid tbody tr.streak-level-2 {
-  border-left: 3px solid var(--primary);
+  box-shadow: inset 2px 0 0 0 var(--primary);
 }
 .habit-grid tbody tr.streak-level-3 {
-  border-left: 4px solid var(--accent);
+  box-shadow: inset 2px 0 0 0 var(--accent);
   background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 .theme-bw .habit-grid tbody tr.streak-level-2 {
-  border-left: 3px solid var(--text);
+  box-shadow: inset 2px 0 0 0 var(--text);
 }
 .theme-bw .habit-grid tbody tr.streak-level-3 {
-  border-left: 4px solid var(--text);
+  box-shadow: inset 2px 0 0 0 var(--text);
   background: color-mix(in srgb, var(--text) 6%, transparent);
 }
 .habit-grid tbody tr.streak-level-3 .habit-name {
