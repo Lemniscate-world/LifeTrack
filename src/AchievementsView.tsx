@@ -388,6 +388,41 @@ export default function AchievementsView() {
                   <span className="evolution-stat-value">{evolution.activeDays}</span>
                   <span className="evolution-stat-label">jours actifs</span>
                 </div>
+                {(() => {
+                  // Régularité 30j + meilleure série de jours actifs + projection mois
+                  const last30 = evolutionSeries.slice(-30);
+                  const active30 = last30.filter((s) => s.score > 0).length;
+                  const reg30 = Math.round((active30 / Math.max(1, last30.length)) * 100);
+                  let bestRun = 0; let run = 0;
+                  for (const s of evolutionSeries) {
+                    if (s.score > 0) { run++; bestRun = Math.max(bestRun, run); } else run = 0;
+                  }
+                  const today = new Date();
+                  const monthPrefix = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+                  const monthSeries = evolutionSeries.filter((s) => s.date.startsWith(monthPrefix));
+                  const monthSum = monthSeries.reduce((a, b) => a + b.score, 0);
+                  const dayOfMonth = today.getDate();
+                  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+                  const projected = dayOfMonth > 3 ? Math.round((monthSum / dayOfMonth) * daysInMonth) : null;
+                  return (
+                    <>
+                      <div className="evolution-stat">
+                        <span className="evolution-stat-value">{reg30}%</span>
+                        <span className="evolution-stat-label">régularité 30j</span>
+                      </div>
+                      <div className="evolution-stat">
+                        <span className="evolution-stat-value">{bestRun} j</span>
+                        <span className="evolution-stat-label">plus longue série active</span>
+                      </div>
+                      {projected !== null && (
+                        <div className="evolution-stat">
+                          <span className="evolution-stat-value">{projected}</span>
+                          <span className="evolution-stat-label">projection du mois</span>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
                 {evolution.bestDay && (
                   <div className="evolution-stat">
                     <span className="evolution-stat-value">{evolution.bestDay.score}</span>
