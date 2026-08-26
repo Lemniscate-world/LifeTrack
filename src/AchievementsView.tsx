@@ -292,6 +292,125 @@ export default function AchievementsView() {
         </p>
       </div>
 
+      {/* ============ Évolution v2 — EN PREMIER, ouvert ============ */}
+      {evolution.today && (() => {
+        const last7 = evolutionSeries.slice(-7);
+        const prev7 = evolutionSeries.slice(-14, -7);
+        const avgOf = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+        const a7 = Math.round(avgOf(last7.map((s) => s.score)) * 10) / 10;
+        const p7 = Math.round(avgOf(prev7.map((s) => s.score)) * 10) / 10;
+        const wd = evolution.weekDelta;
+        const verdict = !wd
+          ? 'Pas encore assez de recul pour un verdict hebdomadaire.'
+          : wd.improved && wd.deltaPct >= 10
+            ? 'Tu montes nettement — identifie ce qui marche cette semaine et verrouille-le.'
+            : wd.improved
+              ? 'Progression légère — continue exactement pareil.'
+              : wd.delta === 0
+                ? 'Stable — choisis UN seul levier à pousser cette semaine.'
+                : 'En baisse — réduis le périmètre et garde le noyau (top 3 rendement).';
+        const maxScore = Math.max(...evolutionSeries.map((s) => s.score), 1);
+        const shown = evolutionSeries.slice(-60);
+        const avgShown = avgOf(shown.map((s) => s.score));
+        return (
+          <details className="ach-fold" open>
+            <summary>
+              🌱 Évolution
+              <span className="ach-count">
+                aujourd'hui {evolution.today.score} pts{evolution.dayDelta ? ` · ${evolution.dayDelta.delta > 0 ? '+' : ''}${evolution.dayDelta.deltaPct}% vs hier` : ''}
+              </span>
+            </summary>
+            <section className="evolution-section">
+              <div className="evo-verdict">{verdict}</div>
+
+              <div className="evolution-deltas">
+                <div className="evolution-delta">
+                  <span className="evolution-delta-label">Hier → aujourd'hui</span>
+                  {evolution.dayDelta ? (
+                    <>
+                      <span className={`evolution-delta-value ${evolution.dayDelta.improved ? 'up' : 'down'}`}>
+                        {evolution.dayDelta.delta > 0 ? '+' : ''}{evolution.dayDelta.delta}
+                      </span>
+                      <span className={`evolution-delta-pct ${evolution.dayDelta.improved ? 'up' : 'down'}`}>
+                        {evolution.dayDelta.deltaPct > 0 ? '+' : ''}{evolution.dayDelta.deltaPct}%
+                      </span>
+                    </>
+                  ) : <span className="evolution-delta-value neutral">—</span>}
+                </div>
+                <div className="evolution-delta">
+                  <span className="evolution-delta-label">Semaine vs dernière</span>
+                  {wd ? (
+                    <>
+                      <span className={`evolution-delta-value ${wd.improved ? 'up' : 'down'}`}>
+                        {wd.delta > 0 ? '+' : ''}{wd.delta}
+                      </span>
+                      <span className={`evolution-delta-pct ${wd.improved ? 'up' : 'down'}`}>
+                        {wd.deltaPct > 0 ? '+' : ''}{wd.deltaPct}%
+                      </span>
+                    </>
+                  ) : <span className="evolution-delta-value neutral">—</span>}
+                </div>
+                <div className="evolution-delta">
+                  <span className="evolution-delta-label">Mois vs dernier</span>
+                  {evolution.monthDelta ? (
+                    <>
+                      <span className={`evolution-delta-value ${evolution.monthDelta.improved ? 'up' : 'down'}`}>
+                        {evolution.monthDelta.delta > 0 ? '+' : ''}{evolution.monthDelta.delta}
+                      </span>
+                      <span className={`evolution-delta-pct ${evolution.monthDelta.improved ? 'up' : 'down'}`}>
+                        {evolution.monthDelta.deltaPct > 0 ? '+' : ''}{evolution.monthDelta.deltaPct}%
+                      </span>
+                    </>
+                  ) : <span className="evolution-delta-value neutral">—</span>}
+                </div>
+                <div className="evolution-delta">
+                  <span className="evolution-delta-label">Moyenne 7j vs 7j préc.</span>
+                  <span className={`evolution-delta-value ${a7 >= p7 ? 'up' : 'down'}`}>{a7} <small>vs {p7}</small></span>
+                </div>
+              </div>
+
+              <div className="evolution-stats">
+                <div className="evolution-stat">
+                  <span className="evolution-stat-value">{evolution.totalScore}</span>
+                  <span className="evolution-stat-label">croissance cumulée</span>
+                </div>
+                <div className="evolution-stat">
+                  <span className="evolution-stat-value">{evolution.activeDays}</span>
+                  <span className="evolution-stat-label">jours actifs</span>
+                </div>
+                {evolution.bestDay && (
+                  <div className="evolution-stat">
+                    <span className="evolution-stat-value">{evolution.bestDay.score}</span>
+                    <span className="evolution-stat-label">record ({evolution.bestDay.date})</span>
+                  </div>
+                )}
+              </div>
+
+              {shown.length > 1 && (
+                <div className="evolution-chart">
+                  <div className="evolution-bars" style={{ position: 'relative' }}>
+                    <div
+                      className="evo-avgline"
+                      style={{ bottom: `${Math.max(2, (avgShown / maxScore) * 100)}%` }}
+                      title={`Moyenne période : ${Math.round(avgShown * 10) / 10} pts`}
+                    />
+                    {shown.map((s) => (
+                      <div
+                        key={s.date}
+                        className={`evolution-bar ${s.score > 0 ? 'has' : ''} ${s.date === evolution.today?.date ? 'today' : ''}`}
+                        style={{ height: `${Math.max(s.score > 0 ? 8 : 2, (s.score / maxScore) * 100)}%` }}
+                        title={`${s.date} · ${s.score} pts${s.date === evolution.today?.date ? " (aujourd'hui)" : ''}`}
+                      />
+                    ))}
+                  </div>
+                  <p className="evo-chart-note">60 derniers jours · pointillés = moyenne de la période</p>
+                </div>
+              )}
+            </section>
+          </details>
+        );
+      })()}
+
       {/* ============ Gamification panel ============ */}
       <section className="gamification">
         {/* Level / XP */}
@@ -356,19 +475,26 @@ export default function AchievementsView() {
           <summary>🔁 À revivre <span className="ach-count">{fadedWins.length}</span></summary>
         {fadedWins.length > 0 && (
           <div className="gamification-relive">
-            <h3>🏛️ Anciennes victoires à relancer</h3>
             <span className="gamification-relive-hint">
-              Tu as déjà prouvé ces séries record. Elles se sont tues — veux-tu les re-chaîner en un
-              challenge adaptatif ?
+              Tu as déjà PROUVÉ ces records — la preuve est dans tes données. Un challenge adaptatif
+              les re-chaîne à ton rythme réel (pas à ton rythme de rêve).
             </span>
             <ul className="gamification-relive-list">
-              {fadedWins.slice(0, 4).map((w) => (
+              {fadedWins.slice(0, 4).map((w) => {
+                const ratio = w.bestStreak > 0 ? Math.min(100, Math.round((w.currentStreak / w.bestStreak) * 100)) : 0;
+                return (
                 <li key={w.habit.id} className="gamification-relive-item">
                   <div className="gamification-relive-body">
                     <span className="gamification-relive-name">{w.habit.name}</span>
                     <span className="gamification-relive-meta">
-                      record {w.bestStreak} j il y a {w.daysSinceBest} j · {w.currentStreak} j en cours
-                      {w.faded ? ' · en sourdine' : ''}
+                      record {w.bestStreak} j (il y a {w.daysSinceBest} j) · aujourd'hui {w.currentStreak} j{w.faded ? ' · en sourdine' : ''}
+                    </span>
+                    <div className="relive-gap" title={`${ratio}% du record historique`}>
+                      <div className="relive-gap-fill" style={{ width: `${Math.max(2, ratio)}%` }} />
+                      <div className="relive-gap-mark" />
+                    </div>
+                    <span className="relive-objectif">
+                      {ratio >= 100 ? 'record battu 🏆' : `objectif : égaler ${w.bestStreak} j — il reste ${Math.max(0, w.bestStreak - w.currentStreak)} j`}
                     </span>
                   </div>
                   <div className="gamification-relive-actions">
@@ -382,7 +508,8 @@ export default function AchievementsView() {
                     </button>
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </div>
         )}
@@ -636,113 +763,6 @@ export default function AchievementsView() {
         </details>
       </section>
 
-      {/* ============ Life evolution (v0.5.0) ============ */}
-      {evolution.today && (
-        <details className="ach-fold">
-          <summary>🌱 Évolution</summary>
-        <section className="evolution-section">
-          <div className="evolution-header">
-            <h3>🌱 How much you've evolved</h3>
-            <span className="evolution-subtitle">
-              A daily growth score derived from your check-ins, wins, challenges and urge-wins — vs yesterday, last week, last month.
-            </span>
-          </div>
-
-          <div className="evolution-deltas">
-            <div className="evolution-delta">
-              <span className="evolution-delta-label">Yesterday → today</span>
-              {evolution.dayDelta ? (
-                <>
-                  <span className={`evolution-delta-value ${evolution.dayDelta.improved ? 'up' : 'down'}`}>
-                    {evolution.dayDelta.delta > 0 ? '+' : ''}{evolution.dayDelta.delta}
-                  </span>
-                  <span className={`evolution-delta-pct ${evolution.dayDelta.improved ? 'up' : 'down'}`}>
-                    {evolution.dayDelta.deltaPct > 0 ? '+' : ''}{evolution.dayDelta.deltaPct}%
-                  </span>
-                </>
-              ) : (
-                <span className="evolution-delta-value neutral">—</span>
-              )}
-            </div>
-            <div className="evolution-delta">
-              <span className="evolution-delta-label">This week vs last</span>
-              {evolution.weekDelta ? (
-                <>
-                  <span className={`evolution-delta-value ${evolution.weekDelta.improved ? 'up' : 'down'}`}>
-                    {evolution.weekDelta.delta > 0 ? '+' : ''}{evolution.weekDelta.delta}
-                  </span>
-                  <span className={`evolution-delta-pct ${evolution.weekDelta.improved ? 'up' : 'down'}`}>
-                    {evolution.weekDelta.deltaPct > 0 ? '+' : ''}{evolution.weekDelta.deltaPct}%
-                  </span>
-                </>
-              ) : (
-                <span className="evolution-delta-value neutral">—</span>
-              )}
-            </div>
-            <div className="evolution-delta">
-              <span className="evolution-delta-label">This month vs last</span>
-              {evolution.monthDelta ? (
-                <>
-                  <span className={`evolution-delta-value ${evolution.monthDelta.improved ? 'up' : 'down'}`}>
-                    {evolution.monthDelta.delta > 0 ? '+' : ''}{evolution.monthDelta.delta}
-                  </span>
-                  <span className={`evolution-delta-pct ${evolution.monthDelta.improved ? 'up' : 'down'}`}>
-                    {evolution.monthDelta.deltaPct > 0 ? '+' : ''}{evolution.monthDelta.deltaPct}%
-                  </span>
-                </>
-              ) : (
-                <span className="evolution-delta-value neutral">—</span>
-              )}
-            </div>
-          </div>
-
-          <div className="evolution-stats">
-            <div className="evolution-stat">
-              <span className="evolution-stat-value">{evolution.totalScore}</span>
-              <span className="evolution-stat-label">lifetime growth</span>
-            </div>
-            <div className="evolution-stat">
-              <span className="evolution-stat-value">{evolution.activeDays}</span>
-              <span className="evolution-stat-label">active days</span>
-            </div>
-            {evolution.bestDay && (
-              <div className="evolution-stat">
-                <span className="evolution-stat-value">{evolution.bestDay.score}</span>
-                <span className="evolution-stat-label">best day ({evolution.bestDay.date})</span>
-              </div>
-            )}
-            {evolution.today && (
-              <div className="evolution-stat">
-                <span className="evolution-stat-value">{evolution.today.score}</span>
-                <span className="evolution-stat-label">today</span>
-              </div>
-            )}
-          </div>
-
-          {evolutionSeries.length > 1 && (
-            <div className="evolution-chart">
-              {(() => {
-                const maxScore = Math.max(...evolutionSeries.map((s) => s.score), 1);
-                const maxBars = 60;
-                const shown = evolutionSeries.slice(-maxBars);
-                return (
-                  <div className="evolution-bars">
-                    {shown.map((s) => (
-                      <div
-                        key={s.date}
-                        className={`evolution-bar ${s.score > 0 ? 'has' : ''} ${s.date === evolution.today?.date ? 'today' : ''}`}
-                        style={{ height: `${Math.max(s.score > 0 ? 8 : 2, (s.score / maxScore) * 100)}%` }}
-                        title={`${s.date} · ${s.score} pts${s.date === evolution.today?.date ? ' (today)' : ''}`}
-                      />
-                    ))}
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-        </section>
-        </details>
-      )}
 
       {/* ============ AI summary ============ */}
       {(totalCount > 0 || localSummary.length > 0) && (

@@ -10703,6 +10703,77 @@ details.ach-fold[open] > .achievements-ai {
   color: var(--text-muted);
 }
 
+/* Évolution v2 — placée en premier, ouverte, avec verdict */
+.evo-verdict {
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 8px 12px;
+  background: var(--bg-alt);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+}
+.theme-bw .evo-verdict { box-shadow: var(--shadow-sm); }
+.evolution-bars { position: relative; }
+.evo-avgline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed var(--text-muted);
+  opacity: 0.7;
+  z-index: 1;
+  pointer-events: none;
+}
+.evo-avgline::after {
+  content: 'moy.';
+  position: absolute;
+  right: 0;
+  top: -13px;
+  font-size: 9px;
+  color: var(--text-muted);
+}
+.evo-chart-note {
+  margin: 6px 0 0 0;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+/* À revivre — l'écart au record rendu visible */
+.gamification-relive-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.relive-gap {
+  position: relative;
+  height: 6px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: visible;
+  margin-top: 2px;
+}
+.theme-bw .relive-gap { border-radius: 0; }
+.relive-gap-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: inherit;
+}
+.relive-gap-mark {
+  position: absolute;
+  right: 0;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--accent);
+}
+.relive-objectif {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
 /* Print : le grid devient un vrai livre de comptes papier */
 @media print {
   .navbar, .grid-toolbar, .view-tabs, .bottom-bar, .settings-btn,
