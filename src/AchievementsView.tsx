@@ -292,7 +292,7 @@ export default function AchievementsView() {
         </p>
       </div>
 
-      {/* ============ Évolution v2 — EN PREMIER, ouvert ============ */}
+      {/* ============ Évolution v2 — EN PREMIER, ouvert, + chiffres clés à droite ============ */}
       {evolution.today && (() => {
         const last7 = evolutionSeries.slice(-7);
         const prev7 = evolutionSeries.slice(-14, -7);
@@ -312,7 +312,17 @@ export default function AchievementsView() {
         const maxScore = Math.max(...evolutionSeries.map((s) => s.score), 1);
         const shown = evolutionSeries.slice(-60);
         const avgShown = avgOf(shown.map((s) => s.score));
+        // --- Chiffres clés (colonne droite) ---
+        const activeHs = (data.habits ?? []).filter((h) => !h.archived);
+        const topRecords = [...activeHs].filter((h) => (h.bestStreak ?? 0) > 0).sort((a, b) => (b.bestStreak ?? 0) - (a.bestStreak ?? 0)).slice(0, 5);
+        const worstGap = [...activeHs].filter((h) => (h.longestGap ?? 0) > 0).sort((a, b) => (b.longestGap ?? 0) - (a.longestGap ?? 0))[0];
+        const thisYear = new Date().getFullYear().toString();
+        const ciThisYear = (data.checkIns ?? []).filter((c) => c.completed && c.date.startsWith(thisYear)).length;
+        const lastYearN = parseInt(thisYear, 10) - 1;
+        const ciLastYear = (data.checkIns ?? []).filter((c) => c.completed && c.date.startsWith(String(lastYearN))).length;
+        const catTotal = Math.max(1, totalCount);
         return (
+        <div className="ach-top-grid">
           <details className="ach-fold" open>
             <summary>
               🌱 Évolution
@@ -408,6 +418,56 @@ export default function AchievementsView() {
               )}
             </section>
           </details>
+
+          <aside className="achievements-side">
+            <div className="side-block">
+              <h4>🏅 Top records vivants</h4>
+              {topRecords.length === 0 && <p className="side-empty">Aucun record encore.</p>}
+              {topRecords.map((h, i) => (
+                <div key={h.id} className="side-row">
+                  <span className="side-rank">#{i + 1}</span>
+                  <span className="side-name">{h.name}</span>
+                  <span className="side-val">{h.bestStreak} j</span>
+                </div>
+              ))}
+            </div>
+
+            {worstGap && (
+              <div className="side-block">
+                <h4>🕳️ Sécheresse survécue</h4>
+                <div className="side-row">
+                  <span className="side-name">{worstGap.name}</span>
+                  <span className="side-val">{worstGap.longestGap} j sans coche — et t'es revenu.</span>
+                </div>
+              </div>
+            )}
+
+            <div className="side-block">
+              <h4>🗂️ Victoires par catégorie</h4>
+              {Array.from(byCategory.entries()).sort((a, b) => b[1].length - a[1].length).map(([cat, notes]) => (
+                <div key={cat} className="side-row side-bar-row">
+                  <span className="side-name">{cat}</span>
+                  <span className="side-bar"><i style={{ width: `${Math.round((notes.length / catTotal) * 100)}%` }} /></span>
+                  <span className="side-val">{notes.length}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="side-block">
+              <h4>📊 Volume</h4>
+              <div className="side-row"><span className="side-name">Check-ins {thisYear}</span><span className="side-val">{ciThisYear}</span></div>
+              {ciLastYear > 0 && (
+                <div className="side-row">
+                  <span className="side-name">{lastYearN}</span>
+                  <span className={`side-val ${ciThisYear >= ciLastYear ? 'up' : 'down'}`}>
+                    {ciThisYear >= ciLastYear ? '▲' : '▼'} {ciLastYear}
+                  </span>
+                </div>
+              )}
+              <div className="side-row"><span className="side-name">Total historique</span><span className="side-val">{(data.checkIns ?? []).filter((c) => c.completed).length}</span></div>
+            </div>
+          </aside>
+        </div>
         );
       })()}
 

@@ -23,6 +23,9 @@ export default function ViewTabs({ view, onView }: ViewTabsProps) {
       </button>
       <button role="tab" aria-selected={view === 'grid'} className={ACTIVE(view, 'grid')} onClick={() => onView('grid')}>Grid</button>
       <button role="tab" aria-selected={view === 'chaos'} className={ACTIVE(view, 'chaos')} onClick={() => onView('chaos')}>Chaos</button>
+      <button role="tab" aria-selected={view === 'achievements'} className={ACTIVE(view, 'achievements')} onClick={() => onView('achievements')}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 15a7 7 0 100-14 7 7 0 000 14z"/><path d="M8.21 13.89L7 23l5-3 5 3-1.21-9.12"/></svg> Achievements
+      </button>
       <button role="tab" aria-selected={view === 'stats'} className={ACTIVE(view, 'stats')} onClick={() => onView('stats')}>Statistics</button>
       <button role="tab" aria-selected={view === 'correlations'} className={ACTIVE(view, 'correlations')} onClick={() => onView('correlations')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg> Corr.
@@ -68,9 +71,6 @@ export default function ViewTabs({ view, onView }: ViewTabsProps) {
       </button>
       <button role="tab" aria-selected={view === 'mantras'} className={ACTIVE(view, 'mantras')} onClick={() => onView('mantras')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4.5 12.5l3 3 5-7"/><circle cx="12" cy="12" r="10"/></svg> Mantras
-      </button>
-      <button role="tab" aria-selected={view === 'achievements'} className={ACTIVE(view, 'achievements')} onClick={() => onView('achievements')}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 15a7 7 0 100-14 7 7 0 000 14z"/><path d="M8.21 13.89L7 23l5-3 5 3-1.21-9.12"/></svg> Achievements
       </button>
       <button role="tab" aria-selected={view === 'settings'} className={ACTIVE(view, 'settings')} onClick={() => onView('settings')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg> Settings
