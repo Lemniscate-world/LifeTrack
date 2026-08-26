@@ -316,6 +316,8 @@ export default function AchievementsView() {
         </div>
 
         {/* Wins feed: don't forget what you've done */}
+        <details className="ach-fold">
+          <summary>⚡ Victoires récentes <span className="ach-count">{wins.length}</span></summary>
         <div className="gamification-wins">
           <div className="gamification-wins-head">
             <h3>🎉 Vos victoires récentes</h3>
@@ -347,8 +349,11 @@ export default function AchievementsView() {
             </div>
           )}
         </div>
+        </details>
 
         {/* Relance of old wins: don't let your proven records fade silently */}
+        <details className="ach-fold">
+          <summary>🔁 À revivre <span className="ach-count">{fadedWins.length}</span></summary>
         {fadedWins.length > 0 && (
           <div className="gamification-relive">
             <h3>🏛️ Anciennes victoires à relancer</h3>
@@ -381,10 +386,13 @@ export default function AchievementsView() {
             </ul>
           </div>
         )}
+        </details>
 
         {/* Comparison vs last week */}
+        <details className="ach-fold" open>
+          <summary>📈 Rythme hebdo</summary>
         <div className="gamification-compare">
-          <h3>📈 vs who you were last week</h3>
+          <h3 className="ach-hidden">📈 vs who you were last week</h3>
           <div className="gamification-compare-stats">
             <div className="gamification-compare-stat">
               <span className="gamification-compare-value">{comparison.currentXp}</span>
@@ -403,11 +411,14 @@ export default function AchievementsView() {
             </div>
           </div>
           <p className="gamification-compare-note">
-            {comparison.currentCompleted} completions this week vs {comparison.previousCompleted} last week
+            {comparison.currentCompleted} complétions cette semaine vs {comparison.previousCompleted} la semaine passée
           </p>
         </div>
+        </details>
 
         {/* Medals */}
+        <details className="ach-fold" open>
+          <summary>🏅 Médailles <span className="ach-count">{earnedMedals}/{medals.length}</span></summary>
         <div className="gamification-medals">
           <div className="gamification-medals-head">
             <h3>🎖️ Medals <span className="gamification-medals-count">{earnedMedals}/{medals.length}</span></h3>
@@ -454,13 +465,16 @@ export default function AchievementsView() {
                   ))}
                 </div>
               </div>
-            ));
+             ));
           })()}
         </div>
+        </details>
 
         {/* Personas */}
+        <details className="ach-fold">
+          <summary>🧭 Personas <span className="ach-count">{personaStats.length}</span></summary>
         <div className="gamification-personas">
-          <h3>🧭 Who you're becoming</h3>
+          <h3 className="ach-hidden">Who you're becoming</h3>
           <button
             className={`btn btn-sm ${showPersonaForm ? 'btn-ghost' : 'btn-primary'}`}
             onClick={() => setShowPersonaForm((v) => !v)}
@@ -619,10 +633,13 @@ export default function AchievementsView() {
             ))}
           </div>
         </div>
+        </details>
       </section>
 
       {/* ============ Life evolution (v0.5.0) ============ */}
       {evolution.today && (
+        <details className="ach-fold">
+          <summary>🌱 Évolution</summary>
         <section className="evolution-section">
           <div className="evolution-header">
             <h3>🌱 How much you've evolved</h3>
@@ -724,10 +741,13 @@ export default function AchievementsView() {
             </div>
           )}
         </section>
+        </details>
       )}
 
       {/* ============ AI summary ============ */}
       {(totalCount > 0 || localSummary.length > 0) && (
+        <details className="ach-fold">
+          <summary>🤖 Résumé IA</summary>
         <div className="achievements-ai section-card">
           {localSummary.length > 0 && (
             <div className="achievements-local">
@@ -759,6 +779,7 @@ export default function AchievementsView() {
             </div>
           )}
         </div>
+        </details>
       )}
 
       {totalCount === 0 && (

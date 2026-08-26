@@ -10598,6 +10598,111 @@ body {
   white-space: nowrap;
 }
 
+/* ============ ACHIEVEMENTS — LEDGER FOLD ============ */
+/* Progressive disclosure : le niveau reste visible, tout le reste se plie. */
+.achievements-view {
+  max-width: 920px;
+}
+details.ach-fold {
+  border-bottom: 1px solid var(--border);
+}
+details.ach-fold > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 2px;
+  font-weight: 800;
+  font-size: 12.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+details.ach-fold > summary::-webkit-details-marker { display: none; }
+details.ach-fold > summary::after {
+  content: '+';
+  font-weight: 400;
+  font-size: 16px;
+  color: var(--text-muted);
+}
+details.ach-fold[open] > summary::after { content: '–'; }
+details.ach-fold[open] > summary {
+  color: var(--text);
+}
+.ach-count {
+  margin-left: auto;
+  font-family: ui-monospace, Consolas, monospace;
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 7px;
+}
+.theme-bw .ach-count { border-radius: 0; }
+details.ach-fold > *:not(summary) {
+  padding-top: 6px;
+}
+details.ach-fold[open] > .gamification-medals,
+details.ach-fold[open] > .gamification-personas,
+details.ach-fold[open] > .gamification-compare,
+details.ach-fold[open] > .gamification-wins,
+details.ach-fold[open] > .evolution-section,
+details.ach-fold[open] > .achievements-ai {
+  padding-bottom: 12px;
+}
+.ach-hidden { display: none; }
+
+/* Médailles : chips denses au lieu de cartes grasses */
+.gamification-medals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(122px, 1fr));
+  gap: 5px;
+}
+.gamification-medal {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.gamification-medal.earned {
+  background: var(--primary);
+}
+.gamification-medal.earned .gamification-medal-name {
+  color: #fff;
+  font-weight: 700;
+}
+.dark .gamification-medal.earned .gamification-medal-name,
+.dark.theme-bw .gamification-medal.earned .gamification-medal-name {
+  color: var(--bg);
+}
+.theme-bw .gamification-medal.earned {
+  box-shadow: 1px 1px 0 rgba(0,0,0,0.85);
+}
+.gamification-medal:not(.earned) {
+  opacity: 0.45;
+  border-style: dashed;
+  background: transparent;
+}
+.gamification-medal-emoji { font-size: 14px; line-height: 1; }
+.gamification-medal-name {
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.gamification-medal-progress {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
 /* Print : le grid devient un vrai livre de comptes papier */
 @media print {
   .navbar, .grid-toolbar, .view-tabs, .bottom-bar, .settings-btn,
