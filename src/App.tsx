@@ -210,6 +210,9 @@ const DEFAULT_CATEGORIES = [
   const [editWhyText, setEditWhyText] = useState('');
   // v0.3.2: Toggle to display archived habits in the grid
   const [showArchived, setShowArchived] = useState(false);
+  // Quick habit search (accent-insensitive) — filters grid rows live
+  const [habitSearch, setHabitSearch] = useState('');
+  const habitSearchRef = useRef<HTMLInputElement | null>(null);
   // Undo toast for accidental archive
   const [undoArchive, setUndoArchive] = useState<{ id: string; name: string } | null>(null);
   useEffect(() => {
@@ -555,6 +558,15 @@ const DEFAULT_CATEGORIES = [
       // Alt+←/→: previous/next month; T: jump to today (grid months)
       if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); prevMonth(); }
       if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); nextMonth(); }
+      // Ctrl+F / Cmd+F: focus the habit search (grid)
+      if (ctrl && (e.key === 'f' || e.key === 'F')) {
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
+          e.preventDefault();
+          setView('grid');
+          setTimeout(() => habitSearchRef.current?.focus(), 50);
+        }
+      }
       if ((e.key === 't' || e.key === 'T') && !ctrl && !e.metaKey) {
         const tag = (e.target as HTMLElement).tagName;
         if (tag !== 'INPUT' && tag !== 'TEXTAREA' && view === 'grid') {
@@ -1091,6 +1103,9 @@ const DEFAULT_CATEGORIES = [
   // null — we ignore that.
   function handleDragEnd(result: { source: { index: number }; destination?: { index: number } | null }) {
     if (!result.destination) return;
+    // Filtered view: dnd indexes refer to the filtered subset, the store works
+    // on the full visible list — reordering here would corrupt the order.
+    if (habitSearch.trim()) { console.warn('[drag] ignoré pendant la recherche'); return; }
     // Diagnostic: log to help chase the "1-2 lines off" report
     console.log('[drag] source', result.source.index, '→ dest', result.destination.index);
     // hello-pangea gives dest as post-removal index; reorderHabits handles that.
@@ -1323,6 +1338,25 @@ const DEFAULT_CATEGORIES = [
                     🎯 {plannedThisMonth} jour{plannedThisMonth > 1 ? 's' : ''} planifié{plannedThisMonth > 1 ? 's' : ''} cerclé{plannedThisMonth > 1 ? 's' : ''}
                   </span>
                 )}
+                <input
+                  ref={habitSearchRef}
+                  className="habit-search"
+                  type="search"
+                  value={habitSearch}
+                  onChange={(e) => setHabitSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') { setHabitSearch(''); (e.target as HTMLInputElement).blur(); }
+                    e.stopPropagation();
+                  }}
+                  placeholder="🔎 Rechercher…"
+                  aria-label="Rechercher une habitude"
+                />
+                {habitSearch.trim() && (
+                  <span className="grid-search-count">
+                    {habits.filter((h) => (showArchived || !h.archived)
+                      && (() => { const n = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); return n(h.name).includes(n(habitSearch)) || n(h.category ?? '').includes(n(habitSearch)); })()).length} trouvée(s)
+                  </span>
+                )}
                 <button
                   className={`btn btn-sm ${effectiveCompact ? 'btn-primary' : 'btn-ghost'}`}
                   onClick={() => updatePreferences({ compactGrid: !getPreferences().compactGrid })}
@@ -1367,6 +1401,11 @@ const DEFAULT_CATEGORIES = [
                   >
                     {habits
                       .filter((habit) => showArchived || !habit.archived)
+                      .filter((habit) => {
+                        if (!habitSearch.trim()) return true;
+        const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                        return norm(habit.name).includes(norm(habitSearch)) || norm(habit.category ?? '').includes(norm(habitSearch));
+                      })
                       .map((habit, habitIdx) => {
                       const habitChecks = checkIns.get(habit.id) || new Map();
                   const hs = habitStats.find(s => s.habitId === habit.id);

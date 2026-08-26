@@ -10575,6 +10575,29 @@ body {
   font-size: 13px;
 }
 
+/* Recherche rapide d'habitude (toolbar grid) */
+.habit-search {
+  padding: 3px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  width: 150px;
+}
+.habit-search:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.theme-bw .habit-search {
+  border-width: 2px;
+}
+.grid-search-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 /* Print : le grid devient un vrai livre de comptes papier */
 @media print {
   .navbar, .grid-toolbar, .view-tabs, .bottom-bar, .settings-btn,
