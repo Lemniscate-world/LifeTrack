@@ -3642,13 +3642,55 @@ export function archiveMission(id: string): void {
   scheduleSave(data);
 }
 
+export function getRoutines(): import('./types').Routine[] {
+  return data.routines ?? [];
+}
+
+export function addRoutine(routine: Omit<import('./types').Routine, 'id' | 'createdAt'>): import('./types').Routine {
+  const newRoutine: import('./types').Routine = {
+    ...routine,
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+  };
+  data.routines = [...(data.routines ?? []), newRoutine];
+  scheduleSave(data);
+  return newRoutine;
+}
+
+export function updateRoutine(id: string, patch: Partial<import('./types').Routine>): void {
+  data.routines = (data.routines ?? []).map((r) => (r.id === id ? { ...r, ...patch } : r));
+  scheduleSave(data);
+}
+
+export function deleteRoutine(id: string): void {
+  data.routines = (data.routines ?? []).filter((r) => r.id !== id);
+  scheduleSave(data);
+}
+
+export function getRoutinesForTrigger(triggerId: string): import('./types').Routine[] {
+  return (data.routines ?? []).filter((r) => r.triggerId === triggerId);
+}
+
+export function addChaosTrigger(dimensionId: string, label: string, weight: number): import('./types').ChaosTrigger | null {
+  const dim = data.chaosDimensions.find((d) => d.id === dimensionId);
+  if (!dim) return null;
+  const trigger: import('./types').ChaosTrigger = {
+    id: crypto.randomUUID(),
+    label: label.trim(),
+    weight: Math.max(0, Math.min(100, weight)),
+    active: false,
+  };
+  dim.triggers.push(trigger);
+  scheduleSave(data);
+  return trigger;
+}
+
 export function exportAllData(): AppData {
   // Return a deep clone so callers cannot mutate internal state
   return JSON.parse(JSON.stringify(data));
 }
 
 // --- Chaos ---
-// Chaos is 100% auto-driven from habits. Dimensions are categories only — no manual triggers.
 const DEFAULT_CHAOS: ChaosDimension[] = [
   { id: 'social', name: 'Social', triggers: [] },
   { id: 'financial', name: 'Financial', triggers: [] },
@@ -3657,6 +3699,7 @@ const DEFAULT_CHAOS: ChaosDimension[] = [
   { id: 'spiritual', name: 'Spiritual', triggers: [] },
   { id: 'emotional', name: 'Emotional', triggers: [] },
   { id: 'energy', name: 'Energy', triggers: [] },
+  { id: 'startup', name: 'Startup', triggers: [] },
 ];
 
 export function getDefaultChaosDimensions(): ChaosDimension[] {
@@ -3664,16 +3707,21 @@ export function getDefaultChaosDimensions(): ChaosDimension[] {
 }
 
 // Merge stored dimensions with the current defaults. New defaults (e.g.
-// 'emotional') are appended for users whose data was saved by an older
+// 'emotional', 'startup') are appended for users whose data was saved by an older
 // version that didn't include them. User customisations on existing
-// dimensions are preserved by id.
+// dimensions are preserved by id. Custom dimensions not in defaults are kept.
 export function mergeChaosDimensions(stored: ChaosDimension[]): ChaosDimension[] {
   const defaults = getDefaultChaosDimensions();
   const storedById = new Map(stored.filter((d) => d && d.id).map((d) => [d.id, d]));
-  return defaults.map((d) => {
+  const merged = defaults.map((d) => {
     const prior = storedById.get(d.id);
     return prior ? { ...d, triggers: prior.triggers ?? [] } : d;
   });
+  // Preserve custom dimensions (e.g. user-created startup variants)
+  for (const [id, dim] of storedById) {
+    if (!defaults.some((d) => d.id === id)) merged.push(dim);
+  }
+  return merged;
 }
 
 export function getChaosDimensions(): ChaosDimension[] {
@@ -3689,6 +3737,17 @@ export function getChaosDimensions(): ChaosDimension[] {
     if (defaults.some((d) => !storedIds.has(d.id))) {
       data.chaosDimensions = mergeChaosDimensions(data.chaosDimensions);
     }
+  }
+  // Migration: restore lost Startup principle "No LLM or models with 55+ Intelligence" +75% daily (manual check)
+  const startup = data.chaosDimensions.find((d) => d.id === 'startup');
+  if (startup && startup.triggers.length === 0) {
+    startup.triggers.push({
+      id: crypto.randomUUID(),
+      label: 'No LLM or models with 55+ Intelligence',
+      weight: 75,
+      active: false,
+    });
+    scheduleSave(data);
   }
   return data.chaosDimensions;
 }

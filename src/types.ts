@@ -86,6 +86,21 @@ export interface ChaosLink {
   cause?: string;
 }
 
+export interface RoutineStep {
+  id: string;
+  label: string;
+  habitId?: string; // optional link to existing habit
+  order: number;
+}
+
+export interface Routine {
+  id: string;
+  triggerId: string; // ChaosTrigger id this routine answers to
+  name: string;
+  steps: RoutineStep[];
+  createdAt: string;
+}
+
 // --- Achievements ---
 // A category an achievement (tagged note) belongs to. Defaults reuse the seven
 // chaos dimensions plus a dedicated 'Psychological' category.
@@ -569,6 +584,7 @@ export interface AppData {
   /** v0.7.0: dated missions — a goal bound to a window (fixed date or
    * astrological whole-sign transit) and tied to the user's habits. */
   missions?: Mission[];
+  routines?: Routine[];
   preferences: UserPreferences;
 }
 
