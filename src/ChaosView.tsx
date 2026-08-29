@@ -1,5 +1,16 @@
 import { useState, useEffect, useMemo } from 'react';
-import { computeChaosReport, computeChaosHistory, subscribe } from './store';
+import {
+  computeChaosReport,
+  computeChaosHistory,
+  subscribe,
+  addChaosTrigger,
+  toggleChaosTrigger,
+  getRoutinesForTrigger,
+  addRoutine,
+  deleteRoutine,
+  getHabits,
+  getChaosDimensions,
+} from './store';
 
 export default function ChaosView() {
   // Bumped by the store subscription to force a re-render after mutations.
@@ -17,6 +28,15 @@ export default function ChaosView() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const history = useMemo(() => computeChaosHistory(30), [tick]);
   const { dimensions, overallPct, linkedHabitCount } = report;
+
+  const [newTriggerLabel, setNewTriggerLabel] = useState<Record<string, string>>({});
+  const [newTriggerWeight, setNewTriggerWeight] = useState<Record<string, number>>({});
+  const [newRoutineName, setNewRoutineName] = useState<Record<string, string>>({});
+  const [newRoutineTrigger, setNewRoutineTrigger] = useState<string | null>(null);
+  const [newStepLabel, setNewStepLabel] = useState('');
+  const [newStepHabit, setNewStepHabit] = useState('');
+  const [draftSteps, setDraftSteps] = useState<{ label: string; habitId?: string }[]>([]);
+  const rawDimensions = useMemo(() => getChaosDimensions(), [tick]);
 
   // Trend of the last week vs the previous week.
   const recent = history.slice(-7);
@@ -138,6 +158,151 @@ export default function ChaosView() {
                   </div>
                 </>
               )}
+              <div className="chaos-triggers">
+                <h4>
+                  Triggers & Principes ({(rawDimensions.find((d) => d.id === dim.id)?.triggers.length ?? 0)}) — check quotidien
+                  manuel
+                </h4>
+                {(rawDimensions.find((d) => d.id === dim.id)?.triggers ?? []).map((trigger) => (
+                  <div key={trigger.id} className="chaos-trigger">
+                    <label className="chaos-trigger-label">
+                      <input
+                        type="checkbox"
+                        checked={trigger.active}
+                        onChange={() => toggleChaosTrigger(dim.id, trigger.id)}
+                      />
+                      <span>
+                        {trigger.label} +{trigger.weight}% {trigger.active ? '(actif)' : ''}
+                      </span>
+                    </label>
+                    <div className="chaos-routines">
+                      {getRoutinesForTrigger(trigger.id).map((routine) => (
+                        <div key={routine.id} className="chaos-routine">
+                          <strong>{routine.name}</strong>
+                          <ol>
+                            {[...routine.steps].sort((a, b) => a.order - b.order).map((step) => (
+                              <li key={step.id}>
+                                {step.label}
+                                {step.habitId ? ` → ${getHabits().find((h) => h.id === step.habitId)?.name ?? ''}` : ''}
+                              </li>
+                            ))}
+                          </ol>
+                          <button className="btn btn-sm" onClick={() => deleteRoutine(routine.id)}>
+                            Supprimer routine
+                          </button>
+                        </div>
+                      ))}
+                      {newRoutineTrigger === trigger.id ? (
+                        <div className="chaos-routine-form">
+                          <input
+                            placeholder="Nom routine"
+                            value={newRoutineName[trigger.id] || ''}
+                            onChange={(e) => setNewRoutineName({ ...newRoutineName, [trigger.id]: e.target.value })}
+                          />
+                          <div className="chaos-step-input">
+                            <input
+                              placeholder="Étape"
+                              value={newStepLabel}
+                              onChange={(e) => setNewStepLabel(e.target.value)}
+                            />
+                            <select value={newStepHabit} onChange={(e) => setNewStepHabit(e.target.value)}>
+                              <option value="">-- habit lié --</option>
+                              {getHabits().map((h) => (
+                                <option key={h.id} value={h.id}>
+                                  {h.name}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              onClick={() => {
+                                if (!newStepLabel.trim()) return;
+                                setDraftSteps([...draftSteps, { label: newStepLabel.trim(), habitId: newStepHabit || undefined }]);
+                                setNewStepLabel('');
+                                setNewStepHabit('');
+                              }}
+                            >
+                              + Étape
+                            </button>
+                          </div>
+                          {draftSteps.length > 0 && (
+                            <ol className="chaos-draft-steps">
+                              {draftSteps.map((s, i) => (
+                                <li key={i}>
+                                  {s.label} {s.habitId ? `(${getHabits().find((h) => h.id === s.habitId)?.name})` : ''}
+                                  <button onClick={() => setDraftSteps(draftSteps.filter((_, idx) => idx !== i))}>x</button>
+                                </li>
+                              ))}
+                            </ol>
+                          )}
+                          <div className="chaos-routine-actions">
+                            <button
+                              className="btn btn-sm btn-primary"
+                              onClick={() => {
+                                if (!newRoutineName[trigger.id]?.trim() || draftSteps.length === 0) return;
+                                addRoutine({
+                                  triggerId: trigger.id,
+                                  name: newRoutineName[trigger.id].trim(),
+                                  steps: draftSteps.map((s, i) => ({
+                                    id: crypto.randomUUID(),
+                                    label: s.label,
+                                    habitId: s.habitId,
+                                    order: i,
+                                  })),
+                                });
+                                setNewRoutineName({ ...newRoutineName, [trigger.id]: '' });
+                                setDraftSteps([]);
+                                setNewRoutineTrigger(null);
+                              }}
+                            >
+                              Créer routine
+                            </button>
+                            <button
+                              className="btn btn-sm"
+                              onClick={() => {
+                                setNewRoutineTrigger(null);
+                                setDraftSteps([]);
+                              }}
+                            >
+                              Annuler
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button className="btn btn-sm" onClick={() => setNewRoutineTrigger(trigger.id)}>
+                          + Routine fixe
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                <div className="chaos-add-trigger">
+                  <input
+                    placeholder="Nouveau trigger/principe"
+                    value={newTriggerLabel[dim.id] || ''}
+                    onChange={(e) => setNewTriggerLabel({ ...newTriggerLabel, [dim.id]: e.target.value })}
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={newTriggerWeight[dim.id] ?? 25}
+                    onChange={(e) => setNewTriggerWeight({ ...newTriggerWeight, [dim.id]: parseInt(e.target.value) || 0 })}
+                    style={{ width: '60px' }}
+                  />
+                  <span>%</span>
+                  <button
+                    className="btn btn-sm btn-primary"
+                    onClick={() => {
+                      const label = newTriggerLabel[dim.id]?.trim();
+                      if (!label) return;
+                      addChaosTrigger(dim.id, label, newTriggerWeight[dim.id] ?? 25);
+                      setNewTriggerLabel({ ...newTriggerLabel, [dim.id]: '' });
+                    }}
+                  >
+                    + Trigger
+                  </button>
+                </div>
+              </div>
             </div>
           );
         })}

@@ -673,6 +673,9 @@ export interface UserPreferences {
   soundEnabled?: boolean;          // web audio chime feedback on check-in
   // v0.7.0: natal chart for whole-sign transit houses.
   birthDate?: string;              // YYYY-MM-DD
+  // v0.7.0: read-only Obsidian vault auto-sync.
+  obsidianVaultPath?: string;      // absolute vault path (read-only, never written)
+  obsidianAutoSync?: boolean;      // auto-detect + sync the vault at startup
   birthTime?: string;              // "HH:MM" (local time of birth)
   birthLat?: number;               // decimal degrees, north positive
   birthLon?: number;               // decimal degrees, east positive

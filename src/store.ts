@@ -531,6 +531,8 @@ function sanitizePreferences(raw: unknown): UserPreferences {
     autoIngestIntervalHours: typeof p.autoIngestIntervalHours === 'number' && p.autoIngestIntervalHours >= 1 && p.autoIngestIntervalHours <= 72 ? p.autoIngestIntervalHours : 6,
     autostartEnabled: p.autostartEnabled === false ? false : true,
     missionAutoEnabled: p.missionAutoEnabled === false ? false : true,
+    obsidianVaultPath: typeof p.obsidianVaultPath === 'string' ? p.obsidianVaultPath : '',
+    obsidianAutoSync: p.obsidianAutoSync === true,
     compactGrid: p.compactGrid === true,
     autoCompact: p.autoCompact === false ? false : true,
     compactThreshold: typeof p.compactThreshold === 'number' && p.compactThreshold >= 10 && p.compactThreshold <= 100 ? p.compactThreshold : 30,
