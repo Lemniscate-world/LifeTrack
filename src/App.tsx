@@ -76,6 +76,7 @@ import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import './App.css';
 import ChaosView from './ChaosView';
 import AchievementsView from './AchievementsView';
+import PrinciplesView from './PrinciplesView';
 import MantraView from './MantraView';
 import SettingsView from './SettingsView';
 import TodayView from './TodayView';
@@ -544,7 +545,7 @@ const DEFAULT_CATEGORIES = [
       // Tab switching: Ctrl+1..9 + Ctrl+0
       if (ctrl && e.key >= '0' && e.key <= '9') {
         e.preventDefault();
-        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'mantras', 'experiments', 'journal', 'achievements', 'urges', 'psycho', 'projects', 'knowledge', 'obsidian', 'missions'];
+        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'principles', 'mantras', 'experiments', 'journal', 'achievements', 'urges', 'psycho', 'projects', 'knowledge', 'obsidian', 'missions'];
         const idx = e.key === '0' ? 0 : parseInt(e.key, 10);
         const viewKey = tabs[idx] as typeof view;
         if (viewKey) setView(viewKey);
@@ -2163,6 +2164,8 @@ const DEFAULT_CATEGORIES = [
         <CorrelationsView />
       ) : view === 'gains' ? (
         <GainsView />
+      ) : view === 'principles' ? (
+        <PrinciplesView />
       ) : (
         <ChaosView />
       )}
