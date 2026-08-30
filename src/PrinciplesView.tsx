@@ -12,6 +12,17 @@ import {
 } from './store';
 import { getHabitChaosLinks } from './store';
 
+const DIMENSION_COLORS: Record<string, string> = {
+  social: '#3b82f6',
+  financial: '#10b981',
+  physical: '#ef4444',
+  structural: '#f59e0b',
+  spiritual: '#8b5cf6',
+  emotional: '#ec4899',
+  energy: '#06b6d4',
+  startup: '#6366f1',
+};
+
 export default function PrinciplesView() {
   const [tick, setTick] = useState(0);
   useEffect(() => subscribe(() => setTick((t) => t + 1)), []);
@@ -44,22 +55,26 @@ export default function PrinciplesView() {
           habits.filter((h) => getHabitChaosLinks(h).some((l) => l.dimension === dim.id)).map((h) => h.id),
         );
         const linkedReflections = reflections.filter((r) => (r.habitIds ?? []).some((id) => habitIdsInDim.has(id))).slice(0, 3);
+        const accent = DIMENSION_COLORS[dim.id] ?? 'var(--primary)';
         return (
-          <div key={dim.id} className="principles-dim">
+          <div key={dim.id} className="principles-dim" style={{ borderLeft: `3px solid ${accent}` }}>
             <h3>
+              <span style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%', background: accent, marginRight: '8px', verticalAlign: 'middle' }} />
               {dim.name} <span className="principles-dim-count">{triggers.length} principe{triggers.length !== 1 ? 's' : ''}</span>
             </h3>
 
             {triggers.length === 0 && <p className="principles-empty">Aucun principe — ajoute celui qui, non respecté, fait chuter cette dimension.</p>}
 
             {triggers.map((trigger) => (
-              <div key={trigger.id} className="principles-principle">
+              <div key={trigger.id} className="principles-principle" style={{ borderLeft: trigger.active ? `3px solid ${accent}` : undefined }}>
                 <label className="principles-principle-row">
-                  <input type="checkbox" checked={trigger.active} onChange={() => toggleChaosTrigger(dim.id, trigger.id)} />
+                  <input type="checkbox" checked={trigger.active} onChange={() => toggleChaosTrigger(dim.id, trigger.id)} style={{ accentColor: accent }} />
                   <span className="principles-principle-label">
-                    {trigger.label} <span className="principles-weight">+{trigger.weight}%</span>
+                    {trigger.label} <span className="principles-weight" style={{ borderColor: trigger.active ? accent : undefined, color: trigger.active ? accent : undefined }}>+{trigger.weight}%</span>
                   </span>
-                  <span className={`principles-status ${trigger.active ? 'active' : ''}`}>{trigger.active ? 'actif' : 'inactif'}</span>
+                  <span className={`principles-status ${trigger.active ? 'active' : ''}`} style={trigger.active ? { background: accent, borderColor: accent, color: 'white' } : undefined}>
+                    {trigger.active ? 'actif' : 'inactif'}
+                  </span>
                 </label>
 
                 <div className="principles-routines">
