@@ -516,7 +516,7 @@ function sanitizePreferences(raw: unknown): UserPreferences {
   const defaults: UserPreferences = { darkMode: false, theme: '' };
   if (!raw || typeof raw !== 'object') return defaults;
   const p = raw as Record<string, unknown>;
-  const provider = p.aiProvider === 'openrouter' || p.aiProvider === 'ollama' ? p.aiProvider : 'auto';
+  const provider = p.aiProvider === 'openrouter' || p.aiProvider === 'deepseek' || p.aiProvider === 'ollama' ? p.aiProvider : 'auto';
   return {
     darkMode: p.darkMode === true,
     theme: typeof p.theme === 'string' ? p.theme : '',
@@ -533,6 +533,8 @@ function sanitizePreferences(raw: unknown): UserPreferences {
     missionAutoEnabled: p.missionAutoEnabled === false ? false : true,
     obsidianVaultPath: typeof p.obsidianVaultPath === 'string' ? p.obsidianVaultPath : '',
     obsidianAutoSync: p.obsidianAutoSync === true,
+    obsidianExcludeFolders: typeof p.obsidianExcludeFolders === 'string' ? p.obsidianExcludeFolders : '',
+    obsidianMirrorDeletions: p.obsidianMirrorDeletions === true,
     compactGrid: p.compactGrid === true,
     autoCompact: p.autoCompact === false ? false : true,
     compactThreshold: typeof p.compactThreshold === 'number' && p.compactThreshold >= 10 && p.compactThreshold <= 100 ? p.compactThreshold : 30,
@@ -3593,8 +3595,14 @@ export function importObsidianNotes(notes: Omit<ObsidianNote, 'id'>[]): { added:
   for (const n of notes) {
     const idx = existing.findIndex((e) => e.fileName === n.fileName);
     if (idx >= 0) {
-      if (existing[idx].content === n.content) continue;
-      existing[idx] = { ...existing[idx], content: n.content, importedAt: n.importedAt };
+      if (existing[idx].content === n.content && existing[idx].vaultModifiedAt === n.vaultModifiedAt && !existing[idx].vaultMissing) continue;
+      existing[idx] = {
+        ...existing[idx],
+        content: n.content,
+        importedAt: n.importedAt,
+        ...(n.vaultModifiedAt !== undefined ? { vaultModifiedAt: n.vaultModifiedAt } : {}),
+        vaultMissing: false,
+      };
       replaced++;
     } else {
       existing.push({ id: crypto.randomUUID(), ...n });
@@ -3614,6 +3622,20 @@ export function removeObsidianNote(id: string): void {
 
 export function clearObsidianNotes(): void {
   data.obsidianNotes = [];
+  scheduleSave(data);
+}
+
+/**
+ * Mirror mode (opt-in): flag notes that no longer exist in the vault.
+ * NEVER deletes anything — LifeTrack keeps the last known content and the UI
+ * shows it as "supprimée du coffre". Unflags notes that reappeared.
+ */
+export function applyVaultMirror(missingFileNames: string[]): void {
+  const missing = new Set(missingFileNames);
+  data.obsidianNotes = (data.obsidianNotes ?? []).map((n) => {
+    if (missing.has(n.fileName)) return n.vaultMissing ? n : { ...n, vaultMissing: true };
+    return n.vaultMissing ? { ...n, vaultMissing: false } : n;
+  });
   scheduleSave(data);
 }
 
@@ -3641,6 +3663,48 @@ export function deleteMission(id: string): void {
 
 export function archiveMission(id: string): void {
   data.missions = (data.missions ?? []).map((m) => (m.id === id ? { ...m, archived: !m.archived } : m));
+  scheduleSave(data);
+}
+
+// --- Emotional Processing ---
+export function getEmotionalEvents(): import('./types').EmotionalEvent[] {
+  return data.emotionalEvents ?? [];
+}
+export function getEmotionalChecks(eventId?: string): import('./types').EmotionalCheck[] {
+  const all = data.emotionalChecks ?? [];
+  return eventId ? all.filter((c) => c.eventId === eventId) : all;
+}
+export function addEmotionalEvent(ev: Omit<import('./types').EmotionalEvent, 'id' | 'createdAt'>): import('./types').EmotionalEvent {
+  const e: import('./types').EmotionalEvent = { ...ev, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
+  data.emotionalEvents = [...(data.emotionalEvents ?? []), e];
+  scheduleSave(data);
+  return e;
+}
+export function updateEmotionalEvent(id: string, patch: Partial<import('./types').EmotionalEvent>): void {
+  data.emotionalEvents = (data.emotionalEvents ?? []).map((e) => (e.id === id ? { ...e, ...patch } : e));
+  scheduleSave(data);
+}
+export function deleteEmotionalEvent(id: string): void {
+  data.emotionalEvents = (data.emotionalEvents ?? []).filter((e) => e.id !== id);
+  data.emotionalChecks = (data.emotionalChecks ?? []).filter((c) => c.eventId !== id);
+  scheduleSave(data);
+}
+export function upsertEmotionalCheck(eventId: string, date: string, intensity: number, note?: string): import('./types').EmotionalCheck {
+  const all = data.emotionalChecks ?? [];
+  const existing = all.find((c) => c.eventId === eventId && c.date === date);
+  if (existing) {
+    existing.intensity = intensity;
+    if (note !== undefined) existing.note = note;
+    scheduleSave(data);
+    return existing;
+  }
+  const c: import('./types').EmotionalCheck = { id: crypto.randomUUID(), eventId, date, intensity, note };
+  data.emotionalChecks = [...all, c];
+  scheduleSave(data);
+  return c;
+}
+export function deleteEmotionalCheck(id: string): void {
+  data.emotionalChecks = (data.emotionalChecks ?? []).filter((c) => c.id !== id);
   scheduleSave(data);
 }
 

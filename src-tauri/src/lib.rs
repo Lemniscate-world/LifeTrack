@@ -241,9 +241,28 @@ fn find_latest_backup(app: tauri::AppHandle) -> Result<Option<String>, String> {
     Ok(None)
 }
 
-// --- AI integration: local Ollama + cloud (OpenRouter) ---
+// --- AI integration: local Ollama + cloud (OpenRouter / DeepSeek direct) ---
 
 const OPENROUTER_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
+/// Direct DeepSeek platform API (OpenAI-compatible chat completions).
+const DEEPSEEK_URL: &str = "https://api.deepseek.com/chat/completions";
+/// Sentinel model value: commands that deserve deeper reasoning (psychoanalysis,
+/// weekly synthesis) pass this when the user has no explicit model, so complete_ai
+/// picks the provider's reasoning model (deepseek-reasoner / deepseek-r1).
+const REASONER_HINT: &str = "__prefer_reasoner__";
+
+/// Wrap a user-supplied model for deep-reasoning commands: if the user didn't
+/// pin an explicit model (empty, or the default OpenRouter flash id), request
+/// the provider's reasoning model instead. Explicit user choices are respected.
+fn with_reasoner(model: Option<String>) -> Option<String> {
+    match model {
+        None => Some(REASONER_HINT.to_string()),
+        Some(m) if m.trim().is_empty() || m.trim() == "deepseek/deepseek-v4-flash" => {
+            Some(REASONER_HINT.to_string())
+        }
+        other => other,
+    }
+}
 
 #[derive(Serialize)]
 struct OllamaRequest {
@@ -372,6 +391,65 @@ async fn call_ollama(model: String, call: &AiCall, json_format: bool) -> Result<
     Ok(ollama_resp.response.trim().to_string())
 }
 
+/// Call the direct DeepSeek platform API (`platform.deepseek.com` keys, sk-…).
+/// The endpoint is OpenAI-compatible, so the request/response shapes are shared
+/// with the OpenRouter client.
+async fn call_deepseek(model: String, api_key: String, call: &AiCall, json_format: bool) -> Result<String, String> {
+    let messages = vec![
+        ChatMessage {
+            role: "system".to_string(),
+            content: call.system_prompt.clone(),
+        },
+        ChatMessage {
+            role: "user".to_string(),
+            content: call.user_prompt.clone(),
+        },
+    ];
+
+    let body = OpenRouterRequest {
+        model,
+        messages,
+        temperature: call.temperature,
+        max_tokens: call.max_tokens,
+        response_format: if json_format {
+            Some(OpenRouterResponseFormat {
+                format_type: "json_object".to_string(),
+            })
+        } else {
+            None
+        },
+    };
+
+    let resp = HTTP_CLIENT
+        .post(DEEPSEEK_URL)
+        .bearer_auth(api_key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("DeepSeek connection failed: {}. Check your network or API key.", e))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let err_body = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "DeepSeek returned HTTP {}: {}. Check your API key in Settings → AI.",
+            status, err_body
+        ));
+    }
+
+    let ds_resp: OpenRouterResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse DeepSeek response: {}", e))?;
+
+    ds_resp
+        .choices
+        .into_iter()
+        .next()
+        .map(|c| c.message.content.trim().to_string())
+        .ok_or_else(|| "DeepSeek returned no choices.".to_string())
+}
+
 /// Call OpenRouter's cloud chat-completions API.
 async fn call_openrouter(model: String, api_key: String, call: &AiCall, json_format: bool) -> Result<String, String> {
     let messages = vec![
@@ -473,16 +551,23 @@ async fn pick_local_model() -> Result<String, String> {
 }
 
 /// Resolve the provider + model to use, then dispatch to cloud or local.
-/// `provider` is one of 'auto' | 'openrouter' | 'ollama'. In 'auto' mode we
-/// use the cloud when an API key is configured and reachable, otherwise local.
+/// `provider` is one of 'auto' | 'openrouter' | 'deepseek' | 'ollama'. In
+/// 'auto' mode the key prefix decides the cloud endpoint (sk-or-… → OpenRouter,
+/// any other sk-… key → direct DeepSeek), then local Ollama if unreachable.
 async fn complete_ai(
     provider: &str,
     api_key: &str,
     model: Option<String>,
     call: &AiCall,
 ) -> Result<String, String> {
+    let is_openrouter_key = api_key.trim().starts_with("sk-or-");
+    // Deep-reasoning requests (psychoanalysis, weekly synthesis) ask for the
+    // provider's reasoning model when the user hasn't pinned a specific one.
+    let prefer_reasoner = model.as_deref() == Some(REASONER_HINT);
+    let model = if prefer_reasoner { None } else { model.clone() };
     let want_cloud = match provider {
         "openrouter" => true,
+        "deepseek" => true,
         "ollama" => false,
         _ => !api_key.trim().is_empty(),
     };
@@ -490,13 +575,32 @@ async fn complete_ai(
     if want_cloud {
         let key = api_key.trim();
         if key.is_empty() {
-            return Err("OpenRouter is selected but no API key is set. Add it in Settings → AI.".to_string());
+            return Err("Cloud AI is selected but no API key is set. Add it in Settings → AI.".to_string());
         }
+        let use_openrouter = match provider {
+            "openrouter" => true,
+            "deepseek" => false,
+            _ => is_openrouter_key,
+        };
+        let default_model = if use_openrouter {
+            if prefer_reasoner { "deepseek/deepseek-r1" } else { "deepseek/deepseek-v4-flash" }
+        } else {
+            if prefer_reasoner { "deepseek-reasoner" } else { "deepseek-chat" }
+        };
         let cloud_model = match model.as_deref() {
             Some(m) if !m.trim().is_empty() => m.trim().to_string(),
-            _ => "deepseek/deepseek-v4-flash".to_string(),
+            _ => default_model.to_string(),
         };
-        match call_openrouter(cloud_model, key.to_string(), call, call.json).await {
+        // A direct DeepSeek key cannot use OpenRouter-style ids ("vendor/model").
+        if !use_openrouter && cloud_model.contains('/') {
+            return call_deepseek("deepseek-chat".to_string(), key.to_string(), call, call.json).await;
+        }
+        let cloud_result = if use_openrouter {
+            call_openrouter(cloud_model, key.to_string(), call, call.json).await
+        } else {
+            call_deepseek(cloud_model, key.to_string(), call, call.json).await
+        };
+        match cloud_result {
             Ok(text) => return Ok(text),
             Err(e) if provider == "auto" => {
                 // Cloud unreachable → fall back to local Ollama.
@@ -724,7 +828,7 @@ async fn journal_analyze(
     complete_ai(
         provider.as_deref().unwrap_or("auto"),
         api_key.as_deref().unwrap_or(""),
-        model,
+        with_reasoner(model),
         &call,
     )
     .await
@@ -819,7 +923,7 @@ async fn psychoanalysis_ask(
     complete_ai(
         provider.as_deref().unwrap_or("auto"),
         api_key.as_deref().unwrap_or(""),
-        model,
+        with_reasoner(model),
         &call,
     )
     .await
@@ -1013,6 +1117,141 @@ fn set_autostart(enabled: bool) -> Result<String, String> {
     Ok("autostart-enabled".to_string())
 }
 
+// --- Obsidian vault (READ-ONLY integration, v0.7.0) ---
+// LifeTrack NEVER writes to the vault. These commands only read the official
+// Obsidian vault registry (`%APPDATA%/obsidian/obsidian.json`) and markdown
+// files inside vault folders. No file in the vault is ever created, modified
+// or deleted.
+
+#[derive(Serialize)]
+struct VaultInfo {
+    path: String,
+}
+
+/// Detect installed Obsidian vaults. Two sources, both read-only:
+/// 1. The official registry written by Obsidian itself:
+///    `%APPDATA%/obsidian/obsidian.json` → { "vaults": { "<id>": { "path": ... } } }
+/// 2. Fallback: shallow scan of Documents/Desktop for folders containing `.obsidian`.
+#[tauri::command]
+fn detect_obsidian_vault() -> Result<Vec<VaultInfo>, String> {
+    let mut found: Vec<VaultInfo> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    // 1. Official vault registry.
+    if let Some(appdata) = std::env::var_os("APPDATA") {
+        let registry = std::path::Path::new(&appdata).join("obsidian").join("obsidian.json");
+        if let Ok(text) = std::fs::read_to_string(&registry) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                if let Some(vaults) = json.get("vaults").and_then(|v| v.as_object()) {
+                    for v in vaults.values() {
+                        if let Some(p) = v.get("path").and_then(|p| p.as_str()) {
+                            let path = std::path::PathBuf::from(p);
+                            if path.join(".obsidian").is_dir() && seen.insert(p.to_string()) {
+                                found.push(VaultInfo { path: p.to_string() });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fallback scan (max depth 2) of common locations.
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(doc) = dirs_home().map(|h| h.join("Documents")) { roots.push(doc); }
+    if let Some(home) = dirs_home() { roots.push(home.join("Desktop")); }
+    for root in roots {
+        for dir in shallow_dirs(&root, 0) {
+            if dir.join(".obsidian").is_dir() {
+                let p = dir.to_string_lossy().to_string();
+                if seen.insert(p.clone()) {
+                    found.push(VaultInfo { path: p });
+                }
+            }
+        }
+    }
+
+    Ok(found)
+}
+
+/// Home directory without extra dependencies.
+fn dirs_home() -> Option<std::path::PathBuf> {
+    std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))
+        .map(std::path::PathBuf::from)
+}
+
+/// Collect directories up to `depth` levels below `root` (never follows .obsidian internals).
+fn shallow_dirs(root: &std::path::Path, depth: u32) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    if depth > 2 { return out; }
+    let Ok(entries) = std::fs::read_dir(root) else { return out };
+    for e in entries.filter_map(|e| e.ok()) {
+        let p = e.path();
+        if p.is_dir() && p.file_name().map_or(true, |n| n != ".obsidian") {
+            out.push(p.clone());
+            out.extend(shallow_dirs(&p, depth + 1));
+        }
+    }
+    out
+}
+
+#[derive(Serialize)]
+#[allow(non_snake_case)]
+struct VaultNote {
+    /// Vault-relative path used as the note identity (e.g. "Journal/2026-08-14.md").
+    fileName: String,
+    content: String,
+    /// Last-modified epoch millis, used for incremental sync (skip unchanged).
+    modifiedAt: String,
+}
+
+/// Read all markdown files of a vault, READ-ONLY. Skips `.obsidian` internals,
+/// the trash folder and hidden files. Hard caps protect against huge vaults:
+/// max 400 files and 512 KB per file (content is truncated beyond that).
+#[tauri::command]
+fn read_vault_notes(vault_path: String) -> Result<Vec<VaultNote>, String> {
+    let root = std::path::PathBuf::from(&vault_path);
+    if !root.is_dir() {
+        return Err("Le dossier du coffre n'existe pas.".to_string());
+    }
+    if !root.join(".obsidian").is_dir() {
+        return Err("Ce dossier ne semble pas être un coffre Obsidian (pas de dossier .obsidian).".to_string());
+    }
+
+    let mut notes = Vec::new();
+    collect_md(&root, &root, &mut notes, 0);
+    Ok(notes)
+}
+
+fn collect_md(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<VaultNote>, depth: u32) {
+    if depth > 8 || out.len() >= 400 { return; }
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.filter_map(|e| e.ok()) {
+        let p = e.path();
+        let Some(name) = p.file_name().and_then(|n| n.to_str()) else { continue };
+        if name.starts_with('.') || name == "trash" { continue; }
+        if p.is_dir() {
+            collect_md(root, &p, out, depth + 1);
+        } else if name.to_lowercase().ends_with(".md") {
+            if out.len() >= 400 { return; }
+            if let Ok(content) = std::fs::read_to_string(&p) {
+                let rel = p.strip_prefix(root)
+                    .map(|r| r.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_else(|_| name.to_string());
+                let truncated = if content.len() > 512 * 1024 {
+                    content.chars().take(128 * 1024).collect::<String>()
+                } else { content };
+                let modified_ms = p.metadata().ok()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis().to_string())
+                    .unwrap_or_default();
+                out.push(VaultNote { fileName: rel, content: truncated, modifiedAt: modified_ms });
+            }
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1031,7 +1270,9 @@ pub fn run() {
             summarize_achievements,
             fetch_url,
             extract_protocols_ai,
-            set_autostart
+            set_autostart,
+            detect_obsidian_vault,
+            read_vault_notes
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

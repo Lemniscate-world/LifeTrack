@@ -23,12 +23,13 @@ beforeEach(() => {
 });
 
 describe('Chaos dimension defaults', () => {
-  it('returns 7 default dimensions', () => {
+  it('returns 8 default dimensions', () => {
     const dims = getDefaultChaosDimensions();
-    expect(dims.length).toBe(7);
+    expect(dims.length).toBe(8);
     const ids = dims.map((d) => d.id).sort();
     expect(ids).toEqual([
-      'emotional', 'energy', 'financial', 'physical', 'social', 'spiritual', 'structural',
+      'emotional', 'energy', 'financial', 'physical', 'social', 'spiritual', 'startup',
+      'structural',
     ]);
   });
 
@@ -39,7 +40,7 @@ describe('Chaos dimension defaults', () => {
       expect(d.name).toBeTruthy();
       expect(Array.isArray(d.triggers)).toBe(true);
     }
-    expect(dims.length).toBe(7);
+    expect(dims.length).toBe(8);
   });
 });
 
@@ -98,9 +99,9 @@ describe('Chaos linkage', () => {
     expect(pct).toBe(0);
   });
 
-  it('computeChaosReport returns all 5 dimensions', () => {
+  it('computeChaosReport returns all 8 dimensions', () => {
     const report = computeChaosReport();
-    expect(report.dimensions.length).toBe(7);
+    expect(report.dimensions.length).toBe(8);
     expect(report.overallPct).toBeGreaterThanOrEqual(0);
     expect(report.overallPct).toBeLessThanOrEqual(100);
     expect(report.linkedHabitCount).toBe(0);
@@ -139,7 +140,7 @@ describe('ChaosView UI', () => {
   it('renders with no linked habits', () => {
     render(<ChaosView />);
     expect(screen.getByText('Chaos Pressure')).toBeInTheDocument();
-    expect(screen.getByText('No habits linked yet')).toBeInTheDocument();
+    expect(screen.getAllByText(/Aucune habitude/)[0]).toBeInTheDocument();
   });
 
   it('renders habit names when habits are linked to chaos', () => {
@@ -152,6 +153,6 @@ describe('ChaosView UI', () => {
     const budgetTexts = screen.getAllByText('Budget');
     expect(budgetTexts.length).toBeGreaterThanOrEqual(1);
     // Linked count
-    expect(screen.getByText('2 habits tracked across dimensions')).toBeInTheDocument();
+    expect(screen.getByText(/habitudes suivies/)).toBeInTheDocument();
   });
 });

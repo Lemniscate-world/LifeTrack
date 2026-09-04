@@ -6,7 +6,7 @@ export type ViewKey =
   | 'today' | 'grid' | 'stats' | 'correlations' | 'gains' | 'history'
   | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights'
   | 'experiments' | 'urges' | 'journal' | 'mantras' | 'achievements'
-  | 'settings' | 'psycho' | 'projects' | 'knowledge' | 'obsidian' | 'missions' | 'principles';
+  | 'settings' | 'psycho' | 'projects' | 'knowledge' | 'obsidian' | 'missions' | 'principles' | 'emotions';
 
 interface ViewTabsProps {
   view: ViewKey;
@@ -23,6 +23,7 @@ export default function ViewTabs({ view, onView }: ViewTabsProps) {
       </button>
       <button role="tab" aria-selected={view === 'grid'} className={ACTIVE(view, 'grid')} onClick={() => onView('grid')}>Grid</button>
       <button role="tab" aria-selected={view === 'chaos'} className={ACTIVE(view, 'chaos')} onClick={() => onView('chaos')}>Chaos</button>
+      <button role="tab" aria-selected={view === 'emotions'} className={ACTIVE(view, 'emotions')} onClick={() => onView('emotions')}>💭 Émotions</button>
       <button role="tab" aria-selected={view === 'principles'} className={ACTIVE(view, 'principles')} onClick={() => onView('principles')}>📜 Principes</button>
       <button role="tab" aria-selected={view === 'achievements'} className={ACTIVE(view, 'achievements')} onClick={() => onView('achievements')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 15a7 7 0 100-14 7 7 0 000 14z"/><path d="M8.21 13.89L7 23l5-3 5 3-1.21-9.12"/></svg> Achievements

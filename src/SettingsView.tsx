@@ -271,8 +271,9 @@ export default function SettingsView({
                   updatePreferences(next);
                 }}
               >
-                <option value="auto">Auto (cloud → Ollama fallback)</option>
-                <option value="openrouter">Cloud (OpenRouter)</option>
+                <option value="auto">Auto (détecte la clé : DeepSeek ou OpenRouter → Ollama)</option>
+                <option value="deepseek">DeepSeek direct (platform.deepseek.com)</option>
+                <option value="openrouter">OpenRouter</option>
                 <option value="ollama">Local (Ollama)</option>
               </select>
             </div>
@@ -299,15 +300,15 @@ export default function SettingsView({
               </datalist>
             </div>
             <p className="settings-hint">
-              ✨ Modèle cloud par défaut : <strong>DeepSeek V4 Flash</strong> (laisse le champ vide pour l'utiliser).
-              Tu peux aussi typer n'importe quel id OpenRouter / Ollama.
+              ✨ Laisse le champ Model vide : clé DeepSeek directe → <strong>deepseek-chat</strong>, clé OpenRouter → <strong>DeepSeek V4 Flash</strong>.
+              En Auto, le préfixe de la clé (sk-or-… vs sk-…) choisit le bon endpoint.
             </p>
             <div className="settings-row">
               <span>API key</span>
               <input
                 type="password"
                 className="settings-text-input"
-                placeholder="sk-or-… (OpenRouter)"
+                placeholder="sk-or-… (OpenRouter) ou sk-… (DeepSeek direct)"
                 value={aiPrefs.aiApiKey ?? ''}
                 onChange={(e) => {
                   const next = { ...aiPrefs, aiApiKey: e.target.value };
@@ -318,6 +319,12 @@ export default function SettingsView({
             </div>
             <p className="settings-hint">
               🔒 The key is stored only on your machine and is only sent to the provider you chose.
+              {(() => {
+                const key = (aiPrefs.aiApiKey || '').trim();
+                if (!key) return ' Aucune clé saisie : le cerveau restera local (Ollama).';
+                const endpoint = key.startsWith('sk-or-') ? 'OpenRouter (sk-or-…)' : 'DeepSeek direct (platform.deepseek.com)';
+                return ` 🧠 Clé détectée → endpoint utilisé : ${endpoint}`;
+              })()}
             </p>
           </div>
 

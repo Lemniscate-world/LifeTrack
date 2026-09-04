@@ -585,6 +585,9 @@ export interface AppData {
    * astrological whole-sign transit) and tied to the user's habits. */
   missions?: Mission[];
   routines?: Routine[];
+  // --- Emotional Processing (type of journaling) ---
+  emotionalEvents?: EmotionalEvent[];
+  emotionalChecks?: EmotionalCheck[];
   preferences: UserPreferences;
 }
 
@@ -597,6 +600,35 @@ export interface ObsidianNote {
   content: string;
   /** ISO timestamp of the import. */
   importedAt: string;
+  /** Vault file mtime (epoch ms string) at last sync — enables incremental sync. */
+  vaultModifiedAt?: string;
+  /** True when the file no longer exists in the vault (mirror mode, never deleted). */
+  vaultMissing?: boolean;
+}
+
+export const EMOTIONS_LIST = [
+  'Colère', 'Tristesse', 'Peur', 'Honte', 'Culpabilité', 'Anxiété',
+  'Dégoût', 'Jalousie', 'Solitude', 'Impuissance', 'Déception', 'Frustration',
+  'Nostalgie', 'Rancœur', 'Méfiance', 'Vide',
+] as const;
+export type EmotionLabel = typeof EMOTIONS_LIST[number];
+
+export interface EmotionalEvent {
+  id: string;
+  title: string;
+  situation: string;
+  emotions: EmotionLabel[];
+  createdAt: string;
+  notes?: string;
+  archived?: boolean;
+}
+
+export interface EmotionalCheck {
+  id: string;
+  eventId: string;
+  date: string;
+  intensity: number;
+  note?: string;
 }
 
 export type MissionWindowKind = 'fixed' | 'transit';
@@ -651,7 +683,7 @@ export interface UserPreferences {
   theme: string; // CSS class or '' (default)
   // v0.4.0: AI provider selection. `auto` = cloud when an API key is set and
   // reachable, local Ollama otherwise.
-  aiProvider?: 'auto' | 'openrouter' | 'ollama';
+  aiProvider?: 'auto' | 'openrouter' | 'deepseek' | 'ollama';
   aiModel?: string; // e.g. 'openai/gpt-4o-mini' on OpenRouter, '' = default
   aiApiKey?: string; // cloud API key (stored locally, never sent to any server except the chosen provider)
   // v0.5.2: daily "remember the past" system reminder.
@@ -676,6 +708,8 @@ export interface UserPreferences {
   // v0.7.0: read-only Obsidian vault auto-sync.
   obsidianVaultPath?: string;      // absolute vault path (read-only, never written)
   obsidianAutoSync?: boolean;      // auto-detect + sync the vault at startup
+  obsidianExcludeFolders?: string; // comma-separated path prefixes to ignore (e.g. "Archive,Templates")
+  obsidianMirrorDeletions?: boolean; // flag notes removed from the vault (never deletes LifeTrack copies)
   birthTime?: string;              // "HH:MM" (local time of birth)
   birthLat?: number;               // decimal degrees, north positive
   birthLon?: number;               // decimal degrees, east positive

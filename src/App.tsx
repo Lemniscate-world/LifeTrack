@@ -64,6 +64,7 @@ import {
   getDismissedRecs,
   dismissRec,
   resetDismissedRecs,
+  getObsidianNotes,
 } from './store';
 import { computeStreakStats, computeCompletionRate, computeWeightedScore, trackingStart } from './stats';
 import { Heatmap, Sparkline } from './Heatmap';
@@ -77,6 +78,7 @@ import './App.css';
 import ChaosView from './ChaosView';
 import AchievementsView from './AchievementsView';
 import PrinciplesView from './PrinciplesView';
+import EmotionalProcessingView from './EmotionalProcessingView';
 import MantraView from './MantraView';
 import SettingsView from './SettingsView';
 import TodayView from './TodayView';
@@ -90,6 +92,7 @@ import ProjectsView from './ProjectsView';
 import KnowledgeView from './KnowledgeView';
 import ObsidianView from './ObsidianView';
 import MissionsView from './MissionsView';
+import { syncVault } from './vaultSync';
 import CorrelationsView from './CorrelationsView';
 import GainsView from './GainsView';
 import { playCompletionSound, playLevelUpSound } from './audio';
@@ -545,7 +548,7 @@ const DEFAULT_CATEGORIES = [
       // Tab switching: Ctrl+1..9 + Ctrl+0
       if (ctrl && e.key >= '0' && e.key <= '9') {
         e.preventDefault();
-        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'principles', 'mantras', 'experiments', 'journal', 'achievements', 'urges', 'psycho', 'projects', 'knowledge', 'obsidian', 'missions'];
+        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'principles', 'emotions', 'mantras', 'experiments', 'journal', 'achievements', 'urges', 'psycho', 'projects', 'knowledge', 'obsidian', 'missions'];
         const idx = e.key === '0' ? 0 : parseInt(e.key, 10);
         const viewKey = tabs[idx] as typeof view;
         if (viewKey) setView(viewKey);
@@ -679,6 +682,35 @@ const DEFAULT_CATEGORIES = [
     return () => {
       cancelled = true;
       if (timer) clearInterval(timer);
+    };
+  }, []);
+
+  // --- Zero-touch Obsidian vault sync (READ-ONLY, v0.7.0) ---
+  // Runs app-wide (not only when the Obsidian view is open): once at startup,
+  // then every 10 minutes. Never writes to the vault; only LifeTrack's local
+  // store receives copies of new/changed notes.
+  useEffect(() => {
+    if (import.meta.env?.MODE === 'test') return;
+    let cancelled = false;
+    const sync = async () => {
+      try {
+        const prefs = getPreferences();
+        if (!prefs.obsidianAutoSync || !prefs.obsidianVaultPath) return;
+        await syncVault(prefs.obsidianVaultPath, getObsidianNotes(), {
+          exclude: prefs.obsidianExcludeFolders,
+          mirrorDeletions: prefs.obsidianMirrorDeletions === true,
+        });
+      } catch {
+        // Best-effort: a failed vault read must never break the app.
+      }
+    };
+    const startup = setTimeout(sync, 5000);
+    const interval = setInterval(sync, 10 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      clearTimeout(startup);
+      clearInterval(interval);
+      void cancelled;
     };
   }, []);
 
@@ -1304,7 +1336,7 @@ const DEFAULT_CATEGORIES = [
           {todayDirective && (
             <div className="today-directive" style={{ margin: '0 auto 12px', maxWidth: 900 }}>
               <span className="td-icon">{todayDirective.icon}</span>
-              <span className="td-text"><strong>Action du jour :</strong> {todayDirective.text}</span>
+          <span className="td-text"><strong>Action du jour :</strong> {todayDirective!.text}</span>
             </div>
           )}
           <TodayView
@@ -2166,6 +2198,8 @@ const DEFAULT_CATEGORIES = [
         <GainsView />
       ) : view === 'principles' ? (
         <PrinciplesView />
+      ) : view === 'emotions' ? (
+        <EmotionalProcessingView />
       ) : (
         <ChaosView />
       )}
@@ -2689,12 +2723,12 @@ function InsightsView({
   onLink,
   onView,
   deepInsights,
-  todayDirective: todayDirectiveProp,
+  todayDirective,
 }: {
   habits: Habit[];
   checkIns: CheckIn[];
   onLink: (childId: string, parentId: string | null) => void;
-  onView: (_v: 'grid' | 'stats' | 'correlations' | 'history' | 'stacks' | 'chaos' | 'insights' | 'mantras' | 'settings' | 'today' | 'year' | 'challenge' | 'experiments' | 'skills' | 'urges' | 'journal' | 'knowledge') => void;
+  onView: (_v: 'grid' | 'stats' | 'correlations' | 'history' | 'stacks' | 'chaos' | 'insights' | 'mantras' | 'settings' | 'today' | 'year' | 'challenge' | 'experiments' | 'skills' | 'urges' | 'journal' | 'knowledge' | 'principles' | 'emotions') => void;
   todayDirective: { icon: string; text: string } | null;
   deepInsights: DeepInsight[];
 }) {
@@ -3082,14 +3116,16 @@ function EightWeekHeatmap({ checkIns }: { checkIns: CheckIn[] }) {
   }, [checkIns, deepInsights]);
 
 
+      {weeklyReview}
+
   // --- Deep analysis cards (data hoisted from App so Grid can circle plan days) ---
   const deepSection = deepInsights.length > 0 && (
     <div className="deep-section">
       <h3 className="deep-section-title">🔬 Analyse en profondeur</h3>
-      {todayDirectiveProp && (
+      {todayDirective && (
         <div className="today-directive">
-          <span className="td-icon">{todayDirectiveProp.icon}</span>
-          <span className="td-text"><strong>Action du jour :</strong> {todayDirectiveProp.text}</span>
+          <span className="td-icon">{todayDirective.icon}</span>
+          <span className="td-text"><strong>Action du jour :</strong> {todayDirective.text}</span>
         </div>
       )}
       {weeklyReview}

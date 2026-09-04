@@ -4,9 +4,10 @@
 // mentions of the user's habits ([[Gym]]), and a rough sentiment score.
 // The signals feed the AI context (aiContext) and give LifeTrack more insight.
 
-import { useState, useEffect, useMemo } from 'react';
-import { getObsidianNotes, importObsidianNotes, removeObsidianNote, clearObsidianNotes, getHabits, subscribe } from './store';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { getObsidianNotes, importObsidianNotes, removeObsidianNote, clearObsidianNotes, getHabits, getPreferences, updatePreferences, subscribe } from './store';
 import { analyzeNotes } from './obsidian';
+import { detectVaults, syncVault, pickVaultFolder, type DetectedVault } from './vaultSync';
 import type { ThemeValence } from './obsidian';
 import type { ObsidianNote } from './types';
 
@@ -32,6 +33,49 @@ export default function ObsidianView() {
   const [pasteText, setPasteText] = useState('');
   const [pasteFileName, setPasteFileName] = useState('');
   const [flash, setFlash] = useState('');
+
+  // --- Automatic vault detection & sync (READ-ONLY) ---
+  const [vaults, setVaults] = useState<DetectedVault[]>([]);
+  const [vaultMsg, setVaultMsg] = useState('');
+  const prefs = getPreferences();
+  const vaultPath = prefs.obsidianVaultPath ?? '';
+  const autoSync = prefs.obsidianAutoSync === true;
+
+  const doSync = useCallback(async (path: string, stored: ObsidianNote[], announce: boolean) => {
+    const p = getPreferences();
+    const res = await syncVault(path, stored, {
+      exclude: p.obsidianExcludeFolders,
+      mirrorDeletions: p.obsidianMirrorDeletions === true,
+    });
+    if (announce && res.skipped) setVaultMsg('Synchronisation dispo uniquement dans l\'app desktop.');
+    else if (announce && res.error) setVaultMsg(`⚠️ ${res.error}`);
+    else if (announce && res.added + res.updated === 0) setVaultMsg('Coffre déjà à jour ✅');
+    else if (res.added + res.updated > 0 || res.missing > 0) {
+      const parts = [`${res.added} ajoutée(s)`, `${res.updated} mise(s) à jour`];
+      if (res.missing > 0) parts.push(`${res.missing} marquée(s) absente(s) du coffre`);
+      setVaultMsg(`${parts.join(', ')} (lecture seule) ✅`);
+      setTick((t) => t + 1);
+    }
+  }, []);
+
+  // On mount: detect vaults (startup sync itself lives app-wide in App.tsx).
+  useEffect(() => {
+    let alive = true;
+    detectVaults().then((v) => { if (alive) setVaults(v); }).catch(() => { /* browser dev */ });
+    return () => { alive = false; };
+  }, []);
+
+  const onSelectVault = (path: string) => {
+    updatePreferences({ obsidianVaultPath: path });
+    setVaultMsg(path ? `Coffre sélectionné : ${path} (lecture seule, jamais modifié)` : '');
+  };
+
+  const onBrowseVault = async () => {
+    const picked = await pickVaultFolder();
+    if (picked) onSelectVault(picked);
+  };
+
+  const onSyncNow = () => { void doSync(vaultPath, notes, true); };
 
   const onFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -73,6 +117,59 @@ export default function ObsidianView() {
         (fatigue, stress, victoires…), les mentions de tes habitudes via les liens <code>[[Nom]]</code>,
         et un ressenti global. Ces signaux alimentent les insights de l'IA.
       </p>
+
+      <div className="lever-card" style={{ marginBottom: '1rem' }}>
+        <div className="lever-card-main">
+          <span className="lever-content">🔍 Coffre Obsidian — détection automatique</span>
+          <span className="lever-effect">
+            🔒 <strong>Lecture seule garantie</strong> : LifeTrack ne crée, ne modifie et ne supprime
+            jamais aucun fichier dans ton coffre. Une copie est stockée localement dans LifeTrack.
+          </span>
+        </div>
+        <div className="lever-actions" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.5rem' }}>
+          <select
+            className="settings-select"
+            value={vaultPath}
+            onChange={(e) => onSelectVault(e.target.value)}
+            style={{ minWidth: '260px' }}
+          >
+            <option value="">{vaults.length === 0 ? 'Aucun coffre détecté' : '— Choisir un coffre —'}</option>
+            {vaults.map((v) => <option key={v.path} value={v.path}>{v.path}</option>)}
+          </select>
+          <button className="btn btn-sm btn-ghost" onClick={() => { detectVaults().then(setVaults).catch(() => setVaultMsg('Détection dispo uniquement dans l\'app desktop.')); }}>
+            🔄 Détecter
+          </button>
+          <button className="btn btn-sm btn-ghost" onClick={() => { void onBrowseVault(); }}>📂 Parcourir…</button>
+          <button className="btn btn-sm btn-ghost" disabled={!vaultPath} onClick={onSyncNow}>⬇️ Synchroniser maintenant</button>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={autoSync}
+              onChange={(e) => updatePreferences({ obsidianAutoSync: e.target.checked })}
+            />
+            Sync auto (lancement + toutes les 10 min)
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }} title="Marque les notes disparues du coffre — sans jamais les supprimer de LifeTrack">
+            <input
+              type="checkbox"
+              checked={prefs.obsidianMirrorDeletions === true}
+              onChange={(e) => updatePreferences({ obsidianMirrorDeletions: e.target.checked })}
+            />
+            🪞 Miroir des suppressions
+          </label>
+        </div>
+        <div style={{ marginTop: '0.5rem' }}>
+          <input
+            className="text-input"
+            placeholder="Dossiers ignorés, séparés par des virgules (ex : Archive, Templates, Brouillons)"
+            value={prefs.obsidianExcludeFolders ?? ''}
+            onChange={(e) => updatePreferences({ obsidianExcludeFolders: e.target.value })}
+            style={{ width: '100%' }}
+          />
+        </div>
+        {vaultPath && <span className="lever-effect" style={{ display: 'block', marginTop: '0.4rem' }}>📁 {vaultPath}</span>}
+        {vaultMsg && <span className="lever-effect" style={{ display: 'block', marginTop: '0.3rem', color: 'var(--primary)' }}>{vaultMsg}</span>}
+      </div>
 
       <div className="feed-actions" style={{ marginBottom: '1rem' }}>
         <label className="btn btn-primary" style={{ cursor: 'pointer', display: 'inline-block' }}>
@@ -192,7 +289,12 @@ export default function ObsidianView() {
             {analysis.notes.map((n) => (
               <div key={n.fileName} className="lever-card">
                 <div className="lever-card-main">
-                  <span className="lever-content" style={{ fontWeight: 600 }}>{n.fileName}</span>
+                  <span className="lever-content" style={{ fontWeight: 600 }}>
+                    {n.fileName}
+                    {notes.find((x) => x.fileName === n.fileName)?.vaultMissing && (
+                      <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', color: '#f59e0b' }}>🗑️ supprimée du coffre</span>
+                    )}
+                  </span>
                   <span className="lever-effect">
                     {n.themes.length === 0 ? 'aucun thème' : n.themes.slice(0, 4).map((t) => `${t.emoji} ${t.label}`).join(' · ')}
                     {n.mentions.length > 0 && ` · ${n.mentions.map((m) => `[[${m.habitName}]]`).join(' ')}`}

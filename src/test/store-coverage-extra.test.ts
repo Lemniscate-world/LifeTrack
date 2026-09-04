@@ -39,7 +39,7 @@ describe('resetChaos', () => {
     addHabit('Test');
     expect(() => resetChaos()).not.toThrow();
     const dims = getChaosDimensions();
-    expect(dims.length).toBe(7);
+    expect(dims.length).toBe(8);
   });
 });
 
@@ -54,7 +54,7 @@ describe('mergeChaosDimensions — backward compatibility', () => {
       { id: 'spiritual', name: 'Spiritual', triggers: [] },
     ];
     const merged = mergeChaosDimensions(oldData);
-    expect(merged).toHaveLength(7);
+    expect(merged).toHaveLength(8);
     expect(merged.map((d) => d.id)).toContain('emotional');
     expect(merged.map((d) => d.id)).toContain('energy');
   });
@@ -71,7 +71,7 @@ describe('mergeChaosDimensions — backward compatibility', () => {
 
   it('returns full defaults when stored is empty', () => {
     const merged = mergeChaosDimensions([]);
-    expect(merged).toHaveLength(7);
+    expect(merged).toHaveLength(8);
     expect(merged.every((d) => d.triggers.length === 0)).toBe(true);
   });
 });
@@ -99,7 +99,7 @@ describe('mergeImportedData — adds newer chaos dimensions', () => {
     expect(result.chaosDimensionsRestored).toBe(0);
     const dims = getChaosDimensions();
     expect(dims.map((d) => d.id)).toContain('energy');
-    expect(dims).toHaveLength(7);
+    expect(dims).toHaveLength(8);
   });
 });
 
