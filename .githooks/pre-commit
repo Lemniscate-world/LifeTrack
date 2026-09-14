@@ -1,6 +1,9 @@
 #!/bin/bash
-# Pre-commit hook — blocks commits containing protected files (R101)
+# Pre-commit hook — blocks commits publishing protected files (R101)
 # Install: git config core.hooksPath .githooks
+# Les suppressions (diff-filter exclut D) restent autorisees : detracker un
+# fichier protege est le chemin de conformite R76, pas une fuite (le blob
+# reste de toute facon dans l'historique).
 
 PROTECTED_FILES=(
   "SESSION_SUMMARY.md"
@@ -15,21 +18,22 @@ PROTECTED_FILES=(
   ".env"
 )
 
+STAGED_PUBLISHED=$(git diff --cached --name-only --diff-filter=ACMR)
 for file in "${PROTECTED_FILES[@]}"; do
-  if git diff --cached --name-only | grep -q "^$file$"; then
+  if echo "$STAGED_PUBLISHED" | grep -q "^$file$"; then
     echo "BLOCKED: $file is a protected file (R101). Remove it from the commit."
     exit 1
   fi
 done
 
 # Also block .env.* patterns
-if git diff --cached --name-only | grep -qE '\.env\.'; then
+if echo "$STAGED_PUBLISHED" | grep -qE '\.env\.'; then
   echo "BLOCKED: .env.* files are protected (R10). Remove them from the commit."
   exit 1
 fi
 
 # Block *.key and *.pem
-if git diff --cached --name-only | grep -qE '\.(key|pem)$'; then
+if echo "$STAGED_PUBLISHED" | grep -qE '\.(key|pem)$'; then
   echo "BLOCKED: Key/pem files are protected (R10). Remove them from the commit."
   exit 1
 fi
