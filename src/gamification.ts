@@ -8,9 +8,11 @@
 // and no double-bookkeeping is possible.
 
 import type { Capacity, CapacityRating, Challenge, CheckIn, Habit, Lever, Note, Persona, Skill, UrgeEntry } from './types';
+import { isPartialCheckIn } from './types';
 import { moodRank } from './correlations';
 import { detectNegativePatterns } from './psychoanalysis';
 import { toDateKey, fromDateKey, daysBetween } from './dates';
+import { weeklyBoss } from './boss';
 
 // Reference date for calendar-day offsets (avoids DST 23h/25h day bugs).
 const DAY_ZERO = new Date(2020, 0, 1);
@@ -184,6 +186,68 @@ export interface MedalContext {
   personas?: Persona[];
   journalCount?: number;
   now?: Date;
+  /** Emotional closure phrases written ("qu'est-ce que ça m'a appris ?"). */
+  emotionalClosures?: number;
+}
+
+// --- Combos & resilience (the fun layer on top of XP) ---
+
+/**
+ * Combo days: consecutive days with ≥1 completed check-in, ending today —
+ * or yesterday if today is not checked yet (the combo is still alive).
+ * This is the number the 🔥 badge shows. Pure.
+ */
+export function comboDays(habits: Habit[], checkIns: CheckIn[], now: Date = new Date()): number {
+  const activeIds = new Set(habits.filter((h) => !h.archived).map((h) => h.id));
+  if (activeIds.size === 0) return 0;
+  const doneDays = new Set<string>();
+  for (const c of checkIns) {
+    if (c.completed && activeIds.has(c.habitId)) doneDays.add(c.date);
+  }
+  let combo = 0;
+  const cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (!doneDays.has(toDateKey(cursor))) cursor.setDate(cursor.getDate() - 1);
+  while (doneDays.has(toDateKey(cursor))) {
+    combo++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return combo;
+}
+
+/** Score multiplier from the combo (goal-gradient fuel: streaks pay more). */
+export function comboMultiplier(combo: number): 1 | 2 | 3 {
+  if (combo >= 7) return 3;
+  if (combo >= 3) return 2;
+  return 1;
+}
+
+/** Today's XP (check-ins + goal days) with the combo multiplier applied. */
+export function xpTodayWithCombo(
+  habits: Habit[],
+  checkIns: CheckIn[],
+  now: Date = new Date(),
+): { base: number; mult: 1 | 2 | 3; combo: number; total: number } {
+  const key = toDateKey(now);
+  const base = xpInRange(habits, checkIns, key, key);
+  const combo = comboDays(habits, checkIns, now);
+  const mult = comboMultiplier(combo);
+  return { base, mult, combo, total: base * mult };
+}
+
+/**
+ * Resilience shields: distinct days with a PARTIAL ("doux") validation in
+ * the window. Bad days survived on purpose — the anti-what-the-hell score.
+ */
+export function resilienceShields(checkIns: CheckIn[], windowDays = 30, now: Date = new Date()): number {
+  const from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (windowDays - 1));
+  const fromKey = toDateKey(from);
+  const toKey = toDateKey(now);
+  const days = new Set<string>();
+  for (const c of checkIns) {
+    if (c.date < fromKey || c.date > toKey) continue;
+    if (isPartialCheckIn(c)) days.add(c.date);
+  }
+  return days.size;
 }
 
 /** Number of days (0..365) that had at least one completed check-in. */
@@ -344,6 +408,23 @@ export function computeMedals(
   const masters = habitMastersCount(habits, checkIns);
   const perfectDay = hasPerfectDay(habits, checkIns);
 
+  // --- Resilience & boss metrics (new fun layer) ---
+  const shields30 = resilienceShields(checkIns, 30, now);
+  const ifThenCount = habits.filter((h) => !h.archived).reduce((s, h) => s + (h.ifThen?.length ?? 0), 0);
+  const closureCount = ctx.emotionalClosures ?? 0;
+  // Phoenix: came back (≥1 check in the last 7d) after a ≥7d hole.
+  const weekAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+  const weekAgoKey = toDateKey(weekAgo);
+  const todayKey = toDateKey(now);
+  const phoenix = habits.some((h) => {
+    if (h.archived || (h.longestGap ?? 0) < 7) return false;
+    return checkIns.some((c) => c.habitId === h.id && c.completed && c.date >= weekAgoKey && c.date <= todayKey);
+  });
+  // Last week's boss, judged final (as of last Sunday).
+  const daysSinceMonday = (now.getDay() + 6) % 7;
+  const lastSunday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (daysSinceMonday + 1));
+  const lastBossSlain = weeklyBoss(habits, checkIns, lastSunday).slain;
+
   // Helper to build a tiered "ladder" of medals from a set of thresholds.
   const pct = (got: number, need: number, inverted = false): number => {
     if (need <= 0) return 0;
@@ -437,9 +518,17 @@ export function computeMedals(
     // ---- Milestones from real events (earnedAt) ----
     { id: 'first-steps', name: 'First Steps', emoji: '🚀', description: 'Complete your first check-in', earned: totalCheckIns >= 1, earnedAt: earliestCheckIn, category: 'Milestones' },
     { id: 'first-win', name: 'First Win', emoji: '🏅', description: 'Tag your first achievement', earned: achievementNotes >= 1, earnedAt: earliestAchievement, category: 'Milestones' },
-    { id: 'first-challenge', name: 'First Challenge', emoji: '🎯', description: 'Complete your first challenge', earned: completedChallenges >= 1, earnedAt: earliestChallenge, category: 'Milestones' },
+    { id: 'first-challenge', name: 'First Challenge', emoji: '🎯', description: 'Complete your first challenge', earned: completedChallenges >= 1, progress: pct(completedChallenges, 1), category: 'Mastery' },
     { id: 'first-surf', name: 'First Surf', emoji: '🏄', description: 'Surf your first urge', earned: surfed >= 1, earnedAt: earliestSurf, category: 'Milestones' },
     { id: 'challenge-5', name: '5 Challenges', emoji: '🎖️', description: 'Complete 5 challenges', tier: 0, earned: completedChallenges >= 5, progress: pct(completedChallenges, 5), category: 'Mastery' },
+
+    // ---- Resilience: surviving bad days on purpose ----
+    { id: 'phoenix', name: 'Phénix', emoji: '🔥🐦', description: 'Reprendre après un trou de 7+ jours', tier: 0, earned: phoenix, progress: phoenix ? 100 : 50, category: 'Résilience' },
+    { id: 'doux-3', name: '3 jours doux', emoji: '🌗', description: '3 validations douces sur 30 jours — le streak survit', tier: 0, earned: shields30 >= 3, progress: pct(shields30, 3), category: 'Résilience' },
+    { id: 'doux-10', name: '10 jours doux', emoji: '🌗🌗', description: '10 validations douces sur 30 jours', tier: 1, earned: shields30 >= 10, progress: pct(shields30, 10), category: 'Résilience' },
+    { id: 'boss-slay', name: 'Tueur de boss', emoji: '⚔️', description: 'Blesser à mort le boss de la semaine dernière', tier: 0, earned: lastBossSlain, progress: lastBossSlain ? 100 : 50, category: 'Résilience' },
+    { id: 'ifthen-3', name: 'Stratège si-alors', emoji: '🧭', description: 'Écrire 3 plans si-alors (ils tirent 2× plus)', tier: 0, earned: ifThenCount >= 3, progress: pct(ifThenCount, 3), category: 'Résilience' },
+    { id: 'closure-1', name: 'Faiseur de sens', emoji: '🕊️', description: 'Clore un épisode avec une phrase de sens', tier: 0, earned: closureCount >= 1, progress: pct(closureCount, 1), category: 'Résilience' },
   ];
 
   return defs;

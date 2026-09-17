@@ -28,9 +28,9 @@ describe('App component', () => {
     const user = userEvent.setup();
     render(<App />);
     // Need a habit for the grid to render instead of empty state
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Test');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Test');
+    await user.click(screen.getByText('Ajouter'));
 
     // First day should be "1" and a letter
     expect(screen.getByText('1')).toBeInTheDocument();
@@ -44,15 +44,15 @@ describe('App component', () => {
     render(<App />);
 
     // Click "+ New Habit"
-    const addButton = screen.getByText('+ New Habit');
+    const addButton = screen.getByText('+ Nouvelle habitude');
     await user.click(addButton);
 
     // Type habit name
-    const input = screen.getByPlaceholderText('Habit name...');
+    const input = screen.getByPlaceholderText("Nom de l'habitude...");
     await user.type(input, 'Exercise');
 
     // Click Add
-    const confirmButton = screen.getByText('Add');
+    const confirmButton = screen.getByText('Ajouter');
     await user.click(confirmButton);
 
     // Habit should appear in the grid
@@ -64,9 +64,9 @@ describe('App component', () => {
     render(<App />);
 
     // Add a habit first
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Read');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Read');
+    await user.click(screen.getByText('Ajouter'));
 
     // Find the first day cell td and click it
     const allTds = document.querySelectorAll('td.col-day');
@@ -147,9 +147,9 @@ describe('App component', () => {
     render(<App />);
 
     // Add a habit
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Gym');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Gym');
+    await user.click(screen.getByText('Ajouter'));
 
     // Find the goal cell - it should show the goal number
     const goalElement = document.querySelector('.goal-number');
@@ -181,9 +181,9 @@ describe('App component', () => {
     render(<App />);
 
     // Add a habit
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Gym');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Gym');
+    await user.click(screen.getByText('Ajouter'));
 
     // Toggle today's cell
     const allTds = document.querySelectorAll('td.col-day');
@@ -207,9 +207,9 @@ describe('App component', () => {
     render(<App />);
 
     // Add a habit so grid has content
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Test');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Test');
+    await user.click(screen.getByText('Ajouter'));
 
     await user.click(screen.getByText('Statistics'));
     await user.click(screen.getByText('Grid'));
@@ -222,9 +222,9 @@ describe('App component', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Gym');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Gym');
+    await user.click(screen.getByText('Ajouter'));
 
     // Compact off by default
     expect(getPreferences().compactGrid).toBeUndefined();
@@ -247,9 +247,9 @@ describe('App component', () => {
     render(<App />);
 
     for (let i = 0; i < 3; i++) {
-      await user.click(screen.getByText('+ New Habit'));
-      await user.type(screen.getByPlaceholderText('Habit name...'), `Habit ${i}`);
-      await user.click(screen.getByText('Add'));
+      await user.click(screen.getByText('+ Nouvelle habitude'));
+      await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), `Habit ${i}`);
+      await user.click(screen.getByText('Ajouter'));
     }
 
     expect(document.querySelector('.table-scroll.compact-grid')).not.toBeNull();
@@ -260,36 +260,36 @@ describe('App component', () => {
     updatePreferences({ compactGrid: true, compactLevel: 2 });
     render(<App />);
 
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Gym');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Gym');
+    await user.click(screen.getByText('Ajouter'));
 
     expect(document.querySelector('.table-scroll.compact-grid.compact-density-2')).not.toBeNull();
   });
 
   it('shows empty state when no habits exist', () => {
     render(<App />);
-    expect(screen.getByText('No habits yet')).toBeInTheDocument();
+    expect(screen.getByText('Aucune habitude')).toBeInTheDocument();
   });
 
   it('hides empty state after adding a habit', async () => {
     const user = userEvent.setup();
     render(<App />);
-    expect(screen.getByText('No habits yet')).toBeInTheDocument();
+    expect(screen.getByText('Aucune habitude')).toBeInTheDocument();
 
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Gym');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Gym');
+    await user.click(screen.getByText('Ajouter'));
 
-    expect(screen.queryByText('No habits yet')).not.toBeInTheDocument();
+    expect(screen.queryByText('Aucune habitude')).not.toBeInTheDocument();
   });
 
   it('renames a habit by clicking the name', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Old');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Old');
+    await user.click(screen.getByText('Ajouter'));
 
     // Click the habit name to edit
     await user.click(screen.getByText('Old'));
@@ -306,9 +306,9 @@ describe('App component', () => {
   it('archives a habit on hover and click', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Remove');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Remove');
+    await user.click(screen.getByText('Ajouter'));
 
     // Archive button appears on hover; click it
     const archiveBtn = document.querySelector('.habit-archive') as HTMLElement;
@@ -322,9 +322,9 @@ describe('App component', () => {
   it('edits goal by clicking the goal number', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Gym');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Gym');
+    await user.click(screen.getByText('Ajouter'));
 
     const goalEl = document.querySelector('.goal-number') as HTMLElement;
     expect(goalEl).not.toBeNull();
@@ -345,9 +345,9 @@ describe('App component', () => {
   it('exports JSON via dropdown', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'ExportTest');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'ExportTest');
+    await user.click(screen.getByText('Ajouter'));
 
     // Open export dropdown
     const exportBtns = document.querySelectorAll('.btn-icon');
@@ -397,12 +397,12 @@ describe('App component', () => {
     render(<App />);
 
     // Two habits so row index and day-column index cannot coincidentally match
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'First');
-    await user.click(screen.getByText('Add'));
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Second');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'First');
+    await user.click(screen.getByText('Ajouter'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Second');
+    await user.click(screen.getByText('Ajouter'));
 
     // ArrowDown moves focus to the second habit row (day stays on day 1)
     await user.keyboard('{ArrowDown}');
@@ -417,9 +417,9 @@ describe('App component', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Read');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Read');
+    await user.click(screen.getByText('Ajouter'));
 
     await user.keyboard(' ');
     expect(document.querySelectorAll('.check-icon')).toHaveLength(1);
@@ -435,9 +435,9 @@ describe('App component', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Read');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Read');
+    await user.click(screen.getByText('Ajouter'));
 
     // Energy label is present
     expect(screen.getByText('Énergie')).toBeInTheDocument();

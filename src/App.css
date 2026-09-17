@@ -148,6 +148,79 @@
   --bg-alt: #134e4a;
 }
 
+/* Theme: Graphes — chart-forward redesign (opt-in, fully reversible).
+   Airy paper background, cobalt data color, generous radii: the UI leads
+   with curves instead of cells. Same tokens, same components underneath —
+   switching back to Default restores the original look pixel-for-pixel. */
+.theme-graph {
+  --primary: #2f6bff;
+  --primary-light: #7ea2ff;
+  --primary-dark: #1e40af;
+  --accent: #2f6bff;
+  --accent-light: #b9ccff;
+  --bg: #f5f6fa;
+  --bg-alt: #eceef5;
+  --surface: #ffffff;
+  --text: #1e2433;
+  --text-secondary: #5b6478;
+  --text-muted: #9aa3b5;
+  --border: #e2e6f0;
+  --radius: 14px;
+  --shadow-sm: 0 1px 2px rgba(30, 36, 51, 0.06);
+  --shadow-md: 0 8px 24px rgba(30, 36, 51, 0.10);
+  --chart-grid: #e2e6f0;
+  --chart-fill: rgba(47, 107, 255, 0.14);
+  --chart-line: #2f6bff;
+}
+
+.dark.theme-graph {
+  --primary: #7ea2ff;
+  --primary-light: #a9c2ff;
+  --primary-dark: #b9ccff;
+  --accent: #7ea2ff;
+  --accent-light: #2f6bff;
+  --bg: #12141c;
+  --bg-alt: #1a1e29;
+  --surface: #1a1e29;
+  --text: #e8eaf2;
+  --text-secondary: #a7aec2;
+  --text-muted: #6d7590;
+  --border: #262c3d;
+  --chart-grid: #262c3d;
+  --chart-fill: rgba(126, 162, 255, 0.16);
+  --chart-line: #7ea2ff;
+}
+
+/* Chart primitives (theme-neutral; graph theme refines via tokens). */
+.chart-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.chart-card-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.chart-bar { fill: color-mix(in srgb, var(--primary) 55%, transparent); }
+.chart-bar.is-full { fill: var(--primary); }
+.chart-bar.is-today { stroke: var(--primary); stroke-width: 1.5; }
+.chart-tick { font-size: 8px; fill: var(--text-muted); font-family: var(--font); }
+.chart-grid { stroke: var(--chart-grid, var(--border)); stroke-width: 1; }
+.chart-area { fill: var(--chart-fill, color-mix(in srgb, var(--primary) 14%, transparent)); }
+.chart-line { stroke: var(--chart-line, var(--primary)); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chart-dot { fill: var(--chart-line, var(--primary)); stroke: var(--bg); stroke-width: 1.5; }
+.theme-graph .chart-card { box-shadow: var(--shadow-sm); }
+.theme-graph .today-progress-card,
+.theme-graph .deep-card,
+.theme-graph .insight-card,
+.theme-graph .chaos-card,
+.theme-graph .boss-section {
+  border-radius: 14px;
+}
+
 /* Theme: Noir & Blanc — striking editorial monochrome (light) */
 .theme-bw {
   --bg: #ffffff;
@@ -458,6 +531,23 @@ body {
 .view-tabs {
   display: flex;
   gap: 2px;
+  /* 25 tabs overflow any window: scroll instead of pushing tabs off-screen
+     where they become unreachable ("dans le coin", unclickable). Edge fades
+     hint that more tabs live beyond the visible edge — only on the side(s)
+     where content actually overflows (classes set from scroll position). */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  max-width: 100%;
+}
+.view-tabs.can-scroll-left {
+  mask-image: linear-gradient(to right, transparent 0, black 24px);
+}
+.view-tabs.can-scroll-right {
+  mask-image: linear-gradient(to right, black calc(100% - 24px), transparent 100%);
+}
+.view-tabs.can-scroll-left.can-scroll-right {
+  mask-image: linear-gradient(to right, transparent 0, black 24px, black calc(100% - 24px), transparent 100%);
 }
 
 .view-tab {
@@ -472,6 +562,8 @@ body {
   border-radius: 6px;
   transition: all 0.15s ease;
   position: relative;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .view-tab:hover {
@@ -1751,10 +1843,9 @@ body {
   color: var(--text);
   cursor: pointer;
   font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 120px;
+  white-space: normal;      /* nom complet : le texte passe à la ligne */
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .habit-name:hover {
@@ -3921,6 +4012,362 @@ body {
   background: var(--bg-alt);
 }
 
+/* ============ SUB-HABITS ("sous-coches", validation douce) ============ */
+.habit-subs-expand {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
+  padding: 0 2px 0 0;
+}
+
+.habit-subs-expand:hover {
+  color: var(--text);
+}
+
+.habit-subs-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.1s;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-secondary);
+}
+
+.habit-grid tbody tr:hover .habit-subs-btn {
+  opacity: 0.7;
+}
+
+.habit-subs-btn.has-subs {
+  opacity: 0.85;
+}
+
+.habit-subs-btn:hover {
+  opacity: 1 !important;
+  background: var(--bg-alt);
+}
+
+.habit-subs-edit {
+  padding: 8px 10px 10px 10px;
+  margin: 4px 0 0 0;
+  background: var(--bg-alt);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.sub-habit-row .sub-habit-cell {
+  padding-left: 26px;
+}
+
+.sub-habit-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  max-width: 220px;
+}
+
+.col-day.sub-day {
+  cursor: pointer;
+}
+
+.day-cell.sub-cell {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px dashed var(--border);
+}
+
+.day-cell.sub-cell.checked {
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  border-style: solid;
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* Validation douce (partiel) : même coche, anneau pointillé au lieu du plein */
+.day-cell.checked.partial {
+  border: 1.5px dashed currentColor;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+/* ============ INSIGHTS : À RETENIR + REPLIABLE ============ */
+.deep-takeaways-title {
+  font-size: 13px;
+  margin: 12px 0 8px 0;
+}
+.deep-fold {
+  margin-top: 10px;
+}
+.deep-fold-summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  padding: 6px 0;
+}
+
+/* ============ BOSS HEBDO + COMBO + RÉSILIENCE ============ */
+.boss-section {
+  padding: 4px 2px 8px 2px;
+}
+.boss-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 0 8px 0;
+}
+.boss-hpbar {
+  height: 14px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.boss-hpfill {
+  height: 100%;
+  background: color-mix(in srgb, #ef4444 75%, var(--primary));
+  border-radius: 6px;
+}
+.boss-hpfill.slain {
+  background: color-mix(in srgb, #10b981 80%, var(--primary));
+}
+.boss-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 12px;
+  margin-top: 8px;
+  color: var(--text-secondary);
+}
+.boss-combo {
+  color: var(--text);
+  font-weight: 600;
+}
+.boss-shields {
+  color: var(--text);
+}
+.compassion-dormant .compassion-title {
+  opacity: 0.9;
+}
+details.compassion-break {
+  padding: 6px 14px;
+}
+details.compassion-break > summary {
+  cursor: pointer;
+  list-style-position: inside;
+}
+details.compassion-break > summary.compassion-title {
+  display: list-item;
+  margin: 0;
+}
+
+/* ============ PSY BANNERS (compassion + mode doux) ============ */
+.grid-banner {
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.compassion-banner {
+  background: color-mix(in srgb, #10b981 8%, var(--bg));
+  border: 1px solid color-mix(in srgb, #10b981 30%, var(--border));
+}
+.discovery-banner {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: color-mix(in srgb, #10b981 8%, var(--bg));
+  border: 1px solid color-mix(in srgb, #10b981 35%, var(--border));
+}
+.storage-banner {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: color-mix(in srgb, #ef4444 10%, var(--bg));
+  border: 1px solid color-mix(in srgb, #ef4444 45%, var(--border));
+}
+.storage-banner-icon {
+  font-size: 18px;
+}
+.compassion-break + .compassion-break {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.compassion-title {
+  font-weight: 600;
+  margin: 0 0 6px 0;
+}
+.compassion-phrases {
+  margin: 0 0 6px 0;
+  padding-left: 18px;
+}
+.compassion-phrases li {
+  margin-bottom: 2px;
+}
+.compassion-cta {
+  margin: 0 0 8px 0;
+  font-style: italic;
+  color: var(--text-secondary);
+}
+.doux-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border));
+}
+.doux-banner-icon {
+  font-size: 18px;
+}
+.doux-banner-text {
+  flex: 1;
+}
+.doux-ifthen-list {
+  margin: 6px 0 0 0;
+  padding-left: 18px;
+}
+.doux-ifthen-list li {
+  margin-bottom: 2px;
+}
+.doux-ifthen-habit {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+/* Depression-day protocol inside the low-mood banner: phases to check off,
+   resume pointer, restart. */
+.doux-protocol {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.doux-protocol-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 12.5px;
+  margin-bottom: 6px;
+}
+.doux-protocol-resume {
+  color: var(--text);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  border-radius: 4px;
+  padding: 1px 8px;
+  font-size: 12px;
+}
+.doux-protocol-done {
+  color: var(--text-secondary);
+  font-style: italic;
+  font-size: 12px;
+}
+.doux-protocol-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.doux-protocol-steps li label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.doux-protocol-steps input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--primary);
+  flex-shrink: 0;
+}
+.doux-protocol-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: ui-monospace, monospace;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.doux-protocol-steps li.is-done .doux-protocol-label {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+.doux-protocol-steps li.is-next {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin: 0 -6px;
+}
+.achieved-doux {
+  font-size: 11px;
+  margin-right: 4px;
+  cursor: help;
+}
+.why-ifthen-section {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.why-ifthen-hint {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.ifthen-add-row .why-input {
+  min-width: 0;
+}
+.emotional-ai-loading {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.emotional-closure-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  margin: 8px 0;
+}
+.emotional-closure-input:focus {
+  border-color: var(--primary);
+}
+.emotional-resolve-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.emotional-closure-done {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  font-style: italic;
+  background: var(--bg-alt);
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin: 0 0 10px 0;
+}
+
 /* ============ AI DEEP ANALYSIS (Ollama) ============ */
 .ai-analyze-btn {
   font-size: 11px;
@@ -4420,6 +4867,38 @@ body {
   word-break: break-word;
 }
 
+/* Chaos frequency badge (non-daily habits count sessions, not days). */
+.chaos-habit-freq {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+/* Habit intentions visible in Chaos — the FULL "why" where the pressure
+   is felt. Never truncated: remembering why is the whole point. */
+.chaos-habit-why {
+  grid-column: 1 / -1;
+  margin: 2px 0 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.chaos-habit-why-tag {
+  display: inline-block;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 0 6px;
+  margin: 1px 4px 1px 0;
+}
+
 .chaos-history {
   background: var(--bg-alt);
   border: 1px solid var(--border);
@@ -4490,7 +4969,20 @@ body {
 }
 
 .chaos-card {
-  box-shadow: inset 3px 0 0 var(--dim-accent, transparent);
+  position: relative;
+  overflow: hidden;
+}
+/* Dimension accent rail (3px): the color IS the data (which dimension),
+   not decoration — signature component per DESIGN.md. Dedicated element
+   (not a border/box-shadow stripe) so it clips cleanly to rounded corners. */
+.chaos-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--dim-accent, transparent);
 }
 
 .chaos-principles-fold {
@@ -5668,6 +6160,15 @@ body {
 .mantra-item:hover {
   background: var(--bg-alt);
 }
+.mantra-item.just-added {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg));
+}
+.mantra-just-added {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  margin: 0 0 8px 0;
+}
 
 .mantra-item-text {
   flex: 1;
@@ -6058,8 +6559,9 @@ body {
 .settings-theme-swatch.theme-midnight { background: linear-gradient(135deg, #1e1b4b, #6366f1); }
 .settings-theme-swatch.theme-emerald { background: linear-gradient(135deg, #047857, #34d399); }
 .settings-theme-swatch.theme-bw { background: linear-gradient(135deg, #000000 50%, #ffffff 50%); border-color: #000; }
+.settings-theme-swatch.theme-graph { background: linear-gradient(135deg, #f5f6fa 55%, #2f6bff 55%); }
 
-.settings-theme-btn .settings-theme-swatch:not(.theme-ocean):not(.theme-forest):not(.theme-sunset):not(.theme-rose):not(.theme-mono):not(.theme-midnight):not(.theme-emerald):not(.theme-bw) {
+.settings-theme-btn .settings-theme-swatch:not(.theme-ocean):not(.theme-forest):not(.theme-sunset):not(.theme-rose):not(.theme-mono):not(.theme-midnight):not(.theme-emerald):not(.theme-bw):not(.theme-graph) {
   background: linear-gradient(135deg, #94a3b8, #475569);
 }
 
@@ -8906,6 +9408,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
   padding: 8px 12px;
   margin-bottom: 8px;
   background: var(--card-bg, var(--bg));
@@ -10425,7 +10929,13 @@ body {
 .emotional-layout { display: grid; grid-template-columns: 340px 1fr; gap: 16px; margin-top: 16px; }
 @media (max-width: 760px) { .emotional-layout { grid-template-columns: 1fr; } }
 .emotional-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; cursor: pointer; margin-bottom: 8px; }
+.emotional-card:hover { border-color: var(--primary); }
 .emotional-card.selected { border-color: var(--primary); box-shadow: var(--shadow-sm); }
+.emotional-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.emotional-card-chevron { color: var(--text-muted); font-size: 12px; width: 14px; flex-shrink: 0; }
+.emotional-today-dot { font-size: 13px; color: var(--text-muted); }
+.emotional-today-dot.done { color: var(--success, #16a34a); }
+.emotional-card-open { margin-top: 8px; font-size: 11.5px; color: var(--primary); font-weight: 600; }
 .emotional-card-top { display: flex; align-items: center; gap: 6px; }
 .emotional-card-top strong { flex: 1; }
 .emotional-card-situation { font-size: 12.5px; color: var(--text-secondary); margin: 6px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -10450,6 +10960,9 @@ body {
 .emotional-bar-wrap.today .emotional-bar-track { outline: 2px solid var(--primary); outline-offset: 1px; }
 .emotional-bar-track { width: 100%; height: 70px; background: var(--bg-alt); border-radius: 4px; display: flex; align-items: flex-end; }
 .emotional-bar-fill { width: 100%; background: var(--primary); border-radius: 4px; min-height: 4px; }
+.emotional-bar-wrap.projected { opacity: 0.55; }
+.emotional-bar-wrap.projected .emotional-bar-track { background: transparent; border: 1px dashed var(--border); }
+.emotional-bar-fill.projected { background: repeating-linear-gradient(45deg, var(--primary), var(--primary) 3px, transparent 3px, transparent 6px); opacity: 0.7; }
 .emotional-bar-label { font-size: 9px; color: var(--text-muted); }
 .emotional-trend { font-size: 12.5px; color: var(--text-secondary); margin-top: 6px; }
 .emotional-history { margin-top: 14px; }
@@ -10458,6 +10971,119 @@ body {
 .emotional-history-date { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--text-muted); min-width: 78px; }
 .emotional-history-intensity { font-weight: 700; min-width: 36px; }
 .emotional-history-note { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.emotional-forecast { margin-top: 14px; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.emotional-forecast h4 { font-size: 13px; margin: 0 0 8px 0; }
+.emotional-forecast-main { font-size: 14px; margin: 0 0 6px 0; }
+.emotional-forecast-range { color: var(--text-muted); font-size: 12.5px; }
+.emotional-forecast-meta { font-size: 11.5px; color: var(--text-muted); margin: 0; }
+.emotional-forecast-none, .emotional-forecast-done { font-size: 13px; margin: 0; }
+.emotional-forecast-done { color: var(--success, #16a34a); }
+.emotional-relapse { font-size: 12.5px; color: var(--warning, #b45309); background: color-mix(in srgb, var(--warning, #b45309) 10%, transparent); border-radius: 6px; padding: 6px 8px; margin: 0 0 8px 0; }
+.emotional-resolve { margin-top: 10px; background: color-mix(in srgb, var(--success, #16a34a) 8%, transparent); border: 1px solid color-mix(in srgb, var(--success, #16a34a) 35%, transparent); border-radius: 8px; padding: 10px 12px; }
+.emotional-resolve p { font-size: 13px; margin: 0 0 8px 0; }
+.emotional-helpful { margin-top: 14px; }
+.emotional-helpful h4 { font-size: 13px; margin: 0 0 4px 0; }
+.emotional-helpful-hint { font-size: 11.5px; color: var(--text-muted); margin: 0 0 6px 0; }
+.emotional-helpful ul { margin: 0; padding-left: 18px; font-size: 12.5px; }
+.emotional-helpful-drop { font-weight: 700; color: var(--success, #16a34a); }
+.emotional-helpful-date { color: var(--text-muted); font-size: 11.5px; }
+.emotional-ai { margin-top: 14px; }
+.emotional-ai h4 { font-size: 13px; margin: 0 0 4px 0; }
+.emotional-ai-hint { font-size: 11.5px; color: var(--text-muted); margin: 0 0 8px 0; }
+.emotional-ai-error { font-size: 12.5px; color: var(--warning, #b45309); }
+.emotional-ai-fill-row { display: flex; align-items: center; gap: 10px; margin: 2px 0 4px 0; }
+.emotional-ai-fill-info { font-size: 11.5px; color: var(--text-muted); }
+.emotional-ai-result { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.emotional-ai-question { font-size: 13px; font-weight: 600; margin: 0 0 6px 0; }
+.emotional-ai-reco { font-size: 12.5px; margin: 0 0 8px 0; white-space: pre-line; }
+.emotional-ai-actions { display: flex; gap: 8px; }
+.emotional-learned { margin: 14px 0 4px 0; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.emotional-learned h4 { font-size: 13px; margin: 0 0 4px 0; }
+.emotional-learned-hint { font-size: 11.5px; color: var(--text-muted); margin: 0 0 6px 0; }
+.emotional-learned ul { margin: 0; padding-left: 18px; font-size: 12.5px; }
+.emotional-learned-n { color: var(--text-muted); font-size: 11.5px; }
+.emotional-emo-slider { display: flex; gap: 8px; align-items: center; font-size: 12.5px; }
+.emotional-emo-slider input[type="range"] { flex: 1; }
+.emotional-per-emotion { margin-top: 14px; }
+.emotional-per-emotion h4 { font-size: 13px; margin: 0 0 6px 0; }
+.emotional-per-emotion ul { margin: 0; padding-left: 18px; font-size: 12.5px; }
+.emotional-temporal { margin-top: 14px; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.emotional-temporal h4 { font-size: 13px; margin: 0 0 6px 0; }
+.emotional-temporal p { font-size: 12.5px; margin: 0; }
+.emotional-export { margin-top: 14px; }
+.emotional-coping { margin-top: 14px; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.emotional-coping h4 { font-size: 13px; margin: 0 0 4px 0; }
+.emotional-coping-hint { font-size: 12px; color: var(--text-secondary); margin: 0 0 8px 0; }
+.emotional-coping ul { margin: 0; padding-left: 18px; }
+.emotional-coping li { font-size: 12.5px; margin-bottom: 8px; }
+.emotional-coping-source { font-size: 11px; color: var(--text-muted); }
+.emotional-coping-tag { display: inline-block; font-size: 10.5px; color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); border-radius: 4px; padding: 1px 6px; margin-left: 6px; }
+.emotional-focus-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+.emotional-focus-panel { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+.emotional-focus-head { display: flex; justify-content: space-between; align-items: center; }
+.emotional-focus-head h4 { font-size: 13px; margin: 0; }
+.emotional-focus-block { margin-top: 10px; }
+.emotional-focus-block h5 { font-size: 12px; margin: 0 0 6px 0; color: var(--text-secondary); }
+.emotional-focus-est { font-size: 12.5px; margin: 0; }
+.emotional-focus-notes { margin: 0; padding-left: 18px; font-size: 12.5px; }
+.emotional-focus-notes li { margin-bottom: 4px; }
+.emotional-focus-coping { margin: 0; padding-left: 18px; font-size: 12.5px; }
+.emotional-focus-coping li { margin-bottom: 6px; }
+.emotional-bars.per-emotion .emotional-bar-track { background: transparent; border: 1px dashed var(--border); }
+.emotional-bar-fill.per-emotion-fill { background: var(--accent, var(--primary)); }
+.emotional-plan-targeted { border-left: 2px solid var(--accent, var(--primary)); padding-left: 8px; }
+.note-emo-tags, .plan-emo-tags { display: flex; gap: 4px; flex-wrap: wrap; margin: 6px 0; }
+.plan-emo-tags { margin: 2px 0 6px 0; }
+.emotional-history-tags { display: inline-flex; gap: 2px; }
+.emotional-history-tags .emotional-coping-tag { margin-left: 2px; }
+.emotional-rumination-note { font-size: 12px; color: var(--text-secondary); margin: 8px 0 0 0; }
+.emotional-plans { margin-top: 14px; }
+.emotional-plans h4 { font-size: 13px; margin: 0 0 4px 0; }
+.emotional-plans-hint { font-size: 11.5px; color: var(--text-muted); margin: 0 0 8px 0; }
+.emotional-plan { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+.emotional-plan-head { display: flex; align-items: center; gap: 8px; }
+.emotional-plan-head strong { flex: 1; font-size: 13px; }
+.emotional-plan-progress { font-size: 11.5px; color: var(--text-muted); font-family: ui-monospace, Consolas, monospace; }
+.emotional-plan-source { font-size: 11.5px; color: var(--text-muted); font-style: italic; margin: 4px 0 0 0; }
+.emotional-plan-bar { height: 5px; background: var(--border); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+.emotional-plan-bar > div { height: 100%; background: var(--primary); border-radius: 3px; }
+.emotional-plan-steps { margin: 8px 0 0 0; padding: 0; list-style: none; }
+.emotional-plan-steps li { margin-bottom: 4px; }
+.emotional-plan-steps label { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; cursor: pointer; }
+.emotional-plan-step-done { text-decoration: line-through; color: var(--text-muted); }
+.emotional-note-reply { font-size: 12.5px; color: var(--text-secondary); background: color-mix(in srgb, var(--primary) 8%, var(--bg-alt)); border: 1px solid var(--border); padding: 6px 10px; margin: 4px 0 8px 0; border-radius: 6px; }
+.emotional-trend-badge { font-size: 11.5px; color: var(--text-muted); margin-left: 6px; }
+.emotional-trend-badge.up { color: var(--success, #16a34a); font-weight: 600; }
+.emotional-trend-badge.down { color: var(--warning, #b45309); font-weight: 600; }
+.emotional-compare { margin-top: 14px; }
+.emotional-compare h4 { font-size: 13px; margin: 0 0 8px 0; }
+.emotional-compare-select { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); font-size: 13px; margin-bottom: 10px; }
+.emotional-compare-table { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.emotional-compare-row { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 8px; padding: 7px 10px; font-size: 12.5px; border-bottom: 1px solid var(--border); }
+.emotional-compare-row:last-child { border-bottom: none; }
+.emotional-compare-row:nth-child(even) { background: var(--bg-alt); }
+.emotional-compare-head { font-weight: 700; background: var(--bg-alt); }
+.emotional-compare-span { grid-column: span 2; }
+.emotional-compare-verdict { font-size: 13px; margin: 0; padding: 10px; background: var(--bg-alt); }
+.chaos-habit-check {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.chaos-habit-check:hover { border-color: var(--primary); color: var(--primary); }
+.chaos-habit-check.done {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
 
 /* ============ v0.7.x - PLAN DAYS IN GRID + STACK RAILS ============ */
 /* Goal-plan days: circled in the grid so you SEE what to do today */
@@ -10634,14 +11260,18 @@ body {
   background: color-mix(in srgb, var(--primary) 7%, transparent);
 }
 
-/* Colonne des noms : serrée, tronquée proprement, jamais de wrap */
+/* Colonne des noms : nom complet toujours visible (wrap 2 lignes max).
+   La densité ne doit jamais cacher l'identité de l'habitude. */
 .col-habits .habit-row {
   flex-wrap: nowrap;
 }
 .habit-name {
-  white-space: nowrap;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .habit-category-select {
   max-width: 96px;
@@ -11338,6 +11968,63 @@ details.ach-fold[open] > .achievements-ai {
 }
 .principles-panel-add-routine {
   margin-top: 8px;
+}
+/* Playable routine steps: checkboxes, done state, resume pointer. */
+.principles-panel-steps--checkable li {
+  align-items: center;
+}
+.principles-panel-step-check {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--primary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.principles-panel-steps li.is-done .principles-panel-step-label {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+.principles-panel-steps li.is-done .principles-panel-step-num {
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.principles-panel-routine-progress {
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+.principles-panel-next {
+  font-size: 12px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  border-radius: 6px;
+  padding: 5px 9px;
+  margin: 7px 0 0 0;
+}
+.principles-panel-step-edit {
+  padding: 0 4px;
+  font-size: 11px;
+  opacity: 0;
+}
+.principles-panel-steps li:hover .principles-panel-step-edit {
+  opacity: 0.7;
+}
+.principles-panel-step-rename {
+  display: inline-flex;
+  gap: 4px;
+  flex: 1;
+}
+.principles-panel-step-rename input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 12.5px;
+  background: var(--bg);
+  color: var(--text);
 }
 .principles-panel-form {
   background: var(--bg);

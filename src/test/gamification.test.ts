@@ -14,6 +14,10 @@ import {
   computeMedals,
   xpInRange,
   compareLastWeeks,
+  comboDays,
+  comboMultiplier,
+  xpTodayWithCombo,
+  resilienceShields,
   personaProgress,
   suggestPersonas,
 } from '../gamification';
@@ -291,5 +295,70 @@ describe('suggestPersonas', () => {
     expect(suggestions.some((s) => s.name.includes('Observateur'))).toBe(true);
     expect(suggestions.some((s) => s.name.includes('Surfeur'))).toBe(true);
     expect(suggestions.some((s) => s.name.includes('Ingénieur'))).toBe(true);
+  });
+});
+
+describe('combo & resilience (fun layer)', () => {
+  const NOW = new Date(LARGE_YEAR, 5, 15); // 2026-06-15
+  const dkey = (day: number) => key(6, day);
+
+  it('comboDays counts consecutive active days, tolerating unchecked today', () => {
+    const hs = [habit('a')];
+    const checks = [13, 14].map((d) => ci('a', dkey(d)));
+    expect(comboDays(hs, checks, NOW)).toBe(2); // today (15th) unchecked → alive
+    expect(comboDays(hs, [...checks, ci('a', dkey(15))], NOW)).toBe(3);
+    expect(comboDays(hs, [ci('a', dkey(10))], NOW)).toBe(0); // broken long ago
+    expect(comboDays([], checks, NOW)).toBe(0);
+  });
+
+  it('comboMultiplier pays streaks more (goal-gradient fuel)', () => {
+    expect(comboMultiplier(0)).toBe(1);
+    expect(comboMultiplier(2)).toBe(1);
+    expect(comboMultiplier(3)).toBe(2);
+    expect(comboMultiplier(6)).toBe(2);
+    expect(comboMultiplier(7)).toBe(3);
+    expect(comboMultiplier(100)).toBe(3);
+  });
+
+  it('xpTodayWithCombo multiplies today XP by the combo', () => {
+    const hs = [habit('a', 1)];
+    const checks = [13, 14, 15].map((d) => ci('a', dkey(d)));
+    const r = xpTodayWithCombo(hs, checks, NOW);
+    expect(r.combo).toBe(3);
+    expect(r.mult).toBe(2);
+    expect(r.base).toBeGreaterThan(0);
+    expect(r.total).toBe(r.base * 2);
+  });
+
+  it('resilienceShields counts distinct doux days in the window', () => {
+    const checks: CheckIn[] = [
+      { habitId: 'a', date: dkey(10), completed: true, partial: true, subIds: ['s'] },
+      { habitId: 'a', date: dkey(12), completed: true, partial: true, subIds: ['s'] },
+      { habitId: 'a', date: dkey(13), completed: true },
+      { habitId: 'a', date: '2026-01-01', completed: true, partial: true, subIds: ['s'] },
+    ];
+    expect(resilienceShields(checks, 30, NOW)).toBe(2);
+  });
+
+  it('new resilience medals: phoenix, doux, boss, si-alors, closure', () => {
+    const hs = [
+      { ...habit('pho'), longestGap: 9 },
+      { ...habit('plan'), ifThen: [{ cue: 'tard', action: 'doux' }, { cue: 'x', action: 'y' }, { cue: 'z', action: 'w' }] },
+    ];
+    const checks: CheckIn[] = [
+      ci('pho', dkey(14)), ci('pho', dkey(15)),
+      { habitId: 'a', date: dkey(10), completed: true, partial: true, subIds: ['s'] },
+      { habitId: 'a', date: dkey(11), completed: true, partial: true, subIds: ['s'] },
+      { habitId: 'a', date: dkey(12), completed: true, partial: true, subIds: ['s'] },
+    ];
+    const medals = computeMedals(hs, checks, [], [], 0, 1, { emotionalClosures: 1, now: NOW });
+    const byId = new Map(medals.map((m) => [m.id, m]));
+    expect(byId.get('phoenix')!.earned).toBe(true);
+    expect(byId.get('doux-3')!.earned).toBe(true);
+    expect(byId.get('doux-10')!.earned).toBe(false);
+    expect(byId.get('doux-10')!.progress).toBe(30);
+    expect(byId.get('ifthen-3')!.earned).toBe(true);
+    expect(byId.get('closure-1')!.earned).toBe(true);
+    expect(byId.get('boss-slay')!.earned).toBe(false); // no history → boss alive
   });
 });

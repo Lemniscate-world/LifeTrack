@@ -74,7 +74,7 @@ describe('NEGLECTED detection', () => {
     const result = generateInsights(habits, [], NOW);
     const neglected = result.recommendations.filter((r) => r.kind === 'NEGLECTED');
     expect(neglected.length).toBe(1);
-    expect(neglected[0].title).toContain('no check-ins yet');
+    expect(neglected[0].title).toContain("n'a encore jamais été coché");
   });
 
   it('flags a habit inactive for >4 days', () => {
@@ -175,7 +175,7 @@ describe('RECORD_APPROACH detection', () => {
     const result = generateInsights(habits, checks, NOW);
     const records = result.recommendations.filter((r) => r.kind === 'RECORD_APPROACH');
     expect(records.length).toBe(1);
-    expect(records[0].title).toContain('4 days'); // 8 - 5 + 1 = 4 to beat
+    expect(records[0].title).toContain('4 jours'); // 8 - 5 + 1 = 4 to beat
     expect(records[0].title).toContain('Meditate');
     expect(records[0].strength).toBeGreaterThan(50);
   });
@@ -246,8 +246,8 @@ describe('PRIME_TIME detection', () => {
     );
     const prime = result.recommendations.filter((r) => r.kind === 'PRIME_TIME');
     expect(prime.length).toBeGreaterThanOrEqual(1);
-    // Should mention Tue and/or Thu
-    expect(prime[0].title).toMatch(/Tue|Thu/);
+    // Should mention Tue and/or Thu (in French now: mardi/jeudi)
+    expect(prime[0].title).toMatch(/mardi|jeudi/);
   });
 });
 
@@ -271,7 +271,7 @@ describe('MISS_PATTERN detection', () => {
     const result = generateInsights(habits, checks, NOW);
     const miss = result.recommendations.filter((r) => r.kind === 'MISS_PATTERN');
     expect(miss.length).toBeGreaterThanOrEqual(1);
-    expect(miss[0].title).toContain('Mon');
+    expect(miss[0].title).toContain('lundis');
   });
 });
 
@@ -458,7 +458,7 @@ describe('WEEKLY_SUMMARY', () => {
     const result = generateInsights(habits, checks, NOW);
     const weekly = result.recommendations.filter((r) => r.kind === 'WEEKLY_SUMMARY');
     expect(weekly.length).toBe(1);
-    expect(weekly[0].title).toContain('This week');
+    expect(weekly[0].title).toContain('Cette semaine');
     expect(weekly[0].title).toContain('🏆');
   });
 
@@ -779,7 +779,7 @@ describe('BURNOUT_RISK detection', () => {
     const result = generateInsights([habit], checks, NOW, moods);
     const burnouts = result.recommendations.filter((r) => r.kind === 'BURNOUT_RISK');
     expect(burnouts.length).toBeGreaterThanOrEqual(1);
-    expect(burnouts[0].title).toContain('Burnout watch');
+    expect(burnouts[0].title).toContain('Risque de cramage');
     expect(burnouts[0].habitIds).toContain('h1');
   });
 
@@ -985,6 +985,6 @@ describe('generateInsights � journal-driven rules (v0.6.4)', () => {
     const nudge = generateInsights([], [], NOW, {}, { reflections: answered });
     const rec = nudge.recommendations.find((r) => r.kind === 'REFLECTION_REVIEW');
     expect(rec).toBeDefined();
-    expect(rec!.detail).toContain('3 answers');
+    expect(rec!.detail).toContain('3 réponses');
   });
 });

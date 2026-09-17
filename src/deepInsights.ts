@@ -1218,6 +1218,124 @@ function detectArchiveCandidates(habits: Habit[], days: Map<string, DayRow>, tod
 
 // ---------- entry ----------
 
+// ---------- what-the-hell effect (Polivy & Herman): after ONE missed day,
+// the probability of missing the NEXT day jumps — the collapse is the
+// second day, not the first. Measured on disjoint pair groups:
+// P(miss t+1 | miss t) vs P(miss t+1 | done t), all habits pooled.
+function detectWhatTheHell(habits: Habit[], checkIns: CheckIn[], today: Date): DeepInsight[] {
+  const active = habits.filter((h) => !h.archived);
+  if (active.length === 0) return [];
+  const doneByHabit = new Map<string, Set<string>>();
+  for (const ci of checkIns) {
+    if (!ci.completed) continue;
+    let s = doneByHabit.get(ci.habitId);
+    if (!s) { s = new Set(); doneByHabit.set(ci.habitId, s); }
+    s.add(ci.date);
+  }
+  const todayStr = today.toISOString().slice(0, 10);
+  // Yesterday is the last fully observed day; pairs (t, t+1) with t+1 <= yesterday.
+  let nMiss = 0;
+  let sMiss = 0;
+  let nDone = 0;
+  let sDone = 0;
+  for (const h of active) {
+    const done = doneByHabit.get(h.id) ?? new Set<string>();
+    if (done.size === 0) continue;
+    // No penalty before the tool existed: start at habit creation or first done day.
+    let start = [...done].sort()[0]!;
+    if (h.createdAt && typeof h.createdAt === 'string') {
+      const c = h.createdAt.slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(c) && c < start) start = c;
+    }
+    // Walk the last 120 days ending yesterday.
+    const end = shiftDate(todayStr, -1);
+    let t = shiftDate(todayStr, -120);
+    if (t < start) t = start;
+    while (t < end) {
+      const tNext = shiftDate(t, 1);
+      const missT = !done.has(t);
+      const missNext = !done.has(tNext);
+      if (missT) { nMiss++; if (missNext) sMiss++; }
+      else { nDone++; if (missNext) sDone++; }
+      t = tNext;
+    }
+  }
+  if (nMiss < 10 || nDone < 10 || sDone === 0) return [];
+  const pMiss = sMiss / nMiss;
+  const pDone = sDone / nDone;
+  if (pDone <= 0) return [];
+  const ratio = pMiss / pDone;
+  if (ratio < 1.5) return [];
+  const p = twoPropP(sMiss, nMiss, sDone, nDone);
+  if (p === null || p >= 0.05) return [];
+  return [{
+    id: 'what-the-hell',
+    icon: '🕳️',
+    title: 'Le danger, c\u2019est le 2e jour manqué — pas le 1er',
+    body: `Après un jour manqué, tu en manques un 2e dans ${Math.round(pMiss * 100)}% des cas, contre ${Math.round(pDone * 100)}% après un jour coché (×${(Math.round(ratio * 10) / 10).toString().replace('.', ',')}). C'est l'effet "what-the-hell" (Polivy & Herman) : le 1er raté autorise l'abandon. Parades qui marchent : un plan si-alors prêt ("si je rate, alors version douce demain"), une validation douce 🌗 au lieu du zéro, et l'auto-compassion au lieu du jugement.`,
+    stat: `P(miss|miss)=${Math.round(pMiss * 100)}% vs P(miss|done)=${Math.round(pDone * 100)}% · n=${nMiss + nDone} paires · ${fmtP(p)}`,
+    action: { label: 'Voir la grille', view: 'grid' },
+  }];
+}
+
+// ---------- goal-gradient (Hull 1932, Kivetz et al. 2006): effort
+// accelerates near the goal. Compares completion rate, 2nd vs 1st half of
+// the last 28 fully observed days. Approximation: active-habit count held
+// constant over the window (habits created mid-window slightly skew it).
+function detectGoalGradient(habits: Habit[], checkIns: CheckIn[], today: Date): DeepInsight[] {
+  const active = habits.filter((h) => !h.archived);
+  const H = active.length;
+  if (H < 3) return [];
+  const activeIds = new Set(active.map((h) => h.id));
+  const todayStr = today.toISOString().slice(0, 10);
+  // Last 28 fully observed days ending yesterday.
+  const end = shiftDate(todayStr, -1);
+  const start = shiftDate(end, -27);
+  let s1 = 0;
+  let s2 = 0;
+  for (const ci of checkIns) {
+    if (!ci.completed || !activeIds.has(ci.habitId)) continue;
+    if (ci.date < start || ci.date > end) continue;
+    if (ci.date <= shiftDate(start, 13)) s1++;
+    else s2++;
+  }
+  const n1 = 14 * H;
+  const n2 = 14 * H;
+  if (n1 < 30 || s1 === 0) return [];
+  const ratio = (s2 / n2) / (s1 / n1);
+  if (ratio < 1.15) return [];
+  const p = twoPropP(s2, n2, s1, n1);
+  if (p === null || p >= 0.05) return [];
+  const pct = Math.round((ratio - 1) * 100);
+  return [{
+    id: 'goal-gradient',
+    icon: '🏁',
+    title: `Tu sprintes en fin de période (+${pct}%) — exploite-le`,
+    body: `Sur 28 jours, ton taux de complétion grimpe de ${pct}% en 2e moitié (goal-gradient : l'effort accélère près du but — Hull, Kivetz). Au lieu de le subir, pilote-le : place UNE habitude dure dans les 7 derniers jours du mois, quand ton moteur est naturellement chaud.`,
+    stat: `2e moitié ${Math.round((s2 / n2) * 100)}% vs 1re ${Math.round((s1 / n1) * 100)}% · ${fmtP(p)}`,
+    action: { label: 'Voir les stats', view: 'stats' },
+  }];
+}
+
+/**
+ * "À retenir aujourd'hui" — the 3 most ACTIONABLE deep cards first.
+ * Priority: plan due TODAY > live risk (streak about to break, collapse
+ * pattern) > dated plans > informational. The wall of 11 cards is why the
+ * Insights tab felt like noise: nobody reads 11 analyses, everybody reads 3.
+ */
+export function topTakeaways(cards: DeepInsight[], todayKey: string, max = 3): DeepInsight[] {
+  const score = (c: DeepInsight): number => {
+    if (c.plan?.dates.includes(todayKey)) return 100;
+    if (c.id.startsWith('streakrisk')) return 90;
+    if (c.id === 'what-the-hell') return 85;
+    if (c.id.startsWith('cannibal') || c.id === 'restart') return 70;
+    if (c.id === 'goal-gradient') return 60;
+    if (c.plan) return 50;
+    return 10;
+  };
+  return [...cards].sort((a, b) => score(b) - score(a)).slice(0, max);
+}
+
 export function generateDeepInsights(
   habits: Habit[],
   checkIns: CheckIn[],
@@ -1234,6 +1352,8 @@ export function generateDeepInsights(
       ...detectChains(habits, days),
       ...detectGoalCalibration(habits, checkIns, days, today),
       ...detectVigilancePlans(habits, checkIns, days, today),
+      ...detectWhatTheHell(habits, checkIns, today),
+      ...detectGoalGradient(habits, checkIns, today),
       ...detectCannibalization(habits, days),
       ...detectWeekendDrift(habits, days, today),
       ...detectPairSynergy(habits, days),

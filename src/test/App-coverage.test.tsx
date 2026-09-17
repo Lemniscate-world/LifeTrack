@@ -21,13 +21,12 @@ describe('Insights with seeded data', () => {
     render(<App />);
 
     await user.click(screen.getByText('Insights'));
-
-    // Should show NEGLECTED: "Journal" has no check-ins yet (appears in title + detail)
+    // Should show NEGLECTED: "Journal" has no check-ins yet (title + detail)
     const journalTexts = screen.getAllByText(/Journal/);
     expect(journalTexts.length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText(/no check-ins yet/)).toBeInTheDocument();
+    expect(screen.getByText(/jamais été coché/)).toBeInTheDocument();
     // Action button
-    expect(screen.getByText('Track now')).toBeInTheDocument();
+    expect(screen.getByText('Cocher')).toBeInTheDocument();
   });
 
   it('NEGLECTED action button works', async () => {
@@ -37,7 +36,7 @@ describe('Insights with seeded data', () => {
 
     await user.click(screen.getByText('Insights'));
     // Click the action button for the NEGLECTED recommendation
-    await user.click(screen.getByText('Track now'));
+    await user.click(screen.getByText('Cocher'));
     // Should navigate to grid (InsightsView's NEGLECTED action: onView('grid'))
     const gridBtn = screen.getByRole('tab', { name: 'Grid' });
     expect(gridBtn.className).toContain('active');
@@ -65,7 +64,7 @@ describe('Insights empty state interaction', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByText('Insights'));
-    const goToGrid = screen.getByText('Go to Grid');
+    const goToGrid = screen.getByText('Aller à la grille');
     await user.click(goToGrid);
     expect(screen.getByText('Grid').className).toContain('active');
   });
@@ -88,19 +87,19 @@ describe('Grid interactions', () => {
   it('renders grid headers with day numbers', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Test');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Test');
+    await user.click(screen.getByText('Ajouter'));
     expect(screen.getByText('1')).toBeInTheDocument();
   });
 
   it('shows goal column header', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Test');
-    await user.click(screen.getByText('Add'));
-    expect(screen.getByText('Goal')).toBeInTheDocument();
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Test');
+    await user.click(screen.getByText('Ajouter'));
+    expect(screen.getByText('Objectif')).toBeInTheDocument();
   });
 });
 
@@ -127,9 +126,9 @@ describe('Stats view table', () => {
   it('renders stats table headers', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Test');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Test');
+    await user.click(screen.getByText('Ajouter'));
     await user.click(screen.getByText('Statistics'));
     expect(screen.getByText('Habit')).toBeInTheDocument();
   });
@@ -190,7 +189,7 @@ describe('Intentions (why) editor', () => {
       const input = document.querySelector('.intentions-editor input') as HTMLInputElement;
       if (input) {
         await user.type(input, 'To relax');
-        await user.click(screen.getByText('Add'));
+        await user.click(screen.getByText('Ajouter'));
         await user.click(screen.getByText('Save'));
       }
     }
@@ -202,7 +201,7 @@ describe('Goal editing', () => {
     addHabit('Yoga');
     render(<App />);
     // Goal column should show goal value or default
-    expect(screen.getByText('Goal')).toBeInTheDocument();
+    expect(screen.getByText('Objectif')).toBeInTheDocument();
   });
 });
 
@@ -212,9 +211,9 @@ describe('Multiple habits in grid', () => {
     render(<App />);
     
     for (const name of ['A', 'B', 'C']) {
-      await user.click(screen.getByText('+ New Habit'));
-      await user.type(screen.getByPlaceholderText('Habit name...'), name);
-      await user.click(screen.getByText('Add'));
+      await user.click(screen.getByText('+ Nouvelle habitude'));
+      await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), name);
+      await user.click(screen.getByText('Ajouter'));
     }
 
     expect(screen.getByText('A')).toBeInTheDocument();
@@ -227,9 +226,9 @@ describe('All views accessible after adding habits', () => {
   it('can visit all tabs after seeding data', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Test');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Test');
+    await user.click(screen.getByText('Ajouter'));
 
     const tabs = ['Grid', 'Statistics', 'History', 'Stacks', 'Chaos', 'Insights'];
     for (const t of tabs) {

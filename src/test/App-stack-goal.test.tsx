@@ -16,7 +16,7 @@ describe('Stack editor', () => {
     const btn = document.querySelector('.habit-stack-btn');
     expect(btn).not.toBeNull();
     await user.click(btn!);
-    expect(screen.getByText(/from:/i)).toBeInTheDocument();
+    expect(screen.getByText(/de :/i)).toBeInTheDocument();
   });
 
   it('links child to parent', async () => {
@@ -31,7 +31,7 @@ describe('Stack editor', () => {
     const parentSelect = selects[1]; // second select = parent picker
     if (parentSelect) {
       await user.selectOptions(parentSelect, parent.id);
-      await user.click(screen.getByRole('button', { name: 'Done' }));
+      await user.click(screen.getByRole('button', { name: 'Terminé' }));
       expect(getHabits().some((h) => h.stackParent === parent.id)).toBe(true);
     }
   });

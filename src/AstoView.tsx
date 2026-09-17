@@ -1,5 +1,5 @@
-// src/MissionsView.tsx
-// Missions: a goal bound to a window (fixed dates or an astrological
+// src/AstoView.tsx
+// Asto: a goal bound to a window (fixed dates or an astrological
 // whole-sign transit) and tied to the user's habits. LifeTrack measures the
 // progress automatically from the real check-ins and shows the pace required
 // to reach the quota before the window closes.
@@ -9,7 +9,7 @@ import {
   getMissions, addMission, deleteMission, archiveMission,
   getHabits, getCheckInsForHabit, getPreferences, subscribe, exportAllData,
 } from './store';
-import { computeMissionProgress, suggestQuota, MISSION_STATUS_LABEL, suggestMissionsFromSky, type AutoMissionSuggestion } from './missions';
+import { computeMissionProgress, suggestQuota, MISSION_STATUS_LABEL, suggestMissionsFromSky, type AutoMissionSuggestion } from './asto';
 import { buildPreferenceReport } from './preferences';
 import {
   SIGNS, TRANSIT_BODIES, resolveTransitWindow, signOfPlanet, isRetrograde, getTransitBody,
@@ -30,7 +30,7 @@ function fmtDate(d: string): string {
   return `${day}/${m}/${y}`;
 }
 
-export default function MissionsView() {
+export default function AstoView() {
   const [tick, setTick] = useState(0);
   useEffect(() => subscribe(() => setTick((t) => t + 1)), []);
 
@@ -220,7 +220,7 @@ export default function MissionsView() {
 
   const onCreate = () => {
     setFormError('');
-    if (!name.trim()) { setFormError('Donne un nom à la mission.'); return; }
+    if (!name.trim()) { setFormError('Donne un nom à ton Asto.'); return; }
     if (habitIds.length === 0) { setFormError('Choisis au moins une habitude liée.'); return; }
     let window: MissionWindow;
     if (kind === 'fixed') {
@@ -256,13 +256,13 @@ export default function MissionsView() {
   return (
     <div className="view missions-view" style={{ maxWidth: '920px', margin: '0 auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-        <h2 style={{ margin: 0 }}>🚀 Missions</h2>
+        <h2 style={{ margin: 0 }}>✨ Asto</h2>
         <button className="btn btn-primary" onClick={() => { setCreating((c) => !c); if (creating) resetForm(); }}>
-          {creating ? '✕ Fermer' : '＋ Nouvelle mission'}
+          {creating ? '✕ Fermer' : '＋ Nouveau Asto'}
         </button>
       </div>
       <p className="lever-suggestions-hint">
-        Une mission = un objectif lié à tes habitudes, borné par une fenêtre : des dates fixes ou le passage
+        Un Asto = un objectif lié à tes habitudes, borné par une fenêtre : des dates fixes ou le passage
         d'une planète dans un signe (transit whole sign). La progression est mesurée automatiquement sur tes check-ins.
       </p>
 
@@ -377,7 +377,7 @@ export default function MissionsView() {
       {/* CREATION FORM */}
       {creating && (
         <div style={{ marginBottom: '1.25rem', padding: '1rem', background: 'var(--bg-alt)', borderRadius: '12px', border: '1px solid var(--border)' }}>
-          <h4 style={{ margin: '0 0 0.75rem 0' }}>Nouvelle mission</h4>
+          <h4 style={{ margin: '0 0 0.75rem 0' }}>Nouveau Asto</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
             <input
               className="text-input" placeholder="Nom (ex: Sport dans le Bélier)" value={name}
@@ -483,7 +483,7 @@ export default function MissionsView() {
             {formError && <div style={{ color: '#f59e0b', fontSize: '0.82rem' }}>⚠️ {formError}</div>}
 
             <div className="feed-actions">
-              <button className="btn btn-sm btn-primary" onClick={onCreate}>Créer la mission</button>
+              <button className="btn btn-sm btn-primary" onClick={onCreate}>Créer l'Asto</button>
               <button className="btn btn-sm btn-ghost" onClick={() => { resetForm(); setCreating(false); }}>Annuler</button>
             </div>
           </div>
@@ -494,9 +494,9 @@ export default function MissionsView() {
       {sorted.length === 0 ? (
         <div style={{ padding: '3rem 1rem', background: 'var(--bg-alt)', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border)' }}>
           <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>🎯</div>
-          <h3 style={{ margin: '0 0 0.5rem 0' }}>Aucune mission pour l'instant</h3>
+          <h3 style={{ margin: '0 0 0.5rem 0' }}>Aucun Asto pour l'instant</h3>
           <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.9rem' }}>
-            Crée ta première mission : choisis un transit (ex: Mars en Bélier), attache tes habitudes,
+            Crée ton premier Asto : choisis un transit (ex: Mars en Bélier), attache tes habitudes,
             fixe un quota — et suis ta progression en direct.
           </p>
         </div>
@@ -541,6 +541,9 @@ export default function MissionsView() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: '0.25rem' }}>
                     <span>
                       {p.completedCount}/{m.quota ?? p.completedCount} sessions
+                      {p.paceStatus === 'ahead' && <span style={{ color: '#10b981', marginLeft: '0.4rem' }}>⚡ en avance</span>}
+                      {p.paceStatus === 'on_track' && <span style={{ color: '#38bdf8', marginLeft: '0.4rem' }}>✓ dans le rythme</span>}
+                      {p.paceStatus === 'behind' && <span style={{ color: '#f59e0b', marginLeft: '0.4rem' }}>⚠ en retard</span>}
                       {p.quotaPerWeek > 0 && ` · rythme requis ${p.quotaPerWeek.toFixed(1)}/sem`}
                       {p.actualPerWeek > 0 && ` · réel ${p.actualPerWeek.toFixed(1)}/sem`}
                     </span>
@@ -553,7 +556,7 @@ export default function MissionsView() {
                     </span>
                   </div>
                   <div style={{ height: '8px', background: 'var(--bg)', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border)' }}>
-                    <div style={{ height: '100%', width: `${Math.min(pct, 100)}%`, background: p.quotaReached ? '#10b981' : p.status === 'failed' ? '#f59e0b' : '#38bdf8' }} />
+                    <div style={{ height: '100%', width: `${Math.min(pct, 100)}%`, background: p.quotaReached || p.paceStatus === 'ahead' ? '#10b981' : p.paceStatus === 'behind' || p.status === 'failed' ? '#f59e0b' : '#38bdf8' }} />
                   </div>
                   {/* Window elapsed mini-bar */}
                   <div style={{ height: '4px', background: 'var(--border)', borderRadius: '2px', overflow: 'hidden', marginTop: '0.3rem' }}>
@@ -579,7 +582,7 @@ export default function MissionsView() {
       {missions.some((m) => m.archived) && (
         <details style={{ marginTop: '1.5rem' }}>
           <summary style={{ cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            📦 Missions archivées ({missions.filter((m) => m.archived).length})
+            📦 Astos archivés ({missions.filter((m) => m.archived).length})
           </summary>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
             {missions.filter((m) => m.archived).map((m) => {

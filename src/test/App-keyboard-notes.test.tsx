@@ -48,8 +48,8 @@ describe('Keyboard navigation', () => {
     const user = userEvent.setup();
     render(<App />);
     // Click the + New Habit button directly (more reliable than Ctrl+N in jsdom)
-    await user.click(screen.getByText('+ New Habit'));
-    expect(screen.getByPlaceholderText('Habit name...')).toBeInTheDocument();
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    expect(screen.getByPlaceholderText("Nom de l'habitude...")).toBeInTheDocument();
   });
 });
 

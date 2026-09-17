@@ -14,9 +14,9 @@ beforeEach(() => {
 });
 
 async function addOneHabit(user: ReturnType<typeof userEvent.setup>, name = 'TestHabit') {
-  await user.click(screen.getByText('+ New Habit'));
-  await user.type(screen.getByPlaceholderText('Habit name...'), name);
-  await user.click(screen.getByText('Add'));
+  await user.click(screen.getByText('+ Nouvelle habitude'));
+  await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), name);
+  await user.click(screen.getByText('Ajouter'));
 }
 
 describe('App view tabs', () => {
@@ -37,7 +37,7 @@ describe('App view tabs', () => {
     expect(screen.getByText('Chaos').className).toContain('active');
 
     await user.click(screen.getByText('Insights'));
-    expect(screen.getByText('Not enough data yet')).toBeInTheDocument();
+    expect(screen.getByText('Pas encore assez de données')).toBeInTheDocument();
 
     await user.click(screen.getByText('Grid'));
     expect(screen.getByText('Grid').className).toContain('active');
@@ -47,7 +47,7 @@ describe('App view tabs', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByText('Insights'));
-    expect(screen.getByText('Go to Grid')).toBeInTheDocument();
+    expect(screen.getByText('Aller à la grille')).toBeInTheDocument();
   });
 });
 
@@ -106,7 +106,7 @@ describe('App month navigation', () => {
 describe('App empty state', () => {
   it('shows + New Habit in empty state', () => {
     render(<App />);
-    expect(screen.getByText('+ New Habit')).toBeInTheDocument();
+    expect(screen.getByText('+ Nouvelle habitude')).toBeInTheDocument();
   });
 
   it('shows Grid tab active by default', () => {

@@ -23,14 +23,15 @@ beforeEach(() => {
 });
 
 describe('Chaos dimension defaults', () => {
-  it('returns 8 default dimensions', () => {
+  it('returns 9 default dimensions (incl. self-esteem)', () => {
     const dims = getDefaultChaosDimensions();
-    expect(dims.length).toBe(8);
+    expect(dims.length).toBe(9);
     const ids = dims.map((d) => d.id).sort();
     expect(ids).toEqual([
-      'emotional', 'energy', 'financial', 'physical', 'social', 'spiritual', 'startup',
+      'emotional', 'energy', 'financial', 'physical', 'selfesteem', 'social', 'spiritual', 'startup',
       'structural',
     ]);
+    expect(dims.find((d) => d.id === 'selfesteem')?.name).toBe('Estime de soi');
   });
 
   it('dimensions have correct labels and colors', () => {
@@ -40,7 +41,7 @@ describe('Chaos dimension defaults', () => {
       expect(d.name).toBeTruthy();
       expect(Array.isArray(d.triggers)).toBe(true);
     }
-    expect(dims.length).toBe(8);
+    expect(dims.length).toBe(9);
   });
 });
 
@@ -99,12 +100,24 @@ describe('Chaos linkage', () => {
     expect(pct).toBe(0);
   });
 
-  it('computeChaosReport returns all 8 dimensions', () => {
+  it('computeChaosReport returns all 9 dimensions', () => {
     const report = computeChaosReport();
-    expect(report.dimensions.length).toBe(8);
+    expect(report.dimensions.length).toBe(9);
     expect(report.overallPct).toBeGreaterThanOrEqual(0);
     expect(report.overallPct).toBeLessThanOrEqual(100);
     expect(report.linkedHabitCount).toBe(0);
+  });
+
+  it('surfaces habit intentions (why) in Chaos so the reason stays visible', () => {
+    const h = addHabit('Méditation', {
+      chaosLinks: [{ dimension: 'selfesteem', impact: 30 }],
+      chaosThresholdDays: 2,
+    });
+    updateHabit(h.id, { why: ['Rester ancré quand tout tangue'] });
+    const report = computeChaosReport();
+    const esteem = report.dimensions.find((d) => d.id === 'selfesteem')!;
+    expect(esteem.habits).toHaveLength(1);
+    expect(esteem.habits[0].why).toEqual(['Rester ancré quand tout tangue']);
   });
 
   it('computes a per-habit progress ratio toward triggering', () => {

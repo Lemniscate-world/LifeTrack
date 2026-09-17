@@ -38,3 +38,11 @@ l'utilisateur parle FR.
 ## Gate qualité (R108.0)
 `npx -y impeccable detect src/` avant chaque milestone visuel. Exceptions →
 les documenter ici, sinon rejet.
+
+### Exceptions documentées
+- **Rail chaos 3px (`.chaos-card::before`)** : la couleur du rail EST la donnée
+  (identifie la dimension : Social, Finances, Estime… — voir
+  `chaosDimensions.ts`, « data-only color »). Exprimé en pseudo-élément dédié
+  plutôt qu'en `border-left`/`inset box-shadow` pour un rendu net sur les
+  coins arrondis. Retiré de la portée `side-tab` à dessein : ce n'est pas un
+  « tell » décoratif mais l'encodage couleur de l'information.

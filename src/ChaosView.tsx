@@ -6,7 +6,20 @@ import {
   subscribe,
   getHabits,
   getChaosDimensions,
+  getCheckIn,
+  toggleCheckIn,
 } from './store';
+
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Display helper: integer when whole, one decimal otherwise (2 → "2", 2.1 → "2,1"). */
+function fmtSessions(n: number): string {
+  const r = Math.round(n * 10) / 10;
+  return Number.isInteger(r) ? String(r) : String(r).replace('.', ',');
+}
 import { getDimensionAccent } from './chaosDimensions';
 import PrincipleTriggersPanel from './components/PrincipleTriggersPanel';
 
@@ -133,15 +146,42 @@ export default function ChaosView() {
                     {dim.habits.map((h) => (
                       <div key={h.habitId} className={`chaos-habit ${h.triggered ? 'triggered' : 'ok'}`}>
                         <span className="chaos-habit-icon">{h.triggered ? '⚡' : '✓'}</span>
+                        <button
+                          type="button"
+                          className={`chaos-habit-check${getCheckIn(h.habitId, todayIso())?.completed ? ' done' : ''}`}
+                          title={getCheckIn(h.habitId, todayIso())?.completed ? 'Cochée aujourd\u2019hui — cliquer pour décocher' : 'Cocher directement pour aujourd\u2019hui'}
+                          aria-label={`Cocher ${h.habitName} pour aujourd'hui`}
+                          onClick={() => toggleCheckIn(h.habitId, todayIso())}
+                        >
+                          {getCheckIn(h.habitId, todayIso())?.completed ? '✓' : '○'}
+                        </button>
                         <span className="chaos-habit-name">{h.habitName}</span>
+                        {(h.perWeek ?? 7) < 7 && (
+                          <span className="chaos-habit-freq" title={`Attendue ${h.perWeek}× par semaine — le chaos compte les séances manquées, pas les jours`}>
+                            {h.perWeek}×/sem
+                          </span>
+                        )}
+                        {(h.why?.length ?? 0) > 0 && (
+                          <span className="chaos-habit-why" title="Pourquoi je le fais — mes intentions, visibles où la pression se sent">
+                            💭 {(h.why ?? []).map((w, i) => (
+                              <span key={i} className="chaos-habit-why-tag">{w}</span>
+                            ))}
+                          </span>
+                        )}
                         <span className="chaos-habit-status">
-                          {h.triggered
-                            ? `manqué ${h.missedStreak}j · +${h.impact}%`
-                            : h.missedStreak > 0
-                              ? `manqué ${h.missedStreak}/${h.thresholdDays}j`
-                              : 'ok'}
+                          {(h.perWeek ?? 7) < 7
+                            ? (h.triggered
+                              ? `${fmtSessions(h.missedStreak)} manquée${h.missedStreak >= 2 ? 's' : ''} · +${h.impact}%`
+                              : h.missedStreak > 0
+                                ? `${fmtSessions(h.missedStreak)}/${h.thresholdDays} séances`
+                                : 'ok')
+                            : (h.triggered
+                              ? `manqué ${h.missedStreak}j · +${h.impact}%`
+                              : h.missedStreak > 0
+                                ? `manqué ${h.missedStreak}/${h.thresholdDays}j`
+                                : 'ok')}
                         </span>
-                        <div className="chaos-habit-progress" title={`${h.missedStreak}/${h.thresholdDays} jours manqués`}>
+                        <div className="chaos-habit-progress" title={(h.perWeek ?? 7) < 7 ? `${fmtSessions(h.missedStreak)}/${h.thresholdDays} séances manquées` : `${h.missedStreak}/${h.thresholdDays} jours manqués`}>
                           <div
                             className={`chaos-habit-progress-fill ${h.triggered ? 'hot' : ''}`}
                             style={{ width: `${h.progress * 100}%` }}

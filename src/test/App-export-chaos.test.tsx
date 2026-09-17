@@ -46,7 +46,7 @@ describe('Chaos editor', () => {
     expect(btn).not.toBeNull();
     await user.click(btn!);
     expect(screen.getByText('OK')).toBeInTheDocument();
-    expect(screen.getByText('Cancel')).toBeInTheDocument();
+    expect(screen.getByText('Annuler')).toBeInTheDocument();
   });
 
   it('links habit to chaos dimension and saves', async () => {
@@ -69,7 +69,7 @@ describe('Chaos editor', () => {
     render(<App />);
     const btn = document.querySelector('.habit-chaos-btn');
     await user.click(btn!);
-    await user.click(screen.getByText('Cancel'));
+    await user.click(screen.getByText('Annuler'));
     expect(getHabits().every((h) => !h.chaosDimension)).toBe(true);
   });
 });

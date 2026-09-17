@@ -1,11 +1,18 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { Habit, Note, CheckIn, Mantra } from './types';
-import { dateKeyFromParts } from './dates';
+import { isPartialCheckIn, MAX_SUB_HABITS, MAX_IF_THEN } from './types';
+import { selfCompassionFor } from './selfCompassion';
+import { dateKeyFromParts, toDateKey } from './dates';
 import ViewTabs, { type ViewKey } from './components/ViewTabs';
 import {
   getHabits,
   getMonthCheckIns,
+  getMonthCheckInRecords,
+  computeMissedStreak,
   toggleCheckIn,
+  toggleSubCheck,
+  addSubHabit,
+  deleteSubHabit,
   incrementCheckInCount,
   getCheckInCount,
   resetCheckInCount,
@@ -25,7 +32,10 @@ import {
   tagNoteAchievement,
   exportAllData,
   flushSave,
+  forceSaveNow,
   getStorageStatus,
+  getLastStorageError,
+  clearStorageError,
   getLastSaved,
   undoLastToggle,
   redoLastUndo,
@@ -41,6 +51,11 @@ import {
   diagnoseStorage,
   createUpgradeBackup,
   pruneOldBackups,
+  seedWellbeingDefaults,
+  getDepressionProtocol,
+  toggleRoutineStep,
+  resetRoutineProgress,
+  routineProgress,
   MOODS,
   setMood,
   getMood,
@@ -65,6 +80,8 @@ import {
   dismissRec,
   resetDismissedRecs,
   getObsidianNotes,
+  getEmotionalEvents,
+  getEmotionalChecks,
 } from './store';
 import { computeStreakStats, computeCompletionRate, computeWeightedScore, trackingStart } from './stats';
 import { Heatmap, Sparkline } from './Heatmap';
@@ -91,7 +108,7 @@ import UrgeSurfingView from './UrgeSurfingView';
 import ProjectsView from './ProjectsView';
 import KnowledgeView from './KnowledgeView';
 import ObsidianView from './ObsidianView';
-import MissionsView from './MissionsView';
+import AstoView from './AstoView';
 import { syncVault } from './vaultSync';
 import CorrelationsView from './CorrelationsView';
 import GainsView from './GainsView';
@@ -109,10 +126,10 @@ import Confetti from './Confetti';
 import { getDailyEntryMantra, todayStr, shouldShowMantraNotification, markMantraNotificationShown, MANTRA_DOMAINS, sendSystemNotification } from './mantras';
 import { buildMemoryReminder, buildOnThisDay } from './memories';
 import { runFeedCycle, pickFetcher, enrichWithAi } from './autoIngest';
-import { runAutoMissions } from './missionEngine';
+import { runAutoAsto } from './astoEngine';
 import { runAutoKnowledge } from './knowledgeEngine';
 import { rotateRecommendations, recKey } from './recRotation';
-import { generateDeepInsights, downloadPlanIcs, type DeepInsight } from './deepInsights';
+import { generateDeepInsights, downloadPlanIcs, topTakeaways, type DeepInsight } from './deepInsights';
 
 // Detected at module load (window is always present in browser and Tauri).
 // In test environments this is false. Module-level constant is acceptable
@@ -168,6 +185,7 @@ const DEFAULT_CATEGORIES = [
   const [newHabitChaosDimension, setNewHabitChaosDimension] = useState<string>('physical');
   const [newHabitChaosImpact, setNewHabitChaosImpact] = useState<number>(50);
   const [newHabitChaosThreshold, setNewHabitChaosThreshold] = useState<number>(2);
+  const [newHabitChaosPerWeek, setNewHabitChaosPerWeek] = useState<number>(7);
   const [checkIns, setCheckIns] = useState<Map<string, Map<number, boolean>>>(new Map());
   // All check-ins across all months/habits — needed by the Statistics view to
   // compute lifetime streaks (best, longest gap, etc.).
@@ -207,11 +225,34 @@ const DEFAULT_CATEGORIES = [
   const [editingChaosHabitId, setEditingChaosHabitId] = useState<string | null>(null);
   const [editChaosLinks, setEditChaosLinks] = useState<{ dimension: string; impact: number; cause?: string }[]>([{ dimension: 'physical', impact: 50 }]);
   const [editChaosThreshold, setEditChaosThreshold] = useState(2);
+  const [editChaosPerWeek, setEditChaosPerWeek] = useState(7);
   // Stack parent picker (which habit triggers this one)
   const [editingStackParentId, setEditingStackParentId] = useState<string | null>(null);
   // Intentions editor (why you do this habit)
   const [editingWhyHabitId, setEditingWhyHabitId] = useState<string | null>(null);
   const [editWhyText, setEditWhyText] = useState('');
+  // Implementation-intention drafts (si-alors) for the open intentions panel
+  const [editIfThenCue, setEditIfThenCue] = useState('');
+  const [editIfThenAction, setEditIfThenAction] = useState('');
+
+  function handleIfThenAdd(habitId: string) {
+    const cue = editIfThenCue.trim();
+    const action = editIfThenAction.trim();
+    if (!cue || !action) return;
+    const habit = habits.find((h) => h.id === habitId);
+    if (!habit) return;
+    const current = habit.ifThen ?? [];
+    if (current.length >= MAX_IF_THEN) return;
+    updateHabit(habitId, { ifThen: [...current, { cue, action }] });
+    setEditIfThenCue('');
+    setEditIfThenAction('');
+  }
+  // Sub-habits ("sous-coches") expansion + editor
+  const [expandedSubs, setExpandedSubs] = useState<string[]>([]);
+  const [editingSubsHabitId, setEditingSubsHabitId] = useState<string | null>(null);
+  const [newSubText, setNewSubText] = useState('');
+  // Full CheckIn records per habit+month (partial/doux flags + subIds)
+  const [monthRecords, setMonthRecords] = useState<Map<string, Map<number, CheckIn>>>(new Map());
   // v0.3.2: Toggle to display archived habits in the grid
   const [showArchived, setShowArchived] = useState(false);
   // Quick habit search (accent-insensitive) — filters grid rows live
@@ -251,6 +292,14 @@ const DEFAULT_CATEGORIES = [
   // --- Startup: diagnose storage + auto-restore from backup if needed ---
   useEffect(() => {
     diagnoseStorage();
+    try {
+      const seeded = seedWellbeingDefaults();
+      if (seeded.outingGuard || seeded.protocol) {
+        // updatePreferences() inside the seed already notifies subscribers,
+        // which reloads habits/grid — no synchronous setState needed here.
+        console.log('🌱 Seeded wellbeing defaults (user-approved one-shot)');
+      }
+    } catch { /* best-effort: seeds must never block boot */ }
     const restored = restoreFromBackupIfNewer();
     if (restored) {
       console.log('✅ Auto-restored data from backup');
@@ -269,6 +318,11 @@ const DEFAULT_CATEGORIES = [
       }).catch(() => { /* best-effort */ });
     };
     tryRecovery(0);
+    // Prune upgrade snapshots EVERY boot (not only when creating): each is a
+    // full ~2MB copy and they piled up to 10+ keys, choking localStorage
+    // quota — which then silently failed ALL envelope writes. Deep file
+    // history (23+ timestamped backups) makes 3 local snapshots plenty.
+    try { pruneOldBackups(3); } catch { /* best-effort */ }
     // Create a pre-upgrade safety snapshot once per day (survives code updates).
     // Check for ANY backup with today's date prefix (keys include HH-MM suffix).
     const todayPrefix = `lifetrack-upgrade-backup-${new Date().toISOString().slice(0, 10)}`;
@@ -278,7 +332,7 @@ const DEFAULT_CATEGORIES = [
       const backupKey = createUpgradeBackup();
       if (backupKey) {
         console.log(`🔒 Daily safety backup: ${backupKey}`);
-        pruneOldBackups(7); // keep rolling 7-day window
+        try { pruneOldBackups(3); } catch { /* best-effort */ }
       }
     }
   }, []);
@@ -392,6 +446,36 @@ const DEFAULT_CATEGORIES = [
     return () => clearInterval(id);
   }, []);
 
+  // Emotional check-in nudge: at 21:00+, once per day, if an active event
+  // still lacks today's intensity check. Opt-out via preferences.
+  useEffect(() => {
+    const checkEmotionalNudge = () => {
+      try {
+        const prefs = getPreferences();
+        if (prefs.emotionalCheckReminder === false) return;
+        const now = new Date();
+        const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        const today = todayStr();
+        if (prefs.lastEmotionalReminderDate === today || currentTime < '21:00') return;
+        const pending = getEmotionalEvents().filter((e) => {
+          if (e.archived) return false;
+          return !getEmotionalChecks(e.id).some((c) => c.date === today);
+        });
+        if (pending.length === 0) return;
+        const names = pending.slice(0, 2).map((e) => `« ${e.title} »`).join(', ');
+        const more = pending.length > 2 ? ` (+${pending.length - 2})` : '';
+        sendSystemNotification(
+          '💭 Check-in émotionnel',
+          `Pas encore de coche aujourd'hui pour ${names}${more} — 10 secondes pour l'intensité du jour ?`,
+        );
+      } catch { /* ignore */ }
+      try { updatePreferences({ lastEmotionalReminderDate: todayStr() }); } catch { /* ignore */ }
+    };
+    checkEmotionalNudge();
+    const id = setInterval(checkEmotionalNudge, 30000);
+    return () => clearInterval(id);
+  }, []);
+
   // Auto-check for backup recovery on startup (desktop only, fresh install)
   useEffect(() => {
     if (!isTauri || autoRestoreCheckedRef.current) return;
@@ -438,6 +522,16 @@ const DEFAULT_CATEGORIES = [
       try {
         const { invoke } = await import('@tauri-apps/api/core');
         const allData = exportAllData();
+        // Never persist an effectively empty store over real backups: at boot
+        // the store may not be hydrated yet, and a fresh profile legitimately
+        // has nothing worth snapshotting.
+        const hasContent = allData.habits.length > 0 || allData.checkIns.length > 0
+          || (allData.emotionalEvents ?? []).length > 0 || (allData.journalEntries ?? []).length > 0
+          || (allData.notes ?? []).length > 0;
+        if (!hasContent) {
+          console.debug('Auto-backup skipped: store effectively empty');
+          return;
+        }
         const path = await invoke<string>('auto_backup', { jsonData: JSON.stringify(allData, null, 2) });
         console.debug('Auto-backup saved to', path);
       } catch (e) {
@@ -457,15 +551,15 @@ const DEFAULT_CATEGORIES = [
 
   // Apply theme class to <html> for CSS variable overrides
   useEffect(() => {
-    const classes = ['theme-ocean', 'theme-forest', 'theme-sunset', 'theme-rose', 'theme-mono', 'theme-midnight', 'theme-emerald', 'theme-bw'];
+    const classes = ['theme-ocean', 'theme-forest', 'theme-sunset', 'theme-rose', 'theme-mono', 'theme-midnight', 'theme-emerald', 'theme-bw', 'theme-graph'];
     document.documentElement.classList.remove(...classes);
     if (theme) document.documentElement.classList.add(theme);
     updatePreferences({ theme });
     try { localStorage.setItem('lifetrack-theme', theme); } catch { /* nop */ }
   }, [theme]);
 
-  const themes = ['', 'theme-ocean', 'theme-forest', 'theme-sunset', 'theme-rose', 'theme-mono', 'theme-midnight', 'theme-emerald', 'theme-bw'];
-  const themeLabels = ['Default', 'Ocean', 'Forest', 'Sunset', 'Rose', 'Mono', 'Midnight', 'Emerald', 'Noir & Blanc'];
+  const themes = ['', 'theme-ocean', 'theme-forest', 'theme-sunset', 'theme-rose', 'theme-mono', 'theme-midnight', 'theme-emerald', 'theme-bw', 'theme-graph'];
+  const themeLabels = ['Default', 'Ocean', 'Forest', 'Sunset', 'Rose', 'Mono', 'Midnight', 'Emerald', 'Noir & Blanc', 'Graphes'];
   function cycleTheme() {
     const idx = themes.indexOf(theme);
     setTheme(themes[(idx + 1) % themes.length]);
@@ -548,7 +642,7 @@ const DEFAULT_CATEGORIES = [
       // Tab switching: Ctrl+1..9 + Ctrl+0
       if (ctrl && e.key >= '0' && e.key <= '9') {
         e.preventDefault();
-        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'principles', 'emotions', 'mantras', 'experiments', 'journal', 'achievements', 'urges', 'psycho', 'projects', 'knowledge', 'obsidian', 'missions'];
+        const tabs: string[] = ['settings', 'today', 'grid', 'stats', 'history', 'year', 'stacks', 'skills', 'insights', 'chaos', 'principles', 'emotions', 'mantras', 'experiments', 'journal', 'achievements', 'urges', 'psycho', 'projects', 'knowledge', 'obsidian', 'asto'];
         const idx = e.key === '0' ? 0 : parseInt(e.key, 10);
         const viewKey = tabs[idx] as typeof view;
         if (viewKey) setView(viewKey);
@@ -608,10 +702,13 @@ const DEFAULT_CATEGORIES = [
       const h = getHabits();
       setHabits(h);
       const ci = new Map<string, Map<number, boolean>>();
+      const rec = new Map<string, Map<number, CheckIn>>();
       for (const habit of h) {
         ci.set(habit.id, getMonthCheckIns(habit.id, year, month));
+        rec.set(habit.id, getMonthCheckInRecords(habit.id, year, month));
       }
       setCheckIns(ci);
+      setMonthRecords(rec);
       setNotes(getNotes());
       // Refresh the lifetime check-in cache so Stats view shows fresh records.
       setAllCheckIns(exportAllData().checkIns);
@@ -666,8 +763,8 @@ const DEFAULT_CATEGORIES = [
           apiKey: prefs.aiApiKey,
         });
         if (!cancelled) applyFeedIngest(enriched);
-        // Sky-driven missions: weak-domain transits become missions by themselves.
-        if (!cancelled) runAutoMissions();
+        // Sky-driven asto goals: weak-domain transits become asto goals by themselves.
+        if (!cancelled) runAutoAsto();
         // Zero-touch knowledge: adopt the top suggested protocols (create habits).
         if (!cancelled) runAutoKnowledge();
       } catch {
@@ -729,7 +826,7 @@ const DEFAULT_CATEGORIES = [
   // at startup, even when the feed loop is offline or disabled.
   useEffect(() => {
     if (import.meta.env?.MODE === 'test') return;
-    runAutoMissions();
+    runAutoAsto();
     runAutoKnowledge();
   }, []);
 
@@ -839,6 +936,7 @@ const DEFAULT_CATEGORIES = [
             chaosDimension: newHabitChaosDimension,
             chaosImpact: newHabitChaosImpact,
             chaosThresholdDays: newHabitChaosThreshold,
+            chaosPerWeek: newHabitChaosPerWeek,
           }
         : undefined;
       addHabit(newHabitName.trim(), chaosOpts);
@@ -852,6 +950,7 @@ const DEFAULT_CATEGORIES = [
     setNewHabitChaosDimension('physical');
     setNewHabitChaosImpact(50);
     setNewHabitChaosThreshold(2);
+    setNewHabitChaosPerWeek(7);
     setShowNewHabitInput(false);
   }
 
@@ -872,6 +971,7 @@ const DEFAULT_CATEGORIES = [
         : [];
     setEditChaosLinks(existing.length > 0 ? existing : [{ dimension: 'physical', impact: 50 }]);
     setEditChaosThreshold(habit.chaosThresholdDays ?? 2);
+    setEditChaosPerWeek(habit.chaosPerWeek ?? 7);
   }
 
   function saveChaosEditor() {
@@ -884,11 +984,13 @@ const DEFAULT_CATEGORIES = [
           chaosDimension: undefined,
           chaosImpact: undefined,
           chaosThresholdDays: undefined,
+          chaosPerWeek: undefined,
         });
       } else {
         updateHabit(editingChaosHabitId, {
           chaosLinks: links,
           chaosThresholdDays: editChaosThreshold,
+          chaosPerWeek: editChaosPerWeek,
         });
       }
       setEditingChaosHabitId(null);
@@ -1070,6 +1172,35 @@ const DEFAULT_CATEGORIES = [
   // rates for 7/30/90/365-day windows, and a weighted score.
   // Habits that act as stack PARENTS (some other habit hangs off them)
   const stackParentIds = useMemo(() => new Set(habits.map((h) => h.stackParent).filter(Boolean) as string[]), [habits]);
+
+  // Self-compassion breaks (Neff): habits missed ≥2 days get kindness, not
+  // a punishing ring. computeMissedStreak reads the live store; `habits` is
+  // a fresh array on every store notification so this stays reactive.
+  const compassionBreaks = useMemo(() => {
+    const now = new Date();
+    return habits
+      .filter((h) => !h.archived)
+      .map((h) => ({ habit: h, missed: computeMissedStreak(h, now) }))
+      .filter((x) => x.missed >= 2)
+      .sort((a, b) => b.missed - a.missed)
+      .slice(0, 3)
+      .map((x) => ({ habit: x.habit, missed: x.missed, brk: selfCompassionFor(x.habit.name, x.missed)! }));
+  }, [habits]);
+
+  // Low-mood doux mode: today's depression ≥ threshold → suggest the gentle
+  // path (expand subs) and surface the si-alors plans exactly when needed.
+  const lowMoodDoux = useMemo(() => {
+    if (!isCurrentMonth) return null;
+    const dep = monthDepressions.get(todayDay);
+    if (dep === undefined || dep < (depThreshold ?? 70)) return null;
+    const withSubs = habits.filter((h) => !h.archived && (h.subHabits?.length ?? 0) > 0);
+    const ifThens: { habitName: string; cue: string; action: string }[] = [];
+    for (const h of habits) {
+      if (h.archived) continue;
+      for (const p of h.ifThen ?? []) ifThens.push({ habitName: h.name, cue: p.cue, action: p.action });
+    }
+    return { dep, withSubs, ifThens: ifThens.slice(0, 4) };
+  }, [monthDepressions, todayDay, isCurrentMonth, depThreshold, habits]);
 
   // habitId → set of ISO dates completed in the last 14 days (sparklines + recovery flag)
   const last14DoneByHabit = useMemo(() => {
@@ -1349,8 +1480,8 @@ const DEFAULT_CATEGORIES = [
         <div className="grid-area" key={gridKey} onClick={() => setKeyboardUsed(false)}>
           {habits.length === 0 ? (
             <div className="empty-state">
-              <p className="empty-title">No habits yet</p>
-              <p className="empty-hint">Click the button below or press <kbd>Ctrl+N</kbd> to add your first habit.</p>
+              <p className="empty-title">Aucune habitude</p>
+              <p className="empty-hint">Clique ci-dessous ou presse <kbd>Ctrl+N</kbd> pour créer ta première habitude.</p>
               <div className="empty-suggestions">
                 <button className="btn btn-sm btn-ghost" onClick={() => addHabit('Méditation')}>+ Méditation</button>
                 <button className="btn btn-sm btn-ghost" onClick={() => addHabit('Sport')}>+ Sport</button>
@@ -1364,7 +1495,11 @@ const DEFAULT_CATEGORIES = [
             <>
               <div className="grid-toolbar">
                 <span className="grid-toolbar-info">
-                  {habits.filter((h) => !h.archived).length} active · {habits.filter((h) => h.archived).length} archived
+                  {(() => {
+                    const a = habits.filter((h) => !h.archived).length;
+                    const b = habits.filter((h) => h.archived).length;
+                    return `${a} active${a > 1 ? 's' : ''} · ${b} archivée${b > 1 ? 's' : ''}`;
+                  })()}
                 </span>
                 {plannedThisMonth > 0 && (
                   <span className="grid-plan-banner" title="Jours planifiés par ton plan d'objectif (voir Insights)">
@@ -1393,7 +1528,7 @@ const DEFAULT_CATEGORIES = [
                 <button
                   className={`btn btn-sm ${effectiveCompact ? 'btn-primary' : 'btn-ghost'}`}
                   onClick={() => updatePreferences({ compactGrid: !getPreferences().compactGrid })}
-                  title={effectiveCompact ? (autoCompactOn && !compactPrefs.compactGrid ? `Compact grid: auto (≥${compactPrefs.compactThreshold ?? 30} habitudes) — click to force on` : 'Compact grid: on — click to switch to normal density') : 'Compact grid: off — smaller cells so more habits fit on screen'}
+                  title={effectiveCompact ? (autoCompactOn && !compactPrefs.compactGrid ? `Grille compacte : auto (≥${compactPrefs.compactThreshold ?? 30} habitudes) — cliquer pour forcer` : 'Grille compacte : oui — cliquer pour revenir en densité normale') : 'Grille compacte : non — cellules resserrées pour voir plus d\u2019habitudes'}
                   aria-pressed={effectiveCompact}
                 >
                   ⚡ Compact
@@ -1401,11 +1536,169 @@ const DEFAULT_CATEGORIES = [
                 <button
                   className={`btn btn-sm ${showArchived ? 'btn-primary' : 'btn-ghost'}`}
                   onClick={() => setShowArchived((v) => !v)}
-                  title="Toggle archived habits"
+                  title="Afficher ou masquer les habitudes archivées"
                 >
-                  {showArchived ? 'Hide archived' : 'Show archived'}
+                  {showArchived ? 'Masquer archivées' : 'Voir archivées'}
                 </button>
               </div>
+              {(() => {
+                // Discovery card for seeded wellbeing features: the seed runs
+                // silently at boot, so without this the user never finds the
+                // outing guard (Chaos → Structurel) or the protocol (seuil).
+                // Shown until explicitly acknowledged (persisted pref).
+                let prefs: { outingGuardSeeded?: boolean; depressionProtocolSeeded?: boolean; wellbeingNewSeen?: boolean };
+                try { prefs = getPreferences(); } catch { return null; }
+                if ((!prefs.outingGuardSeeded && !prefs.depressionProtocolSeeded) || prefs.wellbeingNewSeen) return null;
+                return (
+                  <div className="grid-banner discovery-banner" role="status">
+                    <span className="doux-banner-icon">🌱</span>
+                    <div className="doux-banner-text">
+                      <strong>Nouveautés installées.</strong>
+                      <span> Garde-fou « sorties impromptues » (Chaos → Structurel → Principes, à cocher quand ça arrive) + protocole jour dépression en 6 phases (apparaît ici dès que ta dépression atteint ton seuil, ou dans Principes → Émotions).</span>
+                    </div>
+                    <button
+                      className="btn btn-sm btn-primary"
+                      onClick={() => setView('principles')}
+                      title="Voir les principes et le protocole"
+                    >
+                      Voir
+                    </button>
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => updatePreferences({ wellbeingNewSeen: true })}
+                      title="Ne plus afficher"
+                    >
+                      OK, compris
+                    </button>
+                  </div>
+                );
+              })()}
+              {(() => {
+                const storageErr = getLastStorageError();
+                if (!storageErr) return null;
+                return (
+                  <div className="grid-banner storage-banner" role="alert">
+                    <span className="storage-banner-icon">⚠️</span>
+                    <div className="doux-banner-text">
+                      <strong>Sauvegarde locale en échec.</strong>
+                      <span> {storageErr.message}</span>
+                    </div>
+                    <button className="btn btn-sm btn-primary" onClick={handleExportJSON} title="Télécharger toutes tes données en JSON maintenant">
+                      Exporter JSON
+                    </button>
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => { clearStorageError(); forceSaveNow(); }}
+                      title="Réessayer la sauvegarde locale"
+                    >
+                      Réessayer
+                    </button>
+                  </div>
+                );
+              })()}
+              {lowMoodDoux && (
+                <div className="grid-banner doux-banner" role="status">
+                  <span className="doux-banner-icon">🌗</span>
+                  <div className="doux-banner-text">
+                    <strong>Dépression à {lowMoodDoux.dep}% aujourd'hui — mode doux suggéré.</strong>
+                    <span> Pas d'héroïsme : une sous-coche vaut mieux qu'un zéro. Tes plans prévus pour ces jours-là :</span>
+                    {lowMoodDoux.ifThens.length > 0 ? (
+                      <ul className="doux-ifthen-list">
+                        {lowMoodDoux.ifThens.map((p, i) => (
+                          <li key={i}><em>Si {p.cue}</em> → <strong>{p.action}</strong> <span className="doux-ifthen-habit">({p.habitName})</span></li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span> Ajoute un plan « si-alors » à une habitude (bouton ⓘ → Si… alors…) pour les jours comme celui-ci.</span>
+                    )}
+                    {(() => {
+                      const proto = getDepressionProtocol();
+                      if (!proto) return null;
+                      const prog = routineProgress(proto);
+                      const steps = [...proto.steps].sort((a, b) => a.order - b.order);
+                      const doneSet = new Set(proto.progress?.doneStepIds ?? []);
+                      return (
+                        <div className="doux-protocol">
+                          <div className="doux-protocol-head">
+                            <strong>🌧️ {proto.name} — {prog.done}/{prog.total}</strong>
+                            {prog.done > 0 && prog.next && (
+                              <span className="doux-protocol-resume">▶ Reprendre : phase {steps.findIndex((s) => s.id === prog.next!.id) + 1} — {prog.next.label.split('—')[0].trim()}</span>
+                            )}
+                            {!prog.next && prog.total > 0 && <span className="doux-protocol-done">✓ Journée protocole terminée — repose-toi, c'est mérité.</span>}
+                            {prog.done > 0 && (
+                              <button
+                                className="btn btn-sm btn-ghost"
+                                onClick={() => resetRoutineProgress(proto.id)}
+                                title="Tout décocher et recommencer le protocole"
+                              >
+                                Recommencer
+                              </button>
+                            )}
+                          </div>
+                          <ul className="doux-protocol-steps">
+                            {steps.map((s, idx) => (
+                              <li key={s.id} className={doneSet.has(s.id) ? 'is-done' : (prog.next?.id === s.id ? 'is-next' : '')}>
+                                <label>
+                                  <input
+                                    type="checkbox"
+                                    checked={doneSet.has(s.id)}
+                                    onChange={() => toggleRoutineStep(proto.id, s.id)}
+                                  />
+                                  <span className="doux-protocol-num">{idx + 1}</span>
+                                  <span className="doux-protocol-label">{s.label}</span>
+                                </label>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  {lowMoodDoux.withSubs.length > 0 && (
+                    <button
+                      className="btn btn-sm btn-primary"
+                      onClick={() => setExpandedSubs((prev) => [...new Set([...prev, ...lowMoodDoux.withSubs.map((h) => h.id)])])}
+                      title="Déplier toutes les sous-coches pour cocher en mode doux"
+                    >
+                      Déplier le mode doux
+                    </button>
+                  )}
+                </div>
+              )}
+              {compassionBreaks.length > 0 && (
+                <div className="grid-banner compassion-banner" role="status">
+                  {compassionBreaks.map(({ habit, missed, brk }) => (
+                    brk.mode === 'dormant' ? (
+                      // Dormant habits collapse to one line: three full pep-talks
+                      // pushed the whole grid down (screenshot: 35j × 3).
+                      <details key={habit.id} className="compassion-break compassion-dormant">
+                        <summary className="compassion-title">{brk.title}</summary>
+                        <ul className="compassion-phrases">
+                          {brk.phrases.map((p, i) => <li key={i}>{p}</li>)}
+                        </ul>
+                        <p className="compassion-cta">{brk.cta}</p>
+                      </details>
+                    ) : (
+                      <div key={habit.id} className="compassion-break compassion-lapse">
+                        <p className="compassion-title">{brk.title}</p>
+                        <ul className="compassion-phrases">
+                          {brk.phrases.map((p, i) => <li key={i}>{p}</li>)}
+                        </ul>
+                        <p className="compassion-cta">{brk.cta}</p>
+                        {(habit.subHabits?.length ?? 0) > 0 && !expandedSubs.includes(habit.id) && (
+                          <button
+                            className="btn btn-sm btn-ghost"
+                            onClick={() => setExpandedSubs((prev) => [...prev, habit.id])}
+                            title={`Voir les options douces de ${habit.name}`}
+                          >
+                            Voir mes options douces ({missed}j manqués)
+                          </button>
+                        )}
+                      </div>
+                    )
+                  ))}
+                </div>
+              )}
               <DragDropContext onDragEnd={handleDragEnd}>
                 <div className={`table-scroll${effectiveCompact ? ' compact-grid' : ''}${densityCls}`}>
                   <table className="habit-grid">
@@ -1422,8 +1715,8 @@ const DEFAULT_CATEGORIES = [
                       <span className="day-number">{h.day}</span>
                     </th>
                   ))}
-                  <th className="col-goal" title="Monthly target">Goal</th>
-                  <th className="col-achieved">Done</th>
+                  <th className="col-goal" title="Objectif mensuel">Objectif</th>
+                  <th className="col-achieved">Fait</th>
                 </tr>
               </thead>
               <Droppable droppableId="habit-list">
@@ -1468,9 +1761,21 @@ const DEFAULT_CATEGORIES = [
                   const goal = habit.goal || daysInMonth;
 
                   return (
-                    <DraggableHabitRow key={habit.id} habitId={habit.id} index={habitIdx} className={`${habit.stackParent ? 'has-stack' : ''} ${stackParentIds.has(habit.id) ? 'is-stack-parent' : ''}`}>
+                    <React.Fragment key={habit.id}>
+                    <DraggableHabitRow habitId={habit.id} index={habitIdx} className={`${habit.stackParent ? 'has-stack' : ''} ${stackParentIds.has(habit.id) ? 'is-stack-parent' : ''}`}>
                       <td className={`col-habits streak-level-${streakLevel}`}>
                         <div className="habit-row">
+                          {(habit.subHabits?.length ?? 0) > 0 && (
+                            <button
+                              type="button"
+                              className="habit-subs-expand"
+                              onClick={() => setExpandedSubs((prev) => prev.includes(habit.id) ? prev.filter((id) => id !== habit.id) : [...prev, habit.id])}
+                              title={expandedSubs.includes(habit.id) ? 'Replier les sous-coches' : `Déplier les sous-coches (${habit.subHabits!.length})`}
+                              aria-label={expandedSubs.includes(habit.id) ? 'Replier les sous-coches' : 'Déplier les sous-coches'}
+                            >
+                              {expandedSubs.includes(habit.id) ? '▾' : '▸'}
+                            </button>
+                          )}
                           {editingHabitId === habit.id ? (
                             <input
                               className="habit-name-input"
@@ -1486,7 +1791,7 @@ const DEFAULT_CATEGORIES = [
                             <span
                               className="habit-name"
                               onClick={() => setEditingHabitId(habit.id)}
-                              title="Click to rename"
+                              title={`${habit.name} — cliquer pour renommer`}
                             >
                               {habit.name}
                               {hs && hs.currentStreak >= 3 && (
@@ -1588,15 +1893,31 @@ const DEFAULT_CATEGORIES = [
                               const isOpening = editingWhyHabitId !== habit.id;
                               setEditingWhyHabitId(isOpening ? habit.id : null);
                               setEditWhyText(''); // always reset when toggling
+                              setEditIfThenCue('');
+                              setEditIfThenAction('');
                             }}
                             title={(habit.why?.length ?? 0) > 0 ? `${habit.why!.length} intention(s)` : 'Add intentions (why?)'}
                           >
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9.66 2.97a10 10 0 104.68 0"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
                           </button>
+                          <button
+                            className={`habit-subs-btn ${(habit.subHabits?.length ?? 0) > 0 ? 'has-subs' : ''}`}
+                            onClick={() => {
+                              const isOpening = editingSubsHabitId !== habit.id;
+                              setEditingSubsHabitId(isOpening ? habit.id : null);
+                              setNewSubText(''); // always reset when toggling
+                              if (isOpening && (habit.subHabits?.length ?? 0) > 0 && !expandedSubs.includes(habit.id)) {
+                                setExpandedSubs((prev) => [...prev, habit.id]);
+                              }
+                            }}
+                            title={(habit.subHabits?.length ?? 0) > 0 ? `${habit.subHabits!.length} sous-coche(s) — ex : working while depressed` : 'Ajouter des sous-coches (validation douce 🌗)'}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                          </button>
                         </div>
                         {editingWhyHabitId === habit.id && (
                           <div className="habit-why-edit">
-                            <div className="why-header">Why do you do "{habit.name}"?</div>
+                            <div className="why-header">Pourquoi fais-tu « {habit.name} » ?</div>
                             {(habit.why ?? []).map((w, i) => (
                               <div key={i} className="why-row">
                                 <span className="why-text">{w}</span>
@@ -1606,7 +1927,7 @@ const DEFAULT_CATEGORIES = [
                                     const updated = (habit.why ?? []).filter((_, j) => j !== i);
                                     updateHabit(habit.id, { why: updated.length > 0 ? updated : undefined });
                                   }}
-                                  title="Remove"
+                                  title="Retirer"
                                 >×</button>
                               </div>
                             ))}
@@ -1614,7 +1935,7 @@ const DEFAULT_CATEGORIES = [
                               <div className="why-add-row">
                                 <input
                                   className="why-input"
-                                  placeholder="e.g. To feel energized..."
+                                  placeholder="ex. Pour me sentir énergique…"
                                   value={editWhyText}
                                   onChange={(e) => setEditWhyText(e.target.value)}
                                   onKeyDown={(e) => {
@@ -1635,10 +1956,93 @@ const DEFAULT_CATEGORIES = [
                                       setEditWhyText('');
                                     }
                                   }}
-                                >Add</button>
+                                >Ajouter</button>
                               </div>
                             )}
-                            <button className="why-close" onClick={() => setEditingWhyHabitId(null)}>Done</button>
+                            <div className="why-ifthen-section">
+                              <div className="why-header" title="Intentions d'implémentation (Gollwitzer) : lier un signal à une micro-action double le suivi">Si… alors… <span className="why-ifthen-hint">(se déclenche tout seul les mauvais jours)</span></div>
+                              {(habit.ifThen ?? []).map((p, i) => (
+                                <div key={i} className="why-row">
+                                  <span className="why-text">Si <em>{p.cue}</em> → <strong>{p.action}</strong></span>
+                                  <button
+                                    className="why-remove"
+                                    onClick={() => {
+                                      const updated = (habit.ifThen ?? []).filter((_, j) => j !== i);
+                                      updateHabit(habit.id, { ifThen: updated.length > 0 ? updated : undefined });
+                                    }}
+                                    title="Retirer"
+                                  >×</button>
+                                </div>
+                              ))}
+                              {(habit.ifThen?.length ?? 0) < MAX_IF_THEN && (
+                                <div className="why-add-row ifthen-add-row">
+                                  <input
+                                    className="why-input"
+                                    placeholder="Si… (ex. je suis vidé le soir)"
+                                    value={editIfThenCue}
+                                    onChange={(e) => setEditIfThenCue(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') handleIfThenAdd(habit.id);
+                                      if (e.key === 'Escape') setEditingWhyHabitId(null);
+                                    }}
+                                  />
+                                  <input
+                                    className="why-input"
+                                    placeholder="…alors (ex. j'ouvre Work-doux 10 min)"
+                                    value={editIfThenAction}
+                                    onChange={(e) => setEditIfThenAction(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') handleIfThenAdd(habit.id);
+                                      if (e.key === 'Escape') setEditingWhyHabitId(null);
+                                    }}
+                                  />
+                                  <button className="btn btn-sm btn-primary" onClick={() => handleIfThenAdd(habit.id)}>Ajouter</button>
+                                </div>
+                              )}
+                            </div>
+                            <button className="why-close" onClick={() => setEditingWhyHabitId(null)}>Terminé</button>
+                          </div>
+                        )}
+                        {editingSubsHabitId === habit.id && (
+                          <div className="habit-subs-edit">
+                            <div className="why-header">Sous-coches de "{habit.name}" — cocher = validation douce 🌗 (le streak survit)</div>
+                            {(habit.subHabits ?? []).map((s) => (
+                              <div key={s.id} className="why-row">
+                                <span className="why-text">↳ {s.label}</span>
+                                <button
+                                  className="why-remove"
+                                  onClick={() => deleteSubHabit(habit.id, s.id)}
+                                  title="Supprimer cette sous-coche"
+                                >×</button>
+                              </div>
+                            ))}
+                            {(habit.subHabits?.length ?? 0) < MAX_SUB_HABITS && (
+                              <div className="why-add-row">
+                                <input
+                                  className="why-input"
+                                  placeholder="ex. working while depressed · 10 min"
+                                  value={newSubText}
+                                  onChange={(e) => setNewSubText(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && newSubText.trim()) {
+                                      addSubHabit(habit.id, newSubText.trim());
+                                      setNewSubText('');
+                                    }
+                                    if (e.key === 'Escape') setEditingSubsHabitId(null);
+                                  }}
+                                />
+                                <button
+                                  className="btn btn-sm btn-primary"
+                                  onClick={() => {
+                                    if (newSubText.trim()) {
+                                      addSubHabit(habit.id, newSubText.trim());
+                                      setNewSubText('');
+                                    }
+                                  }}
+                                >Ajouter</button>
+                              </div>
+                            )}
+                            <button className="why-close" onClick={() => setEditingSubsHabitId(null)}>Terminé</button>
                           </div>
                         )}
                         {editingChaosHabitId === habit.id && (
@@ -1655,7 +2059,7 @@ const DEFAULT_CATEGORIES = [
                                     }}
                                     className="chaos-select-sm"
                                   >
-                                    <option value="">— None (unlink) —</option>
+                                    <option value="">— Aucune (délier) —</option>
                                     <option value="physical">Physical</option>
                                     <option value="financial">Financial</option>
                                     <option value="social">Social</option>
@@ -1663,6 +2067,7 @@ const DEFAULT_CATEGORIES = [
                                     <option value="spiritual">Spiritual</option>
                                     <option value="emotional">Emotional</option>
                                     <option value="energy">Energy</option>
+                                    <option value="selfesteem">Estime de soi</option>
                                   </select>
                                   <input
                                     type="number" min="1" max="100"
@@ -1710,20 +2115,34 @@ const DEFAULT_CATEGORIES = [
                                 </button>
                               )}
                             </div>
-                            <span className="chaos-edit-label">if missed ≥</span>
+                            <span className="chaos-edit-label">si manquée ≥</span>
                             <input type="number" min="1" max="90" value={Number.isFinite(editChaosThreshold) ? editChaosThreshold : ''} onChange={(e) => {
                               const raw = e.target.value;
                               if (raw === '') { setEditChaosThreshold(NaN); return; }
                               setEditChaosThreshold(parseInt(raw, 10));
-                            }} className="chaos-input-sm" title="Days" />
-                            <span className="chaos-edit-label">days</span>
+                            }} className="chaos-input-sm" title={editChaosPerWeek < 7 ? 'Séances manquées' : 'Jours manqués'} />
+                            <span className="chaos-edit-label">{editChaosPerWeek < 7 ? 'séances' : 'jours'}</span>
+                            <select
+                              className="chaos-select-sm"
+                              value={editChaosPerWeek}
+                              onChange={(e) => setEditChaosPerWeek(parseInt(e.target.value, 10))}
+                              title="Fréquence attendue : une habitude 3×/sem ne doit pas chauffer après 2 jours calendaires"
+                            >
+                              <option value={7}>Quotidien</option>
+                              <option value={6}>6×/sem</option>
+                              <option value={5}>5×/sem</option>
+                              <option value={4}>4×/sem</option>
+                              <option value={3}>3×/sem</option>
+                              <option value={2}>2×/sem</option>
+                              <option value={1}>1×/sem</option>
+                            </select>
                             <button className="btn btn-sm btn-primary" onClick={saveChaosEditor}>OK</button>
-                            <button className="btn btn-sm btn-ghost" onClick={() => setEditingChaosHabitId(null)}>Cancel</button>
+                            <button className="btn btn-sm btn-ghost" onClick={() => setEditingChaosHabitId(null)}>Annuler</button>
                           </div>
                         )}
                         {editingStackParentId === habit.id && (
                           <div className="habit-stack-edit">
-                            <span className="stack-edit-label">When:</span>
+                            <span className="stack-edit-label">Quand :</span>
                             <select
                               className="stack-select-sm"
                               value={habit.stackWhen ?? 'after'}
@@ -1733,11 +2152,11 @@ const DEFAULT_CATEGORIES = [
                                 }
                               }}
                             >
-                              <option value="before">⬆ Before</option>
-                              <option value="after">⬇ After</option>
-                              <option value="with">↔ With</option>
+                              <option value="before">⬆ Avant</option>
+                              <option value="after">⬇ Après</option>
+                              <option value="with">↔ Avec</option>
                             </select>
-                            <span className="stack-edit-label">from:</span>
+                            <span className="stack-edit-label">de :</span>
                             <select
                               className="stack-select-sm"
                               value={habit.stackParent ?? ''}
@@ -1750,7 +2169,7 @@ const DEFAULT_CATEGORIES = [
                                 }
                               }}
                             >
-                              <option value="">— None (remove from stack) —</option>
+                              <option value="">— Aucune (retirer) —</option>
                               {habits
                                 .filter((h) => h.id !== habit.id && !h.archived)
                                 .sort((a, b) => a.name.localeCompare(b.name))
@@ -1762,7 +2181,7 @@ const DEFAULT_CATEGORIES = [
                               className="btn btn-sm btn-ghost"
                               onClick={() => setEditingStackParentId(null)}
                             >
-                              Done
+                              Terminé
                             </button>
                           </div>
                         )}
@@ -1772,6 +2191,8 @@ const DEFAULT_CATEGORIES = [
                         const isToday = isCurrentMonth && h.day === todayDay;
                         const isFocused = keyboardUsed && focusDay === h.day && focusHabitIdx === habitIdx;
                         const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(h.day).padStart(2, '0')}`;
+                        const dayRecord = monthRecords.get(habit.id)?.get(h.day);
+                        const partial = !!dayRecord && isPartialCheckIn(dayRecord);
                         const currentCount = checked ? getCheckInCount(habit.id, dateKey) : 0;
                         // Note indicator
                         const noteKey = `${habit.id}::${dateKey}`;
@@ -1794,9 +2215,9 @@ const DEFAULT_CATEGORIES = [
                             className={`col-day ${isToday ? 'today' : ''} ${isFocused ? 'focused' : ''}`}
                             onClick={(e) => handleCellClick(habit.id, h.day, isMultiClick, e.ctrlKey || e.metaKey, e.shiftKey)}
                             onContextMenu={(e) => handleCellContextMenu(e, habit.id, habit.name, h.day)}
-                            title={hasNote ? noteTooltip : isMultiClick ? `Click +1 · Shift+Click −1 · Ctrl+Click reset · Right-click note` : `Click to toggle · Right-click to add note`}
+                            title={partial ? `Partiel (doux) 🌗 — validé via sous-coche(s) · clic = validation complète · Clic droit = note` : hasNote ? noteTooltip : isMultiClick ? `Clic +1 · Maj+Clic −1 · Ctrl+Clic reset · Clic droit = note` : `Cliquer pour cocher · Clic droit pour noter`}
                           >
-                            <div className={`day-cell ${checked ? 'checked' : ''} ${hasNote ? 'has-note' : ''} ${planKind === 'go' ? 'plan-target' : ''} ${planKind === 'risk' ? 'plan-risk' : ''} ${missedYesterday && isToday && !checked ? 'recovery-day' : ''}`}>
+                            <div className={`day-cell ${checked ? 'checked' : ''} ${partial ? 'partial' : ''} ${hasNote ? 'has-note' : ''} ${planKind === 'go' ? 'plan-target' : ''} ${planKind === 'risk' ? 'plan-risk' : ''} ${missedYesterday && isToday && !checked ? 'recovery-day' : ''}`}>
                               {checked && (
                                 <svg className="check-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                                   <polyline points="5,13 10,18 19,7"/>
@@ -1829,7 +2250,7 @@ const DEFAULT_CATEGORIES = [
                           <span
                             className="goal-number"
                             onClick={() => handleGoalClick(habit.id, goal)}
-                            title="Click to set goal"
+                            title="Cliquer pour définir l'objectif"
                           >
                             {goal}
                           </span>
@@ -1849,7 +2270,22 @@ const DEFAULT_CATEGORIES = [
                       </td>
                       <td className="col-achieved">
                         <div className="achieved-cell">
-                          <span className="achieved-number" title={`${activeDays}d active · ${totalExecs} total`}>
+                          {(() => {
+                            let doux = 0;
+                            for (const rec of (monthRecords.get(habit.id)?.values() ?? [])) {
+                              if (isPartialCheckIn(rec)) doux++;
+                            }
+                            if (doux === 0) return null;
+                            return (
+                              <span
+                                className="achieved-doux"
+                                title={`${doux} validation${doux > 1 ? 's' : ''} douce${doux > 1 ? 's' : ''} ce mois-ci — le streak a survécu aux mauvais jours. C'est une réussite, pas un rabais.`}
+                              >
+                                🌗{doux}
+                              </span>
+                            );
+                          })()}
+                          <span className="achieved-number" title={`${activeDays}j actifs · ${totalExecs} au total`}>
                             {goal > 0 ? `${totalExecs}/${goal}` : `${totalExecs}`}
                           </span>
                           {goal > 0 && (
@@ -1860,6 +2296,39 @@ const DEFAULT_CATEGORIES = [
                         </div>
                       </td>
                     </DraggableHabitRow>
+                    {expandedSubs.includes(habit.id) && (habit.subHabits ?? []).map((sub) => (
+                      <tr key={sub.id} className="sub-habit-row">
+                        <td className="col-drag-handle" />
+                        <td className="col-habits sub-habit-cell" title={sub.label}>
+                          <span className="sub-habit-label">↳ {sub.label}</span>
+                        </td>
+                        {dayHeaders.map((dh) => {
+                          const subRec = monthRecords.get(habit.id)?.get(dh.day);
+                          const subDone = !!subRec?.subIds?.includes(sub.id);
+                          const subDateKey = parseDateStr(year, month, dh.day);
+                          const subIsToday = isCurrentMonth && dh.day === todayDay;
+                          return (
+                            <td
+                              key={dh.day}
+                              className={`col-day sub-day ${subIsToday ? 'today' : ''}`}
+                              onClick={() => { toggleSubCheck(habit.id, sub.id, subDateKey); }}
+                              title={`${sub.label} — ${subDone ? 'cochée, cliquer pour décocher' : 'cocher en mode doux 🌗'} · ${subDateKey}`}
+                            >
+                              <div className={`day-cell sub-cell ${subDone ? 'checked' : ''}`}>
+                                {subDone && (
+                                  <svg className="check-icon" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                                    <polyline points="5,13 10,18 19,7"/>
+                                  </svg>
+                                )}
+                              </div>
+                            </td>
+                          );
+                        })}
+                        <td className="col-goal" />
+                        <td className="col-achieved" />
+                      </tr>
+                    ))}
+                    </React.Fragment>
                   );
                 })}
                     {/* Mood tracker row */}
@@ -2190,8 +2659,8 @@ const DEFAULT_CATEGORIES = [
         <KnowledgeView />
       ) : view === 'obsidian' ? (
         <ObsidianView />
-      ) : view === 'missions' ? (
-        <MissionsView />
+      ) : view === 'asto' ? (
+        <AstoView />
       ) : view === 'correlations' ? (
         <CorrelationsView />
       ) : view === 'gains' ? (
@@ -2480,7 +2949,7 @@ const DEFAULT_CATEGORIES = [
             <div className="add-habit-form">
               <input
                 className="new-habit-input"
-                placeholder="Habit name..."
+                placeholder="Nom de l'habitude..."
                 value={newHabitName}
                 onChange={(e) => setNewHabitName(e.target.value)}
                 autoFocus
@@ -2489,8 +2958,8 @@ const DEFAULT_CATEGORIES = [
                   if (e.key === 'Escape') { resetNewHabitForm(); }
                 }}
               />
-              <button className="btn btn-sm btn-primary" onClick={handleAddHabit}>Add</button>
-              <button className="btn btn-sm btn-ghost" onClick={resetNewHabitForm}>Cancel</button>
+              <button className="btn btn-sm btn-primary" onClick={handleAddHabit}>Ajouter</button>
+              <button className="btn btn-sm btn-ghost" onClick={resetNewHabitForm}>Annuler</button>
             </div>
             <div className="new-habit-chaos">
               <label className="chaos-toggle">
@@ -2499,7 +2968,7 @@ const DEFAULT_CATEGORIES = [
                   checked={newHabitChaosEnabled}
                   onChange={(e) => setNewHabitChaosEnabled(e.target.checked)}
                 />
-                <span>Link to chaos dimension</span>
+                <span>Lier à une dimension Chaos</span>
               </label>
               {newHabitChaosEnabled && (
                 <div className="chaos-config">
@@ -2515,6 +2984,7 @@ const DEFAULT_CATEGORIES = [
                     <option value="spiritual">Spiritual</option>
                     <option value="emotional">Emotional</option>
                     <option value="energy">Energy</option>
+                    <option value="selfesteem">Estime de soi</option>
                   </select>
                   <label className="chaos-field">
                     Impact %
@@ -2527,7 +2997,24 @@ const DEFAULT_CATEGORIES = [
                     />
                   </label>
                   <label className="chaos-field">
-                    Missed ≥ days
+                    Fréquence
+                    <select
+                      className="chaos-select"
+                      value={newHabitChaosPerWeek}
+                      onChange={(e) => setNewHabitChaosPerWeek(parseInt(e.target.value, 10))}
+                      title="Combien de fois par semaine cette habitude devrait-elle être faite ?"
+                    >
+                      <option value={7}>Quotidien</option>
+                      <option value={6}>6×/sem</option>
+                      <option value={5}>5×/sem</option>
+                      <option value={4}>4×/sem</option>
+                      <option value={3}>3×/sem</option>
+                      <option value={2}>2×/sem</option>
+                      <option value={1}>1×/sem</option>
+                    </select>
+                  </label>
+                  <label className="chaos-field">
+                    Manquée ≥ {newHabitChaosPerWeek < 7 ? 'séances' : 'jours'}
                     <input
                       type="number"
                       min={1}
@@ -2537,7 +3024,9 @@ const DEFAULT_CATEGORIES = [
                     />
                   </label>
                   <span className="chaos-hint">
-                    Missing this habit for {newHabitChaosThreshold} day{newHabitChaosThreshold > 1 ? 's' : ''} adds +{newHabitChaosImpact}% to {newHabitChaosDimension}.
+                    {newHabitChaosPerWeek < 7
+                      ? `Rater ${newHabitChaosThreshold} séance${newHabitChaosThreshold > 1 ? 's' : ''} (${newHabitChaosPerWeek}×/sem attendues) ajoute +${newHabitChaosImpact}% à ${newHabitChaosDimension}.`
+                      : `Manquer cette habitude ${newHabitChaosThreshold} jour${newHabitChaosThreshold > 1 ? 's' : ''} ajoute +${newHabitChaosImpact}% à ${newHabitChaosDimension}.`}
                   </span>
                 </div>
               )}
@@ -2545,7 +3034,7 @@ const DEFAULT_CATEGORIES = [
             </div>
           ) : (
             <button className="btn btn-ghost" onClick={() => setShowNewHabitInput(true)}>
-              + New Habit
+              + Nouvelle habitude
             </button>
           )}
         </div>
@@ -3119,6 +3608,45 @@ function EightWeekHeatmap({ checkIns }: { checkIns: CheckIn[] }) {
       {weeklyReview}
 
   // --- Deep analysis cards (data hoisted from App so Grid can circle plan days) ---
+  // Restructured: "À retenir" (top 3 actionable) FIRST, the rest folded.
+  // A wall of 11 analyses is noise — 3 priorities is a decision.
+  const renderDeepCard = (card: DeepInsight) => (
+    <div key={card.id} className="deep-card">
+      <div className="deep-icon">{card.icon}</div>
+      <div className="deep-body">
+        <div className="deep-title">{card.title}</div>
+        <div className="deep-text">{card.body}</div>
+        {card.plan && card.plan.dates.length > 0 && (
+          <>
+            <MiniPlanCalendar dates={card.plan.dates} label={card.plan.label} kind={card.plan.kind} />
+            <button
+              className="btn btn-sm btn-ghost plan-ics-btn"
+              onClick={() => {
+                const hid = card.id.split('|')[1];
+                const name = habitById.get(hid)?.name ?? 'habitude';
+                const prefix = card.plan!.kind === 'risk' ? 'Vigilance' : 'Plan';
+                downloadPlanIcs(`lifetrack-${prefix.toLowerCase()}-${name}`, `LifeTrack — ${prefix}: ${name}`, card.plan!.label, card.plan!.dates);
+              }}
+              title="Importer les jours planifiés dans Google Calendar / Outlook"
+            >
+              ⬇ Exporter le plan (.ics)
+            </button>
+          </>
+        )}
+        <div className="deep-stat">{card.stat}</div>
+      </div>
+      {card.action && (
+        <button
+          className="btn btn-sm btn-primary deep-action"
+          onClick={() => onView(card.action!.view)}
+        >
+          {card.action.label}
+        </button>
+      )}
+    </div>
+  );
+  const deepTopCards = topTakeaways(deepInsights, toDateKey(new Date()));
+  const deepRestCards = deepInsights.filter((c) => !deepTopCards.includes(c));
   const deepSection = deepInsights.length > 0 && (
     <div className="deep-section">
       <h3 className="deep-section-title">🔬 Analyse en profondeur</h3>
@@ -3129,43 +3657,20 @@ function EightWeekHeatmap({ checkIns }: { checkIns: CheckIn[] }) {
         </div>
       )}
       {weeklyReview}
+      <h4 className="deep-takeaways-title">🎯 À retenir aujourd'hui</h4>
       <div className="deep-list">
-        {deepInsights.map((card) => (
-          <div key={card.id} className="deep-card">
-            <div className="deep-icon">{card.icon}</div>
-            <div className="deep-body">
-              <div className="deep-title">{card.title}</div>
-              <div className="deep-text">{card.body}</div>
-              {card.plan && card.plan.dates.length > 0 && (
-                <>
-                  <MiniPlanCalendar dates={card.plan.dates} label={card.plan.label} kind={card.plan.kind} />
-                  <button
-                    className="btn btn-sm btn-ghost plan-ics-btn"
-                    onClick={() => {
-                      const hid = card.id.split('|')[1];
-                      const name = habitById.get(hid)?.name ?? 'habitude';
-                      const prefix = card.plan!.kind === 'risk' ? 'Vigilance' : 'Plan';
-                      downloadPlanIcs(`lifetrack-${prefix.toLowerCase()}-${name}`, `LifeTrack — ${prefix}: ${name}`, card.plan!.label, card.plan!.dates);
-                    }}
-                    title="Importer les jours planifiés dans Google Calendar / Outlook"
-                  >
-                    ⬇ Exporter le plan (.ics)
-                  </button>
-                </>
-              )}
-              <div className="deep-stat">{card.stat}</div>
-            </div>
-            {card.action && (
-              <button
-                className="btn btn-sm btn-primary deep-action"
-                onClick={() => onView(card.action!.view)}
-              >
-                {card.action.label}
-              </button>
-            )}
-          </div>
-        ))}
+        {deepTopCards.map(renderDeepCard)}
       </div>
+      {deepRestCards.length > 0 && (
+        <details className="deep-fold">
+          <summary className="deep-fold-summary">
+            Toutes les analyses ({deepRestCards.length} de plus)
+          </summary>
+          <div className="deep-list">
+            {deepRestCards.map(renderDeepCard)}
+          </div>
+        </details>
+      )}
       <p className="deep-note">
         Chaque carte porte son échantillon et sa significativité — si c'est écrit, c'est mesuré sur TES données.
       </p>
@@ -3210,7 +3715,7 @@ function EightWeekHeatmap({ checkIns }: { checkIns: CheckIn[] }) {
             )}
             {aiStructured.next_step && (
               <div className="ai-block ai-block-next">
-                <div className="ai-block-title">💡 Next step</div>
+                <div className="ai-block-title">💡 Prochain pas</div>
                 <div className="ai-item">
                   <div className="ai-item-detail">{aiStructured.next_step}</div>
                 </div>
@@ -3230,7 +3735,7 @@ function EightWeekHeatmap({ checkIns }: { checkIns: CheckIn[] }) {
       ) : aiLoading ? (
         <div className="ai-response-card ai-placeholder">
           <div className="ai-response-body" style={{ color: 'var(--text-muted)' }}>
-            ⏳ Connecting to Ollama... (first load may take 1-3 min while a local model loads)
+            ⏳ Connexion à Ollama… (le 1er chargement peut prendre 1-3 min)
           </div>
         </div>
       ) : aiError ? (
@@ -3238,18 +3743,18 @@ function EightWeekHeatmap({ checkIns }: { checkIns: CheckIn[] }) {
           <div className="ai-response-body" style={{ color: 'var(--text-muted)' }}>
             ❌ {aiError}
             <br /><br />
-            <strong>Troubleshooting:</strong>
+            <strong>Dépannage :</strong>
             <ol style={{textAlign:'left', display:'inline-block', marginTop:8}}>
-              <li>Make sure Ollama is running: <code>ollama serve</code></li>
-              <li>Test it: <code>curl http://localhost:11434/api/tags</code></li>
-              <li>Click the 🔄 button to retry</li>
+              <li>Vérifie qu'Ollama tourne : <code>ollama serve</code></li>
+              <li>Teste : <code>curl http://localhost:11434/api/tags</code></li>
+              <li>Clique 🔄 pour réessayer</li>
             </ol>
           </div>
         </div>
       ) : (
         <div className="ai-response-card ai-placeholder">
           <div className="ai-response-body" style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
-            AI analysis will appear here automatically. Make sure Ollama is running (<code>ollama serve</code>).
+            L'analyse IA apparaîtra ici automatiquement. Vérifie qu'Ollama tourne (<code>ollama serve</code>).
           </div>
         </div>
       )}
@@ -3259,19 +3764,19 @@ function EightWeekHeatmap({ checkIns }: { checkIns: CheckIn[] }) {
           <div className="ai-chat-history">
             {chatHistory.length === 0 && (
               <div className="ai-chat-empty">
-                💬 Ask a follow-up about your analysis — e.g. "Why is my energy habit slipping?" or "What should I focus on today?"
+                💬 Pose une question sur ton analyse — ex. « Pourquoi mon habitude énergie glisse ? » ou « Sur quoi me concentrer aujourd'hui ? »
               </div>
             )}
             {chatHistory.map((m, i) => (
               <div key={i} className={`ai-chat-msg ai-chat-${m.role}`}>
-                <span className="ai-chat-who">{m.role === 'user' ? 'You' : 'Coach'}</span>
+                <span className="ai-chat-who">{m.role === 'user' ? 'Toi' : 'Coach'}</span>
                 <span className="ai-chat-content">{m.content}</span>
               </div>
             ))}
             {chatLoading && (
               <div className="ai-chat-msg ai-chat-coach">
                 <span className="ai-chat-who">Coach</span>
-                <span className="ai-chat-content ai-chat-thinking">thinking…</span>
+                <span className="ai-chat-content ai-chat-thinking">réflexion…</span>
               </div>
             )}
           </div>
@@ -3286,11 +3791,11 @@ function EightWeekHeatmap({ checkIns }: { checkIns: CheckIn[] }) {
               className="ai-chat-input"
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
-              placeholder="Ask your coach a question…"
+              placeholder="Pose une question au coach…"
               disabled={chatLoading}
             />
             <button className="btn btn-sm btn-primary" type="submit" disabled={chatLoading || !chatInput.trim()}>
-              {chatLoading ? '…' : 'Send'}
+              {chatLoading ? '…' : 'Envoyer'}
             </button>
           </form>
         </div>
@@ -3305,14 +3810,14 @@ function EightWeekHeatmap({ checkIns }: { checkIns: CheckIn[] }) {
         {aiSection}
         <div className="insights-empty">
           <span style={{ fontSize: 40, display: 'block', marginBottom: 16 }}>💡</span>
-          <h3>Not enough data yet</h3>
+          <h3>Pas encore assez de données</h3>
           <p>
-            Track your habits consistently for a week, and I'll start surfacing
-            personalized insights — no cloud, no AI API, all local.
+            Coche tes habitudes une semaine et je ferai remonter des analyses
+            perso — sans cloud, sans API, 100% local.
           </p>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button className="btn btn-primary" onClick={() => onView('grid')}>
-              Go to Grid
+              Aller à la grille
             </button>
           </div>
         </div>
@@ -3350,7 +3855,7 @@ function EightWeekHeatmap({ checkIns }: { checkIns: CheckIn[] }) {
               <div className="insight-detail">{rec.detail}</div>
               <div className="insight-meta">
                 <span className="insight-strength" style={{ '--pct': `${rec.strength}%` } as Record<string, string>}>
-                  Relevance {rec.strength}%
+                  Pertinence {rec.strength}%
                 </span>
               </div>
             </div>
@@ -3383,7 +3888,7 @@ function EightWeekHeatmap({ checkIns }: { checkIns: CheckIn[] }) {
                     className="insight-strength"
                     style={{ '--pct': `${rec.strength}%` } as Record<string, string>}
                   >
-                    Relevance {rec.strength}%
+                    Pertinence {rec.strength}%
                   </span>
                   <span className="insight-habits">{habitNames}</span>
                   <button

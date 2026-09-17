@@ -16,14 +16,14 @@ import { INSIGHT_RULES_COUNT } from './recommendations';
 import { version as APP_VERSION } from '../package.json';
 import { ascendantLongitude, signOfLongitude } from './astrology';
 
-const THEMES = ['', 'theme-ocean', 'theme-forest', 'theme-sunset', 'theme-rose', 'theme-mono', 'theme-midnight', 'theme-emerald', 'theme-bw'];
-const THEME_LABELS = ['Default', 'Ocean', 'Forest', 'Sunset', 'Rose', 'Mono', 'Midnight', 'Emerald', 'Noir & Blanc'];
+const THEMES = ['', 'theme-ocean', 'theme-forest', 'theme-sunset', 'theme-rose', 'theme-mono', 'theme-midnight', 'theme-emerald', 'theme-bw', 'theme-graph'];
+const THEME_LABELS = ['Default', 'Ocean', 'Forest', 'Sunset', 'Rose', 'Mono', 'Midnight', 'Emerald', 'Noir & Blanc', 'Graphes'];
 
 interface SettingsViewProps {
   darkMode: boolean;
   onToggleDarkMode: () => void;
   theme: string;
-   
+
   onSetTheme: (_theme: string) => void;
   onExportJSON: () => void;
   onExportCSV: () => void;
@@ -51,6 +51,8 @@ export default function SettingsView({
   const [aiPrefs, setAiPrefs] = useState<UserPreferences>(getPreferences());
   const [aiTesting, setAiTesting] = useState(false);
   const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [freeModels, setFreeModels] = useState<string[] | null>(null);
+  const [freeModelsLoading, setFreeModelsLoading] = useState(false);
 
   // Natal chart (whole-sign houses) — v0.7.0.
   const birthInit = getPreferences();
@@ -294,10 +296,38 @@ export default function SettingsView({
               <datalist id="lifetrack-models">
                 <option value="deepseek/deepseek-v4-flash">DeepSeek V4 Flash (défaut cloud)</option>
                 <option value="deepseek/deepseek-chat">DeepSeek Chat</option>
-                <option value="openai/gpt-4o-mini">GPT-4o mini</option>
-                <option value="anthropic/claude-3.7-sonnet">Claude Sonnet</option>
-                <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</option>
+                {(freeModels ?? ['openai/gpt-4o-mini', 'anthropic/claude-3.7-sonnet', 'meta-llama/llama-3.3-70b-instruct:free']).map((m) => (
+                  <option key={m} value={m} />
+                ))}
               </datalist>
+            </div>
+            <div className="settings-row">
+              <span>Modèles gratuits</span>
+              <button
+                className="btn btn-secondary"
+                disabled={freeModelsLoading}
+                onClick={async () => {
+                  setFreeModelsLoading(true);
+                  try {
+                    const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+                    if (!isTauriEnv) throw new Error('Requires the desktop app.');
+                    const { invoke } = await import('@tauri-apps/api/core');
+                    const ids = await invoke<string[]>('list_free_models', { apiKey: aiPrefs.aiApiKey || null });
+                    setFreeModels(ids);
+                  } catch {
+                    setFreeModels([]);
+                  } finally {
+                    setFreeModelsLoading(false);
+                  }
+                }}
+              >
+                {freeModelsLoading ? 'Chargement…' : '🔎 Découvrir les modèles gratuits OpenRouter'}
+              </button>
+              <span className="settings-hint">
+                {freeModels
+                  ? `${freeModels.length} modèles gratuits trouvés — ils remplissent la liste déroulante du champ Model. En Auto, l'app essaie déjà ces modèles gratuits en secours si le modèle payant est hors quota ou retiré.`
+                  : 'Interroge le catalogue OpenRouter en direct et remplit la liste du champ Model avec les modèles « :free » du moment.'}
+              </span>
             </div>
             <p className="settings-hint">
               ✨ Laisse le champ Model vide : clé DeepSeek directe → <strong>deepseek-chat</strong>, clé OpenRouter → <strong>DeepSeek V4 Flash</strong>.
@@ -674,7 +704,7 @@ export default function SettingsView({
             <h3>🔯 Thème natal (maisons whole sign)</h3>
             <p className="settings-hint">
               Renseigne ta date, heure et lieu de naissance pour que LifeTrack calcule ton
-              Ascendant et active les <strong>maisons whole sign</strong> dans les Missions
+              Ascendant et active les <strong>maisons whole sign</strong> dans Asto
               (ex: « Mars en Bélier, maison 7 »). Sans thème, les transits restent
               « planète en signe ».
             </p>
@@ -732,7 +762,7 @@ export default function SettingsView({
               <div><strong>{INSIGHT_RULES_COUNT}</strong> insight rules</div>
               <div><strong>6</strong> mantra domains</div>
               <div><strong>6</strong> backup locations</div>
-              <div><strong>9</strong> themes</div>
+              <div><strong>10</strong> themes</div>
             </div>
             <p className="about-tech">
               Built with React 19 · TypeScript 6 · Tauri 2 · Rust · Vite 8

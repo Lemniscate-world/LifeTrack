@@ -166,6 +166,71 @@ describe('buildIcsForPlan', () => {
   });
 });
 
+describe('generateDeepInsights — what-the-hell effect', () => {
+  // 30 days where every isolated miss is followed by another miss (collapse),
+  // but done days are always followed by done days: P(miss|miss)=100%.
+  const habits = [habit('a', 'Gym')];
+  const mk = (days: [string, boolean][]): CheckIn[] => days.map(([d, c]) => ci(d, 'a', c));
+  const days: [string, boolean][] = [];
+  for (let d = 1; d <= 28; d++) {
+    const date = `2026-05-${String(d).padStart(2, '0')}`;
+    // Pattern: 5 done, 2 miss (collapse pairs), repeating.
+    const phase = (d - 1) % 7;
+    days.push([date, phase < 5]);
+  }
+  it('detects the second-day collapse with stats', () => {
+    const out = generateDeepInsights(habits, mk(days), {}, {}, new Date(2026, 5, 1));
+    const wth = out.find((i) => i.id === 'what-the-hell');
+    expect(wth).toBeDefined();
+    expect(wth!.body).toContain('what-the-hell');
+    expect(wth!.stat).toContain('P(miss|miss)');
+    expect(wth!.action?.view).toBe('grid');
+  });
+
+  it('stays silent when misses are isolated (no collapse)', () => {
+    // Alternating done/miss: P(miss|miss)=0 → ratio 0, no card.
+    const alt: [string, boolean][] = [];
+    for (let d = 1; d <= 28; d++) {
+      alt.push([`2026-05-${String(d).padStart(2, '0')}`, d % 2 === 0]);
+    }
+    const out = generateDeepInsights(habits, mk(alt), {}, {}, new Date(2026, 5, 1));
+    expect(out.find((i) => i.id === 'what-the-hell')).toBeUndefined();
+  });
+});
+
+describe('generateDeepInsights — goal gradient', () => {
+  it('detects end-of-period acceleration', () => {
+    // First half of the 28d window: sparse; second half: dense.
+    const habits = [habit('a', 'Gym'), habit('b', 'Run'), habit('c', 'Read')];
+    const checks: CheckIn[] = [];
+    // Window ending yesterday relative to 2026-06-01: 2026-05-04..2026-05-31.
+    for (let d = 4; d <= 31; d++) {
+      const date = `2026-05-${String(d).padStart(2, '0')}`;
+      const secondHalf = d > 17;
+      for (const h of ['a', 'b', 'c']) {
+        // First half: 1/3 habits done. Second half: all done.
+        if (secondHalf || h === 'a') checks.push(ci(date, h, true));
+      }
+    }
+    const out = generateDeepInsights(habits, checks, {}, {}, new Date(2026, 5, 1));
+    const gg = out.find((i) => i.id === 'goal-gradient');
+    expect(gg).toBeDefined();
+    expect(gg!.title).toContain('sprintes');
+    expect(gg!.action?.view).toBe('stats');
+  });
+
+  it('stays silent on flat effort', () => {
+    const habits = [habit('a', 'Gym'), habit('b', 'Run'), habit('c', 'Read')];
+    const checks: CheckIn[] = [];
+    for (let d = 4; d <= 31; d++) {
+      const date = `2026-05-${String(d).padStart(2, '0')}`;
+      for (const h of ['a', 'b', 'c']) checks.push(ci(date, h, true));
+    }
+    const out = generateDeepInsights(habits, checks, {}, {}, new Date(2026, 5, 1));
+    expect(out.find((i) => i.id === 'goal-gradient')).toBeUndefined();
+  });
+});
+
 describe('twoMeanP', () => {
   it('separates clearly shifted samples', () => {
     const a = [0.9, 0.85, 0.8, 0.95, 0.88, 0.92];

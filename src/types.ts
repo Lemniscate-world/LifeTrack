@@ -1,3 +1,31 @@
+/**
+ * An implementation intention: WHEN this cue happens, I do this micro-action.
+ * Example: { cue: "je suis vidé le soir", action: "j'ouvre Work-doux 10 min" }.
+ */
+export interface IfThenPlan {
+  cue: string;
+  action: string;
+}
+/** Hard cap: 3 cue→action plans per habit — beyond that, none fire. */
+export const MAX_IF_THEN = 3;
+/** Max length per cue/action — a plan must fit on one line to fire fast. */
+export const MAX_IF_THEN_TEXT = 80;
+
+// A sub-habit ("sous-coche"): a small, concrete facet of a parent habit,
+// e.g. Work → "working while depressed · 10 min". Embedded in the parent
+// (not a top-level habit) so the grid, streaks and stats stay intact.
+// Checking ≥1 sub marks the parent day as PARTIAL ("doux"); checking all
+// subs (or the parent directly) marks it FULL.
+export interface SubHabit {
+  id: string;
+  label: string; // short, concrete: "working while depressed · 10 min"
+  order: number;
+}
+/** Hard cap: sub-coches are micro-facets, not a second habit list. */
+export const MAX_SUB_HABITS = 6;
+/** Max label length — a sub-coche must fit on one grid row. */
+export const MAX_SUB_HABIT_LABEL = 60;
+
 export interface Habit {
   id: string;
   name: string;
@@ -7,6 +35,9 @@ export interface Habit {
   archived: boolean;
   order: number;
   category?: string; // optional grouping: 'health', 'work', 'personal', 'learning', 'finance'
+  // Sub-habits: 0-6 embedded facets (see SubHabit). Checked per day via
+  // CheckIn.subIds; see toggleSubCheck() in store.ts.
+  subHabits?: SubHabit[];
   // Chaos linkage: if the user misses this habit for `thresholdDays` consecutive days,
   // it contributes `impact` percentage points to each linked chaos dimension.
   // `chaosLinks` is the canonical form (multiple zones allowed); `chaosDimension`
@@ -15,6 +46,10 @@ export interface Habit {
   chaosImpact?: number;        // legacy: 0-100, percent added when triggered
   chaosDimension?: string;     // legacy: dimension id 'physical' | 'financial' | 'social' | 'structural' | 'spiritual' | 'emotional' | 'energy'
   chaosThresholdDays?: number; // consecutive missed days that triggers chaos (e.g. 2 for gym > 2)
+  // Expected sessions per week (1-7, default 7 = daily). A 3×/week habit
+  // must NOT heat chaos after 2 calendar days off — chaos counts MISSED
+  // SESSIONS in a trailing window, not calendar days (cry-wolf guard).
+  chaosPerWeek?: number;
   // Persistent personal records (recalculated from check-ins). Surviving a streak
   // break is the whole point — see computeStreakStats() in stats.ts.
   bestStreak?: number;        // longest completed-days run ever recorded
@@ -35,6 +70,11 @@ export interface Habit {
   // Displayed when checking in, to reinforce motivation.
   // "Start with Why" — Simon Sinek / BJ Fogg "Tiny Habits" motivation anchor.
   why?: string[];             // list of intention strings, max 5
+  // Implementation intentions ("si-alors"): 0-3 cue→action plans.
+  // "Si [situation], alors [micro-action]" — Gollwitzer: linking a critical
+  // cue to a concrete response roughly doubles follow-through vs bare goals.
+  // Surfaced by the low-mood banner so the plan fires exactly when needed.
+  ifThen?: IfThenPlan[];
   // Multi-click: when true (default), click increments count. When false, simple toggle on/off.
   multiClick?: boolean;
   // Monthly focus: YYYY-MM when this habit was set as focus of the month
@@ -47,6 +87,13 @@ export interface CheckIn {
   completed: boolean;
   notes?: string[]; // optional notes for this check-in (multiple per day)
   count?: number; // number of completions today (1 by default, up to goal)
+  // Sub-habit validation ("doux" mode): ids of the parent habit's subHabits
+  // done that day. `partial` is true when the day was validated through
+  // sub-coches WITHOUT reaching a full check (some — but not all — subs).
+  // Partial days keep `completed=true` so streaks survive bad days, but stay
+  // distinguishable in stats (see countPartialDays() in store.ts).
+  subIds?: string[];
+  partial?: boolean;
   // Projects: optional link to a project/task this check-in contributed to,
   // so a habit click becomes evidence of a real deliverable (v0.6.0).
   projectId?: string;
@@ -54,6 +101,11 @@ export interface CheckIn {
   // When the check-in was actually recorded (ISO timestamp). Enables the
   // hour-of-day analysis (checkTimes.ts): "when do I log my life?".
   checkedAt?: string;
+}
+
+/** True when this check-in is a "doux" (partial, sub-habit) validation. */
+export function isPartialCheckIn(c: Pick<CheckIn, 'completed' | 'partial'>): boolean {
+  return c.completed === true && c.partial === true;
 }
 
 export interface Note {
@@ -99,6 +151,10 @@ export interface Routine {
   name: string;
   steps: RoutineStep[];
   createdAt: string;
+  /** 'depression-day' = protocole jour dépression (progression + reprise). */
+  kind?: string;
+  /** Persisted progress: done step ids + last update (resume where you left). */
+  progress?: { doneStepIds: string[]; updatedAt: string };
 }
 
 // --- Achievements ---
@@ -607,7 +663,7 @@ export interface ObsidianNote {
 }
 
 export const EMOTIONS_LIST = [
-  'Colère', 'Tristesse', 'Peur', 'Honte', 'Culpabilité', 'Anxiété',
+  'Colère', 'Tristesse', 'Peur', 'Honte', 'Humiliation', 'Culpabilité', 'Anxiété',
   'Dégoût', 'Jalousie', 'Solitude', 'Impuissance', 'Déception', 'Frustration',
   'Nostalgie', 'Rancœur', 'Méfiance', 'Vide',
 ] as const;
@@ -621,6 +677,28 @@ export interface EmotionalEvent {
   createdAt: string;
   notes?: string;
   archived?: boolean;
+  /** Action plans generated from notes (e.g. "trouver un hobby" → steps). */
+  plans?: EmotionalActionPlan[];
+  /** Closure ritual ("qu'est-ce que ça m'a appris ?") written when archiving.
+   * Meaning-making at closure predicts faster resolution (Pennebaker). */
+  closureNote?: string;
+}
+
+export interface EmotionalPlanStep {
+  id: string;
+  label: string;
+  done: boolean;
+}
+
+export interface EmotionalActionPlan {
+  id: string;
+  title: string;
+  /** The note text this plan was generated from (traceability). */
+  sourceNote?: string;
+  steps: EmotionalPlanStep[];
+  createdAt: string;
+  /** Emotions this plan targets (per-emotion focus). Undefined/empty = global. */
+  emotions?: string[];
 }
 
 export interface EmotionalCheck {
@@ -629,6 +707,28 @@ export interface EmotionalCheck {
   date: string;
   intensity: number;
   note?: string;
+  /** Per-emotion intensities (emotion label → 1-10). Absent on old checks. */
+  intensities?: Record<string, number>;
+  /** Emotions the daily note is about (per-emotion tagging). Undefined = global note. */
+  noteEmotions?: string[];
+  /** ISO timestamp of the check (for hour-of-day patterns). Auto-set on new checks. */
+  createdAt?: string;
+}
+
+/** Clean a free-form emotion-tag list: trim, drop empties, dedupe, cap 6. */
+export function cleanEmotionTags(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const t of raw) {
+    if (typeof t !== 'string') continue;
+    const v = t.trim();
+    if (!v || v.length > 40 || seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+    if (out.length >= 6) break;
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 export type MissionWindowKind = 'fixed' | 'transit';
@@ -690,6 +790,9 @@ export interface UserPreferences {
   memoryReminderEnabled?: boolean;
   memoryReminderTime?: string; // "HH:MM"
   lastMemoryReminderDate?: string; // YYYY-MM-DD when it was last shown
+  // Emotional check-in nudge: remind at 21:00 when an active event lacks today's check.
+  emotionalCheckReminder?: boolean; // default true
+  lastEmotionalReminderDate?: string; // YYYY-MM-DD when it was last shown
   // v0.6.0: knowledge pipeline preferences.
   knowledgeAutoSuggest?: boolean;  // auto-surface protocols matched to your data
   stickyMax?: number;              // max protocols pushed at once (anti-overwhelm, default 3)
@@ -724,4 +827,12 @@ export interface UserPreferences {
   compactThreshold?: number;
   // v0.7.x: compact density level — 0 = standard compact, 1 = dense, 2 = ultra.
   compactLevel?: 0 | 1 | 2;
+  // One-time repair flag: emotional data backfilled from file backups after
+  // the v0.6.2 sanitize-drop incident. Set once, never cleared automatically.
+  emotionalBackfillDone?: boolean;
+  // Seeded wellbeing defaults (one-shot boot seeds, never re-seeded so user
+  // deletions are respected).
+  outingGuardSeeded?: boolean; // "Sortie sociale impromptue" principle on Structural
+  depressionProtocolSeeded?: boolean; // "Protocole jour dépression" routine
+  wellbeingNewSeen?: boolean; // discovery card dismissed (set when the user acknowledges the seeded features)
 }

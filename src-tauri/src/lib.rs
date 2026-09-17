@@ -251,6 +251,19 @@ const DEEPSEEK_URL: &str = "https://api.deepseek.com/chat/completions";
 /// picks the provider's reasoning model (deepseek-reasoner / deepseek-r1).
 const REASONER_HINT: &str = "__prefer_reasoner__";
 
+/// Known good OpenRouter :free model ids (curated fallback ladder, best first).
+/// These change often on OpenRouter's side, so this list is only a starting
+/// point — `list_free_models` discovers the live set from the API.
+const FREE_FALLBACK_MODELS: &[&str] = &[
+    "deepseek/deepseek-chat-v3.1:free",
+    "deepseek/deepseek-r1:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "google/gemini-2.0-flash-exp:free",
+    "mistralai/mistral-small-3.2-24b-instruct:free",
+    "qwen/qwen3-8b:free",
+    "openai/gpt-oss-20b:free",
+];
+
 /// Wrap a user-supplied model for deep-reasoning commands: if the user didn't
 /// pin an explicit model (empty, or the default OpenRouter flash id), request
 /// the provider's reasoning model instead. Explicit user choices are respected.
@@ -450,6 +463,41 @@ async fn call_deepseek(model: String, api_key: String, call: &AiCall, json_forma
         .ok_or_else(|| "DeepSeek returned no choices.".to_string())
 }
 
+/// Query OpenRouter's public model catalog and return the models that are
+/// currently free (id ends with ':free'). The catalog endpoint is public.
+#[tauri::command]
+async fn list_free_models(api_key: Option<String>) -> Result<Vec<String>, String> {
+    let mut req = HTTP_CLIENT.get("https://openrouter.ai/api/v1/models");
+    if let Some(key) = api_key.as_deref().map(str::trim).filter(|k| !k.is_empty()) {
+        req = req.bearer_auth(key);
+    }
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("OpenRouter catalog unreachable: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("OpenRouter catalog returned HTTP {}", resp.status()));
+    }
+    let parsed: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse OpenRouter catalog: {}", e))?;
+    let ids: Vec<String> = parsed
+        .get("data")
+        .and_then(|d| d.as_array())
+        .map(|arr| arr
+            .iter()
+            .filter_map(|m| m.get("id").and_then(|v| v.as_str()))
+            .filter(|id| id.ends_with(":free"))
+            .map(|id| id.to_string())
+            .collect())
+        .unwrap_or_default();
+    if ids.is_empty() {
+        return Err("No free models currently listed on OpenRouter.".to_string());
+    }
+    Ok(ids)
+}
+
 /// Call OpenRouter's cloud chat-completions API.
 async fn call_openrouter(model: String, api_key: String, call: &AiCall, json_format: bool) -> Result<String, String> {
     let messages = vec![
@@ -606,6 +654,32 @@ async fn complete_ai(
                 // Cloud unreachable → fall back to local Ollama.
                 let local_model = pick_local_model().await?;
                 return call_ollama(local_model, call, call.json).await;
+            }
+            Err(e) if use_openrouter => {
+                // Opportunist free-model ladder: the pinned cloud model may be
+                // paid (quota/credit errors) or gone (model retired). Try the
+                // live :free catalog first, then the known-good ladder, and
+                // only give up when every free option has failed.
+                let mut candidates: Vec<String> = list_free_models(Some(key.to_string()))
+                    .await
+                    .unwrap_or_default();
+                for known in FREE_FALLBACK_MODELS {
+                    if !candidates.iter().any(|c| c == known) {
+                        candidates.push(known.to_string());
+                    }
+                }
+                let pinned = model.as_deref().unwrap_or("");
+                let mut last_err = e.clone();
+                for free_model in candidates.iter().take(5) {
+                    if free_model == pinned {
+                        continue; // already tried this exact id
+                    }
+                    match call_openrouter(free_model.clone(), key.to_string(), call, call.json).await {
+                        Ok(text) => return Ok(text),
+                        Err(free_err) => last_err = free_err,
+                    }
+                }
+                return Err(format!("{} | free fallbacks also failed: {}", e, last_err));
             }
             Err(e) => return Err(e),
         }
@@ -1268,6 +1342,7 @@ pub fn run() {
               journal_summary,
               psychoanalysis_ask,
             summarize_achievements,
+            list_free_models,
             fetch_url,
             extract_protocols_ai,
             set_autostart,

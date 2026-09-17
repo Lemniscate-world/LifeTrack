@@ -2,11 +2,13 @@
 // The top navigation bar of the app. Kept in its own component so App.tsx
 // stays focused on state/wiring instead of 60 lines of tab buttons.
 
+import { useEffect, useRef, useState } from 'react';
+
 export type ViewKey =
   | 'today' | 'grid' | 'stats' | 'correlations' | 'gains' | 'history'
   | 'year' | 'challenge' | 'stacks' | 'skills' | 'chaos' | 'insights'
   | 'experiments' | 'urges' | 'journal' | 'mantras' | 'achievements'
-  | 'settings' | 'psycho' | 'projects' | 'knowledge' | 'obsidian' | 'missions' | 'principles' | 'emotions';
+  | 'settings' | 'psycho' | 'projects' | 'knowledge' | 'obsidian' | 'asto' | 'principles' | 'emotions';
 
 interface ViewTabsProps {
   view: ViewKey;
@@ -16,8 +18,38 @@ interface ViewTabsProps {
 const ACTIVE = (current: ViewKey, view: ViewKey) => `view-tab ${current === view ? 'active' : ''}`;
 
 export default function ViewTabs({ view, onView }: ViewTabsProps) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const [canLeft, setCanLeft] = useState(false);
+  const [canRight, setCanRight] = useState(false);
+  // Keep the active tab visible: with 25 tabs the bar scrolls, and without
+  // this the active tab can sit off-screen, unreachable. Edge-fade classes
+  // follow the real scroll position (no lying fades at the ends).
+  useEffect(() => {
+    const el = barRef.current;
+    const update = () => {
+      if (!el) return;
+      setCanLeft(el.scrollLeft > 1);
+      setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+    };
+    update();
+    try {
+      el?.querySelector('.view-tab.active')?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+    } catch { /* best-effort */ }
+    update();
+    el?.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      el?.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [view]);
   return (
-    <div className="view-tabs" role="tablist" aria-label="View selector">
+    <div
+      ref={barRef}
+      className={`view-tabs${canLeft ? ' can-scroll-left' : ''}${canRight ? ' can-scroll-right' : ''}`}
+      role="tablist"
+      aria-label="View selector"
+    >
       <button role="tab" aria-selected={view === 'today'} className={ACTIVE(view, 'today')} onClick={() => onView('today')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> Today
       </button>
@@ -68,8 +100,8 @@ export default function ViewTabs({ view, onView }: ViewTabsProps) {
       <button role="tab" aria-selected={view === 'obsidian'} className={ACTIVE(view, 'obsidian')} onClick={() => onView('obsidian')}>
         📓 Obsidian
       </button>
-      <button role="tab" aria-selected={view === 'missions'} className={ACTIVE(view, 'missions')} onClick={() => onView('missions')}>
-        🚀 Missions
+      <button role="tab" aria-selected={view === 'asto'} className={ACTIVE(view, 'asto')} onClick={() => onView('asto')}>
+        ✨ Asto
       </button>
       <button role="tab" aria-selected={view === 'mantras'} className={ACTIVE(view, 'mantras')} onClick={() => onView('mantras')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4.5 12.5l3 3 5-7"/><circle cx="12" cy="12" r="10"/></svg> Mantras

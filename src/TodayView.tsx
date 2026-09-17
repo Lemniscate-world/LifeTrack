@@ -9,6 +9,7 @@ import { weeklySummary } from './weeklySummary';
 import { buildPreferenceReport } from './preferences';
 import { logTimeInsights } from './checkTimes';
 import { todayKey } from './dates';
+import { monthSeries, MonthCurve } from './charts';
 import { streakDrivers } from './streakDrivers';
 
 const MILESTONES = new Set([7, 14, 21, 30, 60, 90, 100, 180, 365]);
@@ -40,6 +41,9 @@ export default function TodayView({ habits, checkIns, todayMantra }: TodayViewPr
 
   // Trailing-7-days digest (local, derived).
   const week = useMemo(() => weeklySummary(habits, checkIns, now), [habits, checkIns, now]);
+
+  // 30-day completion curve data for the SVG chart.
+  const monthCurve = useMemo(() => monthSeries(habits, checkIns, now), [habits, checkIns, now]);
 
   // When do I actually log? (hour-of-day analysis, requires checkedAt timestamps)
   const logRhythm = useMemo(() => logTimeInsights(habits, checkIns, 90, now), [habits, checkIns, now]);
@@ -173,6 +177,14 @@ export default function TodayView({ habits, checkIns, todayMantra }: TodayViewPr
         <div className="skill-progress-bar-labels">
           <span>Moyenne : {week.avgPct}% · {week.totalDone} réalisation(s)</span>
           <span>{week.activeHabits} habitude(s) actives</span>
+        </div>
+      </div>
+
+      {/* 30-day completion curve (SVG, no dependencies) */}
+      <div className="today-section">
+        <h3>📈 Tendance 30 jours</h3>
+        <div className="chart-card">
+          <MonthCurve days={monthCurve} />
         </div>
       </div>
 

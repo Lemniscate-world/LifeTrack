@@ -77,7 +77,7 @@ const MIN_CHECKINS_FOR_ANALYSIS = 7;
 const NEGLECT_DAYS = 4;             // warn if no check-in for this many days
 const STACK_CORRELATION_MIN = 0.3;  // parent must have ≥30% of days completed (e.g. 9/30 days)
 const MISS_PATTERN_THRESHOLD = 0.5; // must miss on this day >50% of weeks to flag
-const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DAY_NAMES = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
 const RECORD_PROXIMITY_DAYS = 5;    // warn when within N days of beating best streak
 
 // --- Helpers ---
@@ -280,11 +280,11 @@ function detectRecordApproaches(
     if (toBeat > 1 && toBeat <= RECORD_PROXIMITY_DAYS + 1) {
       recs.push({
         kind: 'RECORD_APPROACH',
-        title: `🔥 ${toBeat} day${toBeat > 1 ? 's' : ''} from a new record on "${habit.name}"`,
-        detail: `Your current streak is ${current} days. Your all-time best is ${best} days. Stay consistent for ${toBeat} more day${toBeat > 1 ? 's' : ''} to set a new personal record!`,
+        title: `🔥 Plus que ${toBeat} jour${toBeat > 1 ? 's' : ''} avant le record sur « ${habit.name} »`,
+        detail: `Série en cours : ${current} jours. Record : ${best} jours. Tiens encore ${toBeat} jour${toBeat > 1 ? 's' : ''} et c'est un nouveau record personnel !`,
         habitIds: [habit.id],
         strength: Math.min(100, Math.round(((best - toBeat + 1) / best) * 100)),
-        actionLabel: 'View stats',
+        actionLabel: 'Voir stats',
       });
     }
   }
@@ -305,11 +305,11 @@ function detectNeglected(
     if (!lastCheck) {
       recs.push({
         kind: 'NEGLECTED',
-        title: `"${habit.name}" has no check-ins yet`,
-        detail: 'Start tracking this habit to build momentum. Even a single check-in counts.',
+        title: `« ${habit.name} » n'a encore jamais été coché`,
+        detail: `Commence à suivre cette habitude pour créer l'élan. Une seule coche compte déjà.`,
         habitIds: [habit.id],
         strength: 60, // lower than genuinely neglected habits so they appear first
-        actionLabel: 'Track now',
+        actionLabel: 'Cocher',
       });
       continue;
     }
@@ -461,14 +461,14 @@ function detectCorrelations(
       const lift = pBgivenA / pB;
       if (lift < 1.3) continue;
       const rate = Math.round(pBgivenA * 100);
-      const anchor = rate >= 90 ? 'almost always' : rate >= 80 ? 'usually' : 'often';
+      const anchor = rate >= 90 ? 'presque toujours' : rate >= 80 ? 'souvent' : 'régulièrement';
       recs.push({
         kind: 'CORRELATION',
-        title: `"${a.name}" → "${b.name}" (${rate}% same-day)`,
-        detail: `On days you complete "${a.name}", you ${anchor} also complete "${b.name}" (${bothDays} of ${aDays} days, ${Math.round(lift * 10) / 10}x base rate). This is a naturally reinforcing pair.`,
+        title: `« ${a.name} » → « ${b.name} » (${rate}% le même jour)`,
+        detail: `Les jours où tu fais « ${a.name} », tu fais ${anchor} aussi « ${b.name} » (${bothDays} jours sur ${aDays}, ×${Math.round(lift * 10) / 10} le taux de base). Paire qui se renforce naturellement : enchaîne-les.`,
         habitIds: [a.id, b.id],
         strength: Math.min(100, Math.round(lift * 50)),
-        actionLabel: 'Link now',
+        actionLabel: 'Lier',
       });
     }
   }
@@ -511,20 +511,20 @@ function generateWeeklySummary(
   const stackRate = stacked.length > 0 ? Math.round((stackedDone / stacked.length) * 100) : 0;
 
   const parts: string[] = [];
-  if (weekRate >= 80) parts.push(`✅ ${weekRate}% completion rate`);
-  else if (weekRate >= 50) parts.push(`📊 ${weekRate}% completion rate`);
-  else parts.push(`⚠️ ${weekRate}% completion rate`);
+  if (weekRate >= 80) parts.push(`✅ ${weekRate}% de complétion`);
+  else if (weekRate >= 50) parts.push(`📊 ${weekRate}% de complétion`);
+  else parts.push(`⚠️ ${weekRate}% de complétion`);
 
-  if (recordsBeaten > 0) parts.push(`🏆 ${recordsBeaten} record${recordsBeaten > 1 ? 's' : ''} beaten`);
-  if (stacked.length > 0) parts.push(`🔗 stacks ${stackRate}% done`);
+  if (recordsBeaten > 0) parts.push(`🏆 ${recordsBeaten} record${recordsBeaten > 1 ? 's' : ''} battu${recordsBeaten > 1 ? 's' : ''}`);
+  if (stacked.length > 0) parts.push(`🔗 stacks à ${stackRate}%`);
 
   return [{
     kind: 'WEEKLY_SUMMARY',
-    title: `📋 This week: ${parts.join(' · ')}`,
-    detail: `Over the last 7 days, you completed ${completed} of ${totalChecks} check-ins across ${activeHabits.length} habits.${stacked.length > 0 ? ` Your ${stacked.length} stacked habit${stacked.length > 1 ? 's are' : ' is'} ${stackRate}% on track.` : ''}${recordsBeaten > 0 ? ` You set ${recordsBeaten} new personal record${recordsBeaten > 1 ? 's' : ''}!` : ''}`,
+    title: `📋 Cette semaine : ${parts.join(' · ')}`,
+    detail: `Sur 7 jours, ${completed} coches sur ${totalChecks} pour ${activeHabits.length} habitudes.${stacked.length > 0 ? ` Tes ${stacked.length} habitudes en stack sont à ${stackRate}%.` : ''}${recordsBeaten > 0 ? ` ${recordsBeaten} nouveau${recordsBeaten > 1 ? 'x' : ''} record${recordsBeaten > 1 ? 's' : ''} personnel${recordsBeaten > 1 ? 's' : ''} !` : ''}`,
     habitIds: activeHabits.map((h) => h.id),
     strength: Math.min(100, weekRate),
-    actionLabel: 'View history',
+    actionLabel: "Voir l'historique",
   }];
 }
 
@@ -546,11 +546,11 @@ function detectStreakMilestones(
       if (current === m) {
         recs.push({
           kind: 'STREAK_MILESTONE',
-          title: `🎯 "${habit.name}" — ${m}-day streak!`,
-          detail: `You've hit a ${m}-day streak on "${habit.name}". That's ${m} consecutive days of consistency — this is how habits become identity.`,
+          title: `🎯 « ${habit.name} » — série de ${m} jours !`,
+          detail: `${m} jours d'affilée sur « ${habit.name} ». C'est comme ça qu'une habitude devient une identité.`,
           habitIds: [habit.id],
           strength: Math.min(100, m),
-          actionLabel: 'View stats',
+          actionLabel: 'Voir stats',
         });
         break; // only report the highest milestone
       }
@@ -560,22 +560,22 @@ function detectStreakMilestones(
       if (current === m - 1 && current >= 6) {
         recs.push({
           kind: 'STREAK_MILESTONE',
-          title: `🔜 "${habit.name}" — 1 day from ${m}-day streak`,
-          detail: `You're at ${current} days — one more day and you'll hit ${m} consecutive days on "${habit.name}".`,
+          title: `🔜 « ${habit.name} » — plus qu'1 jour avant ${m} jours !`,
+          detail: `Tu es à ${current} jours — encore 1 jour et c'est ${m} jours d'affilée sur « ${habit.name} ».`,
           habitIds: [habit.id],
           strength: 70,
-          actionLabel: 'View stats',
+          actionLabel: 'Voir stats',
         });
         break;
       }
       if (current === m - 2 && current >= 5) {
         recs.push({
           kind: 'STREAK_MILESTONE',
-          title: `🔜 "${habit.name}" — 2 days from ${m}-day streak`,
-          detail: `You're at ${current} days on "${habit.name}". Keep going for 2 more days to reach ${m}.`,
+          title: `🔜 « ${habit.name} » — plus que 2 jours avant ${m} !`,
+          detail: `${current} jours sur « ${habit.name} ». Encore 2 jours pour atteindre ${m}.`,
           habitIds: [habit.id],
           strength: 55,
-          actionLabel: 'View stats',
+          actionLabel: 'Voir stats',
         });
         break;
       }
@@ -616,11 +616,11 @@ function detectMantraMatches(
 
     recs.push({
       kind: 'MANTRA_MATCH',
-      title: `🧘 "${habit.name}" — ${ago} days, time for a reset?`,
-      detail: `It's been ${ago} days since your last "${habit.name}" check-in. Check the 🧘 Mantras tab for a ${mantraDomain} inspiration to help you restart. A small step today beats a perfect plan tomorrow.`,
+      title: `🧘 « ${habit.name} » — ${ago} jours, l'heure du reset ?`,
+      detail: `Plus de coche depuis ${ago} jours sur « ${habit.name} ». Va chercher une inspiration ${mantraDomain} dans l'onglet 🧘 Mantras pour redémarrer. Un petit pas aujourd'hui vaut mieux qu'un plan parfait demain.`,
       habitIds: [habit.id],
       strength: Math.min(85, ago * 20),
-      actionLabel: 'View mantras',
+      actionLabel: 'Voir mantras',
     });
   }
   recs.sort((a, b) => b.strength - a.strength);
@@ -733,22 +733,36 @@ function detectChaosHabitLink(
     const dates = habitCheckDates(habit.id, checkIns);
     if (dates.length === 0) continue;
 
-    // Find consecutive missed days
-    const today = now.toISOString().slice(0, 10);
-    const lastCompleted = dates[dates.length - 1];
-    const missedDays = Math.floor((new Date(today + 'T00:00:00Z').getTime() - new Date(lastCompleted + 'T00:00:00Z').getTime()) / 86400000);
+    // Occurrence-based (same model as the Chaos dashboard): non-daily habits
+    // count missed SESSIONS in a trailing window, not calendar days — no
+    // false alarms on a 3×/week habit after 2 days off.
+    const perWeekRaw = habit.chaosPerWeek;
+    const perWeek = typeof perWeekRaw === 'number' && Number.isFinite(perWeekRaw)
+      ? Math.min(7, Math.max(1, Math.round(perWeekRaw))) : 7;
     const threshold = habit.chaosThresholdDays ?? 3;
+    const windowDays = Math.max(1, Math.ceil((threshold * 7) / perWeek));
+    const today = now.toISOString().slice(0, 10);
+    const done = new Set<string>();
+    for (let i = 1; i <= windowDays; i++) {
+      const d = dateStrDaysAgo(i, now);
+      if (d < today && checkIns.some((c) => c.habitId === habit.id && c.date === d && c.completed)) done.add(d);
+    }
+    const expected = (perWeek * windowDays) / 7;
+    const missed = Math.max(0, expected - done.size);
 
-    if (missedDays >= threshold && threshold > 0) {
+    if (missed >= threshold && threshold > 0) {
       const links = chaosLinksOf(habit);
       const dims = links.map((l) => `${l.dimension}+${l.impact}%`).join(', ');
+      const missedTxt = perWeek < 7
+        ? `${Math.round(missed * 10) / 10} séance${missed >= 2 ? 's' : ''} manquée${missed >= 2 ? 's' : ''} (${perWeek}×/sem)`
+        : `${Math.floor(missed)} jour${missed >= 2 ? 's' : ''} manqué${missed >= 2 ? 's' : ''}`;
       recs.push({
         kind: 'CHAOS_CORRELATION',
-        title: `🌀 "${habit.name}" — ${missedDays} days missed, chaos risk +${links[0]?.impact ?? 50}%`,
-        detail: `You've missed "${habit.name}" for ${missedDays} consecutive days (threshold: ${threshold}d). This is adding pressure to ${dims}. One check-in today reduces it.`,
+        title: `🌀 « ${habit.name} » — ${missedTxt}, chaos +${links[0]?.impact ?? 50}%`,
+        detail: `« ${habit.name} » chauffe ${dims}. Une coche aujourd'hui fait redescendre la pression.`,
         habitIds: [habit.id],
-        strength: Math.min(95, Math.round((missedDays / threshold) * 60 + 30)),
-        actionLabel: 'Check in now',
+        strength: Math.min(95, Math.round((missed / threshold) * 60 + 30)),
+        actionLabel: 'Cocher',
       });
     }
   }
@@ -834,8 +848,8 @@ function detectBurnoutRisk(
 
   const dimName = worstHabit ? (chaosLinksOf(worstHabit.habit)[0]?.dimension ?? '') : '';
   const title = worstHabit
-    ? `🫀 Burnout watch — "${worstHabit.habit.name}" is slipping (${worstHabit.decline}% decline)`
-    : `🫀 Burnout watch — energy low (${lowMoodDays} low-mood days in 2 weeks)`;
+    ? `🫀 Risque de cramage — « ${worstHabit.habit.name} » glisse (−${worstHabit.decline}%)`
+    : `🫀 Risque de cramage — énergie basse (${lowMoodDays} jours d'humeur basse en 2 semaines)`;
   // profondeur: h et p sur la baisse
   let deepNote = '';
   if (worstHabit) {
@@ -848,8 +862,8 @@ function detectBurnoutRisk(
     deepNote = ` Effet h=${h2.toFixed(2)} (${Math.abs(h2) < 0.5 ? 'modeste' : Math.abs(h2) < 0.8 ? 'marqué' : 'massif'}) · ${p2 === null ? 'n faible' : p2 < 0.001 ? 'p<0.001' : `p=${p2.toFixed(3)}`}${sig2 ? ' · baisse significative' : ' · tendance à confirmer'} · n=${nRecent}+${nPrior}.`;
   }
   const detail = worstHabit
-    ? `"${worstHabit.habit.name}" went from ${Math.round(worstHabit.habit ? priorRate(worstHabit.habit.id, checkIns, now) : 0)}% down to ${Math.round(worstHabit.recent * 100)}% completion in the last 2 weeks.${lowMoodRatio >= 0.3 ? ` Combined with ${lowMoodDays} low-mood day${lowMoodDays > 1 ? 's' : ''}, this points to ${dimName} overload.` : ''}${deepNote} The smartest move right now is usually to REST one dimension, not push harder.`
-    : `You logged ${lowMoodDays} low-mood day${lowMoodDays > 1 ? 's' : ''} in the last 2 weeks with no clear habit trigger.${deepNote} Check in with yourself — sometimes the highest-leverage habit is rest.`;
+    ? `« ${worstHabit.habit.name} » est passé de ${Math.round(worstHabit.habit ? priorRate(worstHabit.habit.id, checkIns, now) : 0)}% à ${Math.round(worstHabit.recent * 100)}% de complétion en 2 semaines.${lowMoodRatio >= 0.3 ? ` Avec ${lowMoodDays} jour${lowMoodDays > 1 ? 's' : ''} d'humeur basse, ça pointe une surcharge ${dimName}.` : ''}${deepNote} Le coup le plus malin maintenant, c'est souvent de LEVER LE PIED sur une dimension, pas de pousser plus fort.`
+    : `${lowMoodDays} jour${lowMoodDays > 1 ? 's' : ''} d'humeur basse en 2 semaines, sans déclencheur net côté habitudes.${deepNote} Fais le point avec toi-même — parfois l'habitude au meilleur rendement, c'est le repos.`;
 
   return [{
     kind: 'BURNOUT_RISK',
@@ -857,7 +871,7 @@ function detectBurnoutRisk(
     detail,
     habitIds: worstHabit ? [worstHabit.habit.id] : [],
     strength: Math.min(95, Math.round(score)),
-    actionLabel: 'View history',
+    actionLabel: "Voir l'historique",
   }];
 }
 
@@ -884,11 +898,11 @@ function detectUrgeTriggers(urges: UrgeEntry[]): Recommendation[] {
     if (info.total >= 2) {
       recs.push({
         kind: 'URGE_TRIGGER',
-        title: `🔍 "${trigger}" is your top urge trigger`,
-        detail: `"${trigger}" appeared in ${info.total} urge log${info.total > 1 ? 's' : ''}, ${info.gaveIn} of which you gave in to. Plan a counter-habit in advance for this exact moment.`,
+        title: `🔍 « ${trigger} » est ton déclencheur n°1`,
+        detail: `« ${trigger} » apparaît dans ${info.total} journal${info.total > 1 ? 'aux' : ''} d'envies, dont ${info.gaveIn} où tu as cédé. Prévois une contre-habitude à l'avance pour ce moment précis.`,
         habitIds: [],
         strength: Math.min(85, 50 + info.total * 10),
-        actionLabel: 'View urges',
+        actionLabel: 'Voir envies',
       });
     }
   }
@@ -907,13 +921,13 @@ function detectExperimentResults(experiments: Experiment[]): Recommendation[] {
   const verdict = exp.conclusion.trim();
   return [{
     kind: 'EXPERIMENT_RESULT',
-    title: `🧪 "${exp.title}" — experiment complete`,
+    title: `🧪 « ${exp.title} » — expérience terminée`,
     detail: verdict
-      ? `Your "${exp.title}" experiment wrapped up. Conclusion: ${verdict}`
-      : `Your "${exp.title}" experiment wrapped up — add a conclusion to lock in what you learned.`,
+      ? `Ton expérience « ${exp.title} » est bouclée. Conclusion : ${verdict}`
+      : `Ton expérience « ${exp.title} » est bouclée — ajoute une conclusion pour verrouiller ce que tu as appris.`,
     habitIds: exp.linkedHabits,
     strength: 75,
-    actionLabel: 'View experiments',
+    actionLabel: 'Voir expériences',
   }];
 }
 
@@ -975,11 +989,11 @@ function detectNoteThemes(notes: Note[]): Recommendation[] {
   const totalScore = sorted.reduce((s, [, v]) => s + v, 0);
   return [{
     kind: 'NOTE_THEME',
-    title: `🗂️ Your notes revolve around: ${top.map(([t]) => t).join(', ')}`,
-    detail: `Across ${notes.length} notes, ${top.map(([t, c]) => `${t} (score ${c.toFixed(1)})`).join(', ')} dominent (TF-IDF, total ${totalScore.toFixed(1)}). Les thèmes rares pèsent plus — c'est là que ton attention se fixe. Creuse le top thème en journal.`,
+    title: `🗂️ Tes notes tournent autour de : ${top.map(([t]) => t).join(', ')}`,
+    detail: `Sur ${notes.length} notes, ${top.map(([t, c]) => `${t} (score ${c.toFixed(1)})`).join(', ')} dominent (TF-IDF, total ${totalScore.toFixed(1)}). Les thèmes rares pèsent plus — c'est là que ton attention se fixe. Creuse le top thème en journal.`,
     habitIds: [],
     strength: Math.min(85, Math.round(45 + sorted[0][1] * 8)),
-    actionLabel: 'View notes',
+    actionLabel: 'Voir notes',
   }];
 }
 
@@ -995,11 +1009,11 @@ function detectJournalThemes(entries: JournalEntry[]): Recommendation[] {
   const totalScore = sorted.reduce((s, [, v]) => s + v, 0);
   return [{
     kind: 'JOURNAL_THEME',
-    title: `📓 Your journal revolves around: ${top.map(([t]) => t).join(', ')}`,
+    title: `📓 Ton journal tourne autour de : ${top.map(([t]) => t).join(', ')}`,
     detail: `Sur ${entries.length} entrées, ${top.map(([t, c]) => `${t} (${c.toFixed(1)})`).join(', ')} ressortent (TF-IDF, total ${totalScore.toFixed(1)}). Le thème le plus distinctif mérite une session ciblée — écris sur ce que tu peux changer.`,
     habitIds: [],
     strength: Math.min(82, 50 + sorted[0][1] * 6),
-    actionLabel: 'Open journal',
+    actionLabel: 'Ouvrir journal',
   }];
 }
 
@@ -1016,11 +1030,11 @@ function detectReflectionDue(reflections: ReflectionEntry[]): Recommendation[] {
   const answeredCount = reflections.filter((r) => r.status === 'answered').length;
   return [{
     kind: 'REFLECTION_DUE',
-    title: `💭 ${open.length} question${open.length > 1 ? 's' : ''} awaiting your answer`,
-    detail: `One is still open from ${oldest.createdAt.slice(0, 10)}: "${oldest.question}" — ${open.length > 1 ? `plus ${open.length - 1} more. ` : ''}You've answered ${answeredCount} so far. Each answer is a durable lesson LifeTrack remembers.`,
+    title: `💭 ${open.length} question${open.length > 1 ? 's' : ''} attendent ta réponse`,
+    detail: `Une est ouverte depuis le ${oldest.createdAt.slice(0, 10)} : « ${oldest.question} » — ${open.length > 1 ? `plus ${open.length - 1} autre${open.length - 1 > 1 ? 's' : ''}. ` : ''}Tu en as répondu ${answeredCount} jusqu'ici. Chaque réponse est une leçon durable dont LifeTrack se souvient.`,
     habitIds: oldest.habitIds ?? [],
     strength: Math.min(75, 45 + open.length * 10),
-    actionLabel: 'Answer now',
+    actionLabel: 'Répondre',
   }];
 }
 
@@ -1038,11 +1052,11 @@ function detectReflectionReview(reflections: ReflectionEntry[], now: Date): Reco
   if (recentCount > 0) return []; // they're already in the loop, no nudge needed
   return [{
     kind: 'REFLECTION_REVIEW',
-    title: `🔄 You've learned ${answered.length} lessons — revisit them`,
-    detail: `Your last answered question was "${latest.question}". Re-reading your stored ${answered.length} answers re-anchors them. Pick one and act on it today.`,
+    title: `🔄 ${answered.length} leçons apprises — relis-les`,
+    detail: `Ta dernière question répondue : « ${latest.question} ». Relire tes ${answered.length} réponses les ré-ancre. Prends-en une et agis dessus aujourd'hui.`,
     habitIds: latest.habitIds ?? [],
     strength: 62,
-    actionLabel: 'Review learnings',
+    actionLabel: 'Relire',
   }];
 }
 
@@ -1073,11 +1087,11 @@ function detectPerfectDays(
     const goodMood = mood === 'amazing' || mood === 'great';
     return [{
       kind: 'PERFECT_DAY',
-      title: `🌟 Perfect day on ${ds}${goodMood ? ' with a great mood' : ''}`,
-      detail: `You completed all ${active.length} habits on ${ds}${mood ? ` and logged your mood as "${mood}"` : ''}. Study what made that day work — then repeat it.`,
+      title: `🌟 Journée parfaite le ${ds}${goodMood ? ' avec une super humeur' : ''}`,
+      detail: `Tu as coché les ${active.length} habitudes le ${ds}${mood ? ` avec une humeur « ${mood} »` : ''}. Étudie ce qui a fait marcher ce jour-là — puis répète-le.`,
       habitIds: active.map((h) => h.id),
       strength: 85,
-      actionLabel: 'View history',
+      actionLabel: "Voir l'historique",
     }];
   }
   return [];
@@ -1102,20 +1116,20 @@ function generateWeeklyLetter(
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const lastNote = weekNotes[weekNotes.length - 1];
 
-  const parts: string[] = [`Your most common mood this week was "${topMood}" (${weekMoods.length} days logged).`];
+  const parts: string[] = [`Ton humeur la plus fréquente cette semaine : « ${topMood} » (${weekMoods.length} jours notés).`];
   if (weekNotes.length > 0) {
     const excerpt = lastNote.content.length > 80 ? `${lastNote.content.slice(0, 80)}…` : lastNote.content;
-    parts.push(`You wrote ${weekNotes.length} note${weekNotes.length > 1 ? 's' : ''} — your last one: "${excerpt}".`);
+    parts.push(`Tu as écrit ${weekNotes.length} note${weekNotes.length > 1 ? 's' : ''} — la dernière : « ${excerpt} ».`);
   }
-  parts.push('Take 30 seconds tonight to write one line about what you want next week to look like.');
+  parts.push('Prends 30 secondes ce soir pour écrire une ligne sur ce que tu veux que la semaine prochaine ressemble.');
 
   return [{
     kind: 'WEEKLY_LETTER',
-    title: '✉️ Your week, in one line',
+    title: '✉️ Ta semaine, en une ligne',
     detail: parts.join(' '),
     habitIds: [],
     strength: 55,
-    actionLabel: 'View notes',
+    actionLabel: 'Voir notes',
   }];
 }
 

@@ -27,17 +27,17 @@ describe('MantraView rendering', () => {
     expect(screen.getByText('Mantras')).toBeDefined();
   });
 
-  it('renders the three tabs: Today, Manage, Settings', () => {
+  it('renders the three tabs (FR)', () => {
     render(<MantraView />);
-    expect(screen.getByText('Today')).toBeDefined();
-    expect(screen.getByText('Manage')).toBeDefined();
-    expect(screen.getByText('Settings')).toBeDefined();
+    expect(screen.getByText("Aujourd'hui")).toBeDefined();
+    expect(screen.getByText('Gérer')).toBeDefined();
+    expect(screen.getByText('Réglages')).toBeDefined();
   });
 
-  it('starts on the Today tab by default', () => {
+  it('starts on the today tab by default', () => {
     render(<MantraView />);
     // Today tab should be active
-    const todayTab = screen.getByText('Today');
+    const todayTab = screen.getByText("Aujourd'hui");
     expect(todayTab.className).toContain('active');
   });
 
@@ -60,25 +60,25 @@ describe('MantraView tab navigation', () => {
   it('switches to Manage tab when clicked', async () => {
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('Manage'));
-    expect(screen.getByText('Manage').className).toContain('active');
-    expect(screen.getByText('Add your own mantra')).toBeDefined();
+    await user.click(screen.getByText('Gérer'));
+    expect(screen.getByText('Gérer').className).toContain('active');
+    expect(screen.getByText('Ajoute ton mantra')).toBeDefined();
   });
 
   it('switches to Settings tab when clicked', async () => {
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('Settings'));
-    expect(screen.getByText('Settings').className).toContain('active');
-    expect(screen.getByText('Notification Settings')).toBeDefined();
+    await user.click(screen.getByText('Réglages'));
+    expect(screen.getByText('Réglages').className).toContain('active');
+    expect(screen.getByText('Rappels')).toBeDefined();
   });
 
   it('can return to Today tab', async () => {
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('Settings'));
-    await user.click(screen.getByText('Today'));
-    expect(screen.getByText('Today').className).toContain('active');
+    await user.click(screen.getByText('Réglages'));
+    await user.click(screen.getByText("Aujourd'hui"));
+    expect(screen.getByText("Aujourd'hui").className).toContain('active');
   });
 });
 
@@ -89,27 +89,27 @@ describe('MantraView — adding custom mantras', () => {
   it('renders the add mantra form in Manage tab', async () => {
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('Manage'));
-    expect(screen.getByPlaceholderText('Write your mantra...')).toBeDefined();
-    expect(screen.getByText('Add')).toBeDefined();
+    await user.click(screen.getByText('Gérer'));
+    expect(screen.getByPlaceholderText('Écris ton mantra…')).toBeDefined();
+    expect(screen.getByText('Ajouter')).toBeDefined();
   });
 
   it('add button is disabled when input is empty', async () => {
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('Manage'));
-    const addBtn = screen.getByText('Add');
+    await user.click(screen.getByText('Gérer'));
+    const addBtn = screen.getByText('Ajouter');
     expect((addBtn as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('adds a mantra when text is entered and Add is clicked', async () => {
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('Manage'));
+    await user.click(screen.getByText('Gérer'));
 
-    const input = screen.getByPlaceholderText('Write your mantra...');
+    const input = screen.getByPlaceholderText('Écris ton mantra…');
     await user.type(input, 'My personal mantra');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('Ajouter'));
 
     // The mantra should appear in the store
     const mantras = getMantras();
@@ -119,18 +119,37 @@ describe('MantraView — adding custom mantras', () => {
     expect(customMantras[0].isDefault).toBe(false);
   });
 
+  it('proves the save: confirmation + domain opened + row highlighted', async () => {
+    const user = userEvent.setup();
+    render(<MantraView />);
+    await user.click(screen.getByText('Gérer'));
+
+    const select = screen.getByRole('combobox');
+    await user.selectOptions(select, 'health');
+
+    const input = screen.getByPlaceholderText('Écris ton mantra…');
+    await user.type(input, 'Respire, ça passe');
+    await user.click(screen.getByText('Ajouter'));
+
+    // Confirmation message names the save explicitly.
+    expect(screen.getByText(/Enregistré dans/)).toBeDefined();
+    // The new row is visible right away (domain auto-expanded + highlight).
+    expect(screen.getByText(/Respire, ça passe/)).toBeDefined();
+    expect(document.querySelector('.mantra-item.just-added')).not.toBeNull();
+  });
+
   it('adds a mantra in the selected domain', async () => {
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('Manage'));
+    await user.click(screen.getByText('Gérer'));
 
     // Select "Health" domain from the dropdown
     const select = screen.getByRole('combobox');
     await user.selectOptions(select, 'health');
 
-    const input = screen.getByPlaceholderText('Write your mantra...');
+    const input = screen.getByPlaceholderText('Écris ton mantra…');
     await user.type(input, 'Health mantra');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('Ajouter'));
 
     const mantras = getMantras();
     const custom = mantras.find((m) => m.text === 'Health mantra');
@@ -146,7 +165,7 @@ describe('MantraView — browsing and deleting', () => {
   it('expands a domain to show its mantras', async () => {
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('Manage'));
+    await user.click(screen.getByText('Gérer'));
 
     // Click on Financial domain to expand
     const financialToggle = screen.getByText('Financial');
@@ -163,16 +182,16 @@ describe('MantraView — browsing and deleting', () => {
 
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('Manage'));
+    await user.click(screen.getByText('Gérer'));
 
     // Expand Financial
     await user.click(screen.getByText('Financial'));
 
     // Should see both default badge and custom badge
-    const defaultBadges = screen.getAllByText('default');
+    const defaultBadges = screen.getAllByText('défaut');
     expect(defaultBadges.length).toBeGreaterThan(0);
 
-    const customBadges = screen.getAllByText('yours');
+    const customBadges = screen.getAllByText('à toi');
     expect(customBadges.length).toBe(1);
   });
 
@@ -181,13 +200,13 @@ describe('MantraView — browsing and deleting', () => {
 
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('Manage'));
+    await user.click(screen.getByText('Gérer'));
 
     // Expand Life
     await user.click(screen.getByText('Life'));
 
     // Find the delete button for the custom mantra (only custom mantras have it)
-    const deleteButtons = screen.getAllByTitle('Delete this mantra');
+    const deleteButtons = screen.getAllByTitle('Supprimer ce mantra');
     expect(deleteButtons.length).toBe(1); // Only the custom mantra
 
     // Delete it
@@ -207,26 +226,26 @@ describe('MantraView — settings', () => {
   it('shows morning and evening time inputs', async () => {
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('Settings'));
+    await user.click(screen.getByText('Réglages'));
 
     expect(screen.getByText('🌅')).toBeDefined();
     expect(screen.getByText('🌙')).toBeDefined();
-    expect(screen.getByText('Morning reminder')).toBeDefined();
-    expect(screen.getByText('Evening reminder')).toBeDefined();
+    expect(screen.getByText('Rappel du matin')).toBeDefined();
+    expect(screen.getByText('Rappel du soir')).toBeDefined();
   });
 
   it('shows showOnEntry toggle', async () => {
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('Settings'));
+    await user.click(screen.getByText('Réglages'));
 
-    expect(screen.getByText('Show mantra on app entry')).toBeDefined();
+    expect(screen.getByText("Afficher un mantra à l'ouverture")).toBeDefined();
   });
 
   it('toggles morning notification off and on', async () => {
     const user = userEvent.setup();
     render(<MantraView />);
-    await user.click(screen.getByText('Settings'));
+    await user.click(screen.getByText('Réglages'));
 
     // All checkboxes — find the morning one (first checkbox = morning)
     const checkboxes = screen.getAllByRole('checkbox');
@@ -243,7 +262,7 @@ describe('MantraView — settings', () => {
   it('changes morning time', async () => {
     render(<MantraView />);
     // Switch to settings
-    fireEvent.click(screen.getByText('Settings'));
+    fireEvent.click(screen.getByText('Réglages'));
 
     const timeInputs = screen.getAllByDisplayValue('08:00');
     expect(timeInputs.length).toBeGreaterThanOrEqual(1);
@@ -262,7 +281,7 @@ describe('MantraView — dismiss', () => {
   it('shows close button when onDismiss is provided', () => {
     const onDismiss = () => {};
     render(<MantraView onDismiss={onDismiss} />);
-    expect(screen.getByText('Close')).toBeDefined();
+    expect(screen.getByText('Fermer')).toBeDefined();
   });
 
   it('calls onDismiss when close button is clicked', async () => {
@@ -271,12 +290,12 @@ describe('MantraView — dismiss', () => {
     const user = userEvent.setup();
     render(<MantraView onDismiss={onDismiss} />);
 
-    await user.click(screen.getByText('Close'));
+    await user.click(screen.getByText('Fermer'));
     expect(dismissed).toBe(true);
   });
 
   it('does not show close button when onDismiss is not provided', () => {
     render(<MantraView />);
-    expect(screen.queryByText('Close')).toBeNull();
+    expect(screen.queryByText('Fermer')).toBeNull();
   });
 });

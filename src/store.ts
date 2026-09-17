@@ -1,4 +1,5 @@
-import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, ChaosLink, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalThread, JournalPersonality, Challenge, Persona, Lever, PatternTrack, ReflectionEntry, ReflectionKind, Project, Protocol, IngestedSource, Task, FeedConfig, PsychoMessage, ObsidianNote, Mission, MissionWindow } from './types';
+import type { AppData, Habit, CheckIn, Note, ChaosDimension, ChaosTrigger, ChaosLink, Mantra, MantraSettings, Skill, SkillLink, Capacity, CapacityRating, Experiment, UrgeEntry, CustomUrgeType, UserPreferences, AchievementCategory, JournalEntry, JournalThread, JournalPersonality, Challenge, Persona, Lever, PatternTrack, ReflectionEntry, ReflectionKind, Project, Protocol, IngestedSource, Task, FeedConfig, PsychoMessage, ObsidianNote, Mission, MissionWindow, Routine, EmotionalEvent, EmotionalCheck, SubHabit, IfThenPlan } from './types';
+import { MAX_SUB_HABITS, MAX_SUB_HABIT_LABEL, MAX_IF_THEN, MAX_IF_THEN_TEXT, isPartialCheckIn, cleanEmotionTags } from './types';
 import { computeStreakStats } from './stats';
 import { computeChallengeProgress } from './challenges';
 import {
@@ -86,6 +87,100 @@ const STORAGE_KEY = 'lifetrack-data';
 const BACKUP_KEY = 'lifetrack-data-backup';
 const RAW_JSON_KEY = 'lifetrack-raw'; // emergency plain JSON (no envelope, survives corruption)
 const FILE_BACKUP_NAME = 'lifetrack-persistent.json'; // filesystem fallback (Tauri)
+// Bulk knowledge-library key. protocols + ingestedSources (~1.5MB of auto-ingested
+// reference data) used to ride inside EVERY envelope/snapshot write, choking the
+// ~5MB localStorage quota until ALL writes failed silently and recent user data
+// stopped persisting. The critical path (envelopes, snapshots) now carries only
+// the ~100KB core; bulk lives here (best-effort) + in full-fidelity file backups.
+const BULK_KEY = 'lifetrack-bulk';
+interface BulkData {
+  protocols?: Protocol[];
+  ingestedSources?: IngestedSource[];
+}
+/** Split live data into quota-safe core (envelopes/snapshots) + bulk (own key + files). */
+function stripBulk(d: AppData): { core: AppData; bulk: BulkData } {
+  const { protocols, ingestedSources, ...rest } = d as AppData & { protocols?: Protocol[]; ingestedSources?: IngestedSource[] };
+  return {
+    core: rest as AppData,
+    bulk: { protocols: protocols ?? [], ingestedSources: ingestedSources ?? [] },
+  };
+}
+let lastBulkHash = '';
+/** Best-effort bulk write. Failure only degrades the knowledge library cache
+ *  (recoverable from files/seeds) — it must NEVER block or fail the save.
+ *  Skipped when unchanged (avoids re-serializing ~1.5MB on every keystroke). */
+function writeBulkData(bulk: BulkData): boolean {
+  if (!isLocalStorageAvailable()) return false;
+  try {
+    const json = JSON.stringify(bulk);
+    const h = fnv1a(json);
+    // Skip the ~1.5MB rewrite when unchanged — but only if the key actually
+    // exists (a wipe/new profile with identical content must still be written).
+    if (h === lastBulkHash) {
+      try {
+        if (localStorage.getItem(BULK_KEY) !== null) return true;
+      } catch { /* fall through and rewrite */ }
+    }
+    localStorage.setItem(BULK_KEY, JSON.stringify({ v: 1, d: bulk, h }));
+    lastBulkHash = h;
+    return true;
+  } catch {
+    return false;
+  }
+}
+/** Read + verify the bulk companion key. Null on any problem (evidence, not data). */
+function readBulkData(): BulkData | null {
+  if (!isLocalStorageAvailable()) return null;
+  try {
+    const raw = localStorage.getItem(BULK_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || (parsed as { v?: unknown }).v !== 1) return null;
+    const d = (parsed as { d?: unknown }).d;
+    if (!d || typeof d !== 'object') return null;
+    const envelope = parsed as { h?: unknown };
+    if (typeof envelope.h === 'string' && envelope.h !== fnv1a(JSON.stringify(d))) return null;
+    return d as BulkData;
+  } catch {
+    return null;
+  }
+}
+/**
+ * Union file/bulk-library entries into live data (by id). Used at load and
+ * after core-only restores. Union (not replace): bulk is append-mostly
+ * reference data, and both sides may have advanced independently.
+ */
+function attachBulkData(d: AppData): void {
+  let bulk: BulkData | null = null;
+  try { bulk = readBulkData(); } catch { /* ignore */ }
+  if (!bulk) return;
+  if (Array.isArray(bulk.protocols) && bulk.protocols.length > 0) {
+    const have = new Set((d.protocols ?? []).map((p) => p.id));
+    const clean = sanitizeProtocols(bulk.protocols);
+    for (const p of clean) {
+      if (!have.has(p.id)) {
+        (d.protocols ??= []).push(p);
+        have.add(p.id);
+      }
+    }
+  }
+  if (Array.isArray(bulk.ingestedSources) && bulk.ingestedSources.length > 0) {
+    const have = new Set((d.ingestedSources ?? []).map((s) => s.id));
+    for (const s of bulk.ingestedSources) {
+      if (!s || typeof s !== 'object') continue;
+      const r = s as unknown as Record<string, unknown>;
+      if (typeof r.id !== 'string' || !r.id || typeof r.rawText !== 'string' || have.has(r.id)) continue;
+      (d.ingestedSources ??= []).push({
+        id: r.id,
+        title: typeof r.title === 'string' ? r.title : r.id,
+        rawText: r.rawText,
+        createdAt: typeof r.createdAt === 'string' ? r.createdAt : new Date().toISOString(),
+        ingested: r.ingested === true,
+      });
+      have.add(r.id);
+    }
+  }
+}
 const HABIT_COLORS = ['#FEF3C7', '#D1FAE5', '#DBEAFE', '#FCE7F3', '#E0E7FF', '#FEE2E2', '#EDE9FE', '#FEF9C3'];
 
 // --- FNV-1a hash (32-bit) for data integrity, not security ---
@@ -177,6 +272,65 @@ function isValidLever(x: unknown): x is Lever {
   return true;
 }
 
+// --- Shared cleaners (sanitize + import agree on one implementation) ---
+// Repair sub-habit lists in place semantics: trim labels, drop dup ids and
+// empties, cap length. Returns undefined when nothing usable remains.
+// A corrupt sub must never delete the habit it serves.
+function cleanSubHabitList(raw: unknown): SubHabit[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const seen = new Set<string>();
+  const clean: SubHabit[] = [];
+  for (const s of raw as unknown[]) {
+    if (!s || typeof s !== 'object') continue;
+    const o = s as Record<string, unknown>;
+    if (typeof o.id !== 'string' || o.id.length === 0 || seen.has(o.id)) continue;
+    if (typeof o.label !== 'string') continue;
+    const label = o.label.trim().slice(0, MAX_SUB_HABIT_LABEL);
+    if (!label) continue;
+    seen.add(o.id);
+    clean.push({ id: o.id, label, order: typeof o.order === 'number' && Number.isFinite(o.order) ? o.order : clean.length });
+    if (clean.length >= MAX_SUB_HABITS) break;
+  }
+  clean.sort((a, b) => a.order - b.order);
+  return clean.length > 0 ? clean : undefined;
+}
+
+// Repair implementation-intention lists: trim cue/action, drop empties and
+// dupes, cap. Same "never delete the habit" contract as sub-habits.
+function cleanIfThenList(raw: unknown): IfThenPlan[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const seen = new Set<string>();
+  const clean: IfThenPlan[] = [];
+  for (const p of raw as unknown[]) {
+    if (!p || typeof p !== 'object') continue;
+    const o = p as Record<string, unknown>;
+    if (typeof o.cue !== 'string' || typeof o.action !== 'string') continue;
+    const cue = o.cue.trim().slice(0, MAX_IF_THEN_TEXT);
+    const action = o.action.trim().slice(0, MAX_IF_THEN_TEXT);
+    if (!cue || !action) continue;
+    const key = `${cue.toLocaleLowerCase()}→${action.toLocaleLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    clean.push({ cue, action });
+    if (clean.length >= MAX_IF_THEN) break;
+  }
+  return clean.length > 0 ? clean : undefined;
+}
+
+// Normalize a sub-state triple (subIds + total subs + completed) into a
+// consistent { subIds?, partial? }. Used by sanitize and the import merge so
+// a "doux" day round-trips byte-identically through backups and reinstalls.
+function normalizeSubState(
+  subIds: unknown,
+  totalSubs: number,
+  completed: boolean,
+): { subIds?: string[]; partial?: boolean } {
+  const ids = Array.isArray(subIds) ? (subIds as unknown[]).filter((id): id is string => typeof id === 'string') : [];
+  if (!completed || ids.length === 0 || totalSubs === 0) return {};
+  if (ids.length >= totalSubs) return { subIds: ids };
+  return { subIds: ids, partial: true };
+}
+
 // --- Sanitize: filter out malformed entries from parsed data ---
 function sanitizeData(raw: unknown): AppData {
   const empty: AppData = {
@@ -210,6 +364,9 @@ function sanitizeData(raw: unknown): AppData {
     feeds: [],
     obsidianNotes: [],
     missions: [],
+    routines: [],
+    emotionalEvents: [],
+    emotionalChecks: [],
     preferences: { darkMode: false, theme: '' },
   };
   if (!raw || typeof raw !== 'object') return empty;
@@ -236,21 +393,49 @@ function sanitizeData(raw: unknown): AppData {
     }
     if (h.chaosImpact !== undefined && (typeof h.chaosImpact !== 'number' || !Number.isFinite(h.chaosImpact))) return false;
     if (h.chaosThresholdDays !== undefined && (typeof h.chaosThresholdDays !== 'number' || h.chaosThresholdDays < 1 || !Number.isFinite(h.chaosThresholdDays))) return false;
+    // Frequency: repair (clamp 1-7), never drop the habit over it.
+    if (h.chaosPerWeek !== undefined) {
+      if (typeof h.chaosPerWeek !== 'number' || !Number.isFinite(h.chaosPerWeek)) delete h.chaosPerWeek;
+      else h.chaosPerWeek = Math.min(7, Math.max(1, Math.round(h.chaosPerWeek)));
+    }
     // Validate why/intentions: if present, must be an array of strings, max 5
     if (h.why !== undefined) {
       if (!Array.isArray(h.why)) return false;
       if (h.why.length > 5) return false;
       if (h.why.some((s: unknown) => typeof s !== 'string')) return false;
     }
+    // Repair implementation intentions and sub-habits in place via the shared
+    // cleaners — a corrupt plan or sub must never delete the habit it serves.
+    if (h.ifThen !== undefined) {
+      if (!Array.isArray(h.ifThen)) return false;
+      const clean = cleanIfThenList(h.ifThen);
+      if (clean) h.ifThen = clean;
+      else delete h.ifThen;
+    }
+    if (h.subHabits !== undefined) {
+      if (!Array.isArray(h.subHabits)) return false;
+      const clean = cleanSubHabitList(h.subHabits);
+      if (clean) h.subHabits = clean;
+      else delete h.subHabits;
+    }
+    if (h.intent !== undefined && h.intent !== 'do' && h.intent !== 'avoid') return false;
     return true;
   }
   function isValidCheckIn(x: unknown): x is CheckIn {
     if (!x || typeof x !== 'object') return false;
     const c = x as Record<string, unknown>;
-    return typeof c.habitId === 'string'
-      && typeof c.date === 'string'
-      && isValidDateKey(c.date)
-      && typeof c.completed === 'boolean';
+    if (typeof c.habitId !== 'string'
+      || typeof c.date !== 'string'
+      || !isValidDateKey(c.date)
+      || typeof c.completed !== 'boolean') return false;
+    // Validate sub-habit fields: subIds must be string ids, partial boolean.
+    // Unknown sub ids are filtered later (habit must be known first).
+    if (c.subIds !== undefined) {
+      if (!Array.isArray(c.subIds)) return false;
+      if ((c.subIds as unknown[]).some((s: unknown) => typeof s !== 'string')) return false;
+    }
+    if (c.partial !== undefined && typeof c.partial !== 'boolean') return false;
+    return true;
   }
   function isValidNote(x: unknown): x is Note {
     return !!(x && typeof x === 'object' && 'id' in (x as object) && 'content' in (x as object));
@@ -344,9 +529,29 @@ function sanitizeData(raw: unknown): AppData {
     validPersonas.push({ ...p, habitIds });
   }
 
+  // Sub-habit cross-repair: drop subIds pointing at unknown habits or at
+  // sub-habits that no longer exist, then recompute `partial` so it can
+  // never contradict the actual sub state (partial ⟺ completed AND some —
+  // but not all — known subs done; a direct full check has no subIds).
+  const subIdsByHabit = new Map(habits.map((h) => [h.id, new Set((h.subHabits ?? []).map((s) => s.id))]));
+  const validCheckIns: CheckIn[] = [];
+  if (Array.isArray(obj.checkIns)) {
+    for (const raw of obj.checkIns.filter(isValidCheckIn)) {
+      const known = subIdsByHabit.get(raw.habitId) ?? new Set<string>();
+      const filtered = (raw.subIds ?? []).filter((id) => known.has(id));
+      // Drop orphan subIds first, then normalize via the shared helper so a
+      // "doux" day round-trips byte-identically through every restore path.
+      const kept = filtered.length === (raw.subIds ?? []).length ? raw.subIds : filtered;
+      const norm = normalizeSubState(kept, known.size, raw.completed);
+      raw.subIds = norm.subIds;
+      raw.partial = norm.partial;
+      validCheckIns.push(raw);
+    }
+  }
+
   return {
     habits,
-    checkIns: Array.isArray(obj.checkIns) ? obj.checkIns.filter(isValidCheckIn) : [],
+    checkIns: validCheckIns,
     notes: Array.isArray(obj.notes) ? obj.notes.filter(isValidNote) : [],
     // Merge stored chaos dimensions with the current defaults so that new
     // dimensions (e.g. 'emotional') appear in data saved by older versions,
@@ -383,8 +588,157 @@ function sanitizeData(raw: unknown): AppData {
     feeds: sanitizeFeeds(obj.feeds),
     obsidianNotes: sanitizeObsidianNotes(obj.obsidianNotes),
     missions: sanitizeMissions(obj.missions),
+    routines: sanitizeRoutines(obj.routines),
+    emotionalEvents: sanitizeEmotionalEvents(obj.emotionalEvents),
+    emotionalChecks: sanitizeEmotionalChecks(obj.emotionalChecks),
     preferences: sanitizePreferences(obj.preferences),
   };
+}
+
+/** Sanitize routines — keep well-formed entries, drop the rest. */
+function sanitizeRoutines(raw: unknown): Routine[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Routine[] = [];
+  for (const x of raw) {
+    if (!x || typeof x !== 'object') continue;
+    const r = x as Record<string, unknown>;
+    if (typeof r.id !== 'string' || !r.id) continue;
+    if (typeof r.triggerId !== 'string' || !r.triggerId) continue;
+    if (typeof r.name !== 'string' || !r.name) continue;
+    if (!Array.isArray(r.steps)) continue;
+    // Repair steps individually (drop the bad step, keep the routine):
+    // one corrupt step must never delete the whole protocol.
+    const steps: Routine['steps'] = [];
+    const seenStepIds = new Set<string>();
+    for (const s of r.steps) {
+      if (!s || typeof s !== 'object') continue;
+      const st = s as Record<string, unknown>;
+      if (typeof st.id !== 'string' || !st.id || seenStepIds.has(st.id)) continue;
+      if (typeof st.label !== 'string' || !st.label.trim()) continue;
+      seenStepIds.add(st.id);
+      steps.push({
+        id: st.id,
+        label: st.label.trim().slice(0, 120),
+        habitId: typeof st.habitId === 'string' && st.habitId ? st.habitId : undefined,
+        order: typeof st.order === 'number' && Number.isFinite(st.order) ? st.order : steps.length,
+      });
+    }
+    steps.sort((a, b) => a.order - b.order);
+    if (typeof r.createdAt !== 'string') continue;
+    // Preserve kind + progress (phase tracking must survive reloads).
+    const progress = r.progress && typeof r.progress === 'object' && !Array.isArray(r.progress)
+      ? (() => {
+          const pr = r.progress as Record<string, unknown>;
+          if (!Array.isArray(pr.doneStepIds)) return undefined;
+          const ids = (pr.doneStepIds as unknown[]).filter((id): id is string => typeof id === 'string');
+          const known = new Set(steps.map((s) => s.id));
+          const kept = ids.filter((id) => known.has(id));
+          return {
+            doneStepIds: kept,
+            updatedAt: typeof pr.updatedAt === 'string' ? pr.updatedAt : new Date().toISOString(),
+          };
+        })()
+      : undefined;
+    out.push({
+      id: r.id,
+      triggerId: r.triggerId,
+      name: r.name,
+      steps,
+      createdAt: r.createdAt,
+      ...(typeof r.kind === 'string' && r.kind ? { kind: r.kind.slice(0, 40) } : {}),
+      ...(progress ? { progress } : {}),
+    });
+  }
+  return out;
+}
+
+/** Sanitize emotional events — keep well-formed entries, drop the rest. */
+function sanitizeEmotionalEvents(raw: unknown): EmotionalEvent[] {
+  if (!Array.isArray(raw)) return [];
+  const out: EmotionalEvent[] = [];
+  for (const x of raw) {
+    if (!x || typeof x !== 'object') continue;
+    const e = x as Record<string, unknown>;
+    if (typeof e.id !== 'string' || !e.id) continue;
+    if (typeof e.title !== 'string') continue;
+    if (typeof e.situation !== 'string') continue;
+    if (!Array.isArray(e.emotions) || e.emotions.some((m: unknown) => typeof m !== 'string')) continue;
+    if (typeof e.createdAt !== 'string') continue;
+    if (e.notes !== undefined && typeof e.notes !== 'string') continue;
+    if (e.archived !== undefined && typeof e.archived !== 'boolean') continue;
+    const closure = typeof e.closureNote === 'string' ? e.closureNote.trim().slice(0, 500) : '';
+    out.push({
+      id: e.id,
+      title: e.title,
+      situation: e.situation,
+      emotions: e.emotions as EmotionalEvent['emotions'],
+      createdAt: e.createdAt,
+      notes: typeof e.notes === 'string' ? e.notes : undefined,
+      archived: e.archived === true,
+      plans: sanitizeEmotionalPlans(e.plans),
+      closureNote: closure ? closure : undefined,
+    });
+  }
+  return out;
+}
+
+/** Sanitize emotional action plans — keep well-formed entries, drop the rest. */
+function sanitizeEmotionalPlans(raw: unknown): import('./types').EmotionalActionPlan[] {
+  if (!Array.isArray(raw)) return [];
+  const out: import('./types').EmotionalActionPlan[] = [];
+  for (const x of raw) {
+    if (!x || typeof x !== 'object') continue;
+    const p = x as Record<string, unknown>;
+    if (typeof p.id !== 'string' || !p.id) continue;
+    if (typeof p.title !== 'string' || !p.title) continue;
+    if (!Array.isArray(p.steps)) continue;
+    if (typeof p.createdAt !== 'string') continue;
+    const steps: import('./types').EmotionalPlanStep[] = [];
+    let valid = true;
+    for (const s of p.steps) {
+      if (!s || typeof s !== 'object') { valid = false; break; }
+      const st = s as Record<string, unknown>;
+      if (typeof st.id !== 'string' || typeof st.label !== 'string') { valid = false; break; }
+      steps.push({ id: st.id, label: st.label, done: st.done === true });
+    }
+    if (!valid) continue;
+    out.push({
+      id: p.id,
+      title: p.title,
+      sourceNote: typeof p.sourceNote === 'string' ? p.sourceNote : undefined,
+      steps,
+      createdAt: p.createdAt,
+      emotions: cleanEmotionTags(p.emotions),
+    });
+  }
+  return out;
+}
+
+/** Sanitize emotional checks — keep well-formed entries, drop the rest. */
+function sanitizeEmotionalChecks(raw: unknown): EmotionalCheck[] {
+  if (!Array.isArray(raw)) return [];
+  const out: EmotionalCheck[] = [];
+  for (const x of raw) {
+    if (!x || typeof x !== 'object') continue;
+    const c = x as Record<string, unknown>;
+    if (typeof c.id !== 'string' || !c.id) continue;
+    if (typeof c.eventId !== 'string' || !c.eventId) continue;
+    if (typeof c.date !== 'string' || !isValidDateKey(c.date)) continue;
+    if (typeof c.intensity !== 'number' || !Number.isFinite(c.intensity) || c.intensity < 1 || c.intensity > 10) continue;
+    if (c.note !== undefined && typeof c.note !== 'string') continue;
+    if (c.createdAt !== undefined && typeof c.createdAt !== 'string') continue;
+    out.push({
+      id: c.id,
+      eventId: c.eventId,
+      date: c.date,
+      intensity: c.intensity,
+      note: typeof c.note === 'string' ? c.note : undefined,
+      intensities: sanitizeIntensityMap(c.intensities),
+      noteEmotions: cleanEmotionTags(c.noteEmotions),
+      createdAt: typeof c.createdAt === 'string' ? c.createdAt : undefined,
+    });
+  }
+  return out;
 }
 
 /** Sanitize missions (v0.7.0) — keep well-formed entries, drop the rest. */
@@ -539,6 +893,24 @@ function sanitizePreferences(raw: unknown): UserPreferences {
     autoCompact: p.autoCompact === false ? false : true,
     compactThreshold: typeof p.compactThreshold === 'number' && p.compactThreshold >= 10 && p.compactThreshold <= 100 ? p.compactThreshold : 30,
     compactLevel: p.compactLevel === 1 || p.compactLevel === 2 ? p.compactLevel : 0,
+    emotionalBackfillDone: p.emotionalBackfillDone === true,
+    emotionalCheckReminder: p.emotionalCheckReminder === false ? false : true,
+    lastEmotionalReminderDate: typeof p.lastEmotionalReminderDate === 'string' ? p.lastEmotionalReminderDate : '',
+    // Preserve the rest of the type — dropping them on every load silently
+    // reset user settings (e.g. a custom depression threshold back to 70).
+    soundEnabled: p.soundEnabled !== false,
+    memoryReminderEnabled: p.memoryReminderEnabled === true,
+    memoryReminderTime: typeof p.memoryReminderTime === 'string' ? p.memoryReminderTime : '20:00',
+    lastMemoryReminderDate: typeof p.lastMemoryReminderDate === 'string' ? p.lastMemoryReminderDate : '',
+    birthDate: typeof p.birthDate === 'string' ? p.birthDate : undefined,
+    birthTime: typeof p.birthTime === 'string' ? p.birthTime : undefined,
+    birthLat: typeof p.birthLat === 'number' && Number.isFinite(p.birthLat) ? p.birthLat : undefined,
+    birthLon: typeof p.birthLon === 'number' && Number.isFinite(p.birthLon) ? p.birthLon : undefined,
+    depressionAlertThreshold: typeof p.depressionAlertThreshold === 'number' && Number.isFinite(p.depressionAlertThreshold)
+      ? Math.max(0, Math.min(100, p.depressionAlertThreshold)) : 70,
+    outingGuardSeeded: p.outingGuardSeeded === true,
+    depressionProtocolSeeded: p.depressionProtocolSeeded === true,
+    wellbeingNewSeen: p.wellbeingNewSeen === true,
   };
 }
 
@@ -934,6 +1306,7 @@ function loadData(): AppData {
   const primary = readEnvelope(STORAGE_KEY);
   if (primary) {
     deduplicateDataInPlace(primary);
+    attachBulkData(primary);
     scheduleFileBackup(primary); // ensure disk backup exists at startup
     return primary;
   }
@@ -941,6 +1314,7 @@ function loadData(): AppData {
   if (backup) {
     console.warn('Primary storage corrupted or missing — recovered from backup');
     deduplicateDataInPlace(backup);
+    attachBulkData(backup);
     scheduleFileBackup(backup); // ensure disk backup exists at startup
     return backup;
   }
@@ -953,6 +1327,7 @@ function loadData(): AppData {
         const recovered = sanitizeData(parsed);
         if (recovered.habits.length > 0 || recovered.checkIns.length > 0) {
           console.warn('Recovered from raw JSON emergency backup — re-saving as envelope');
+          attachBulkData(recovered);
           writeEnvelope(STORAGE_KEY, recovered);
           writeEnvelope(BACKUP_KEY, recovered);
           scheduleFileBackup(recovered);
@@ -963,7 +1338,10 @@ function loadData(): AppData {
   } catch { /* raw backup also corrupt */ }
   // Last resort: try to read raw legacy JSON and migrate it
   const migrated = migrateLegacyPrimaryData();
-  if (migrated) return migrated;
+  if (migrated) {
+    attachBulkData(migrated);
+    return migrated;
+  }
   // If we got here, all localStorage is empty or corrupt.
   // The file backup at %APPDATA%/LifeTrack/ may have data from a
   // previous install or browser session. Schedule an async check.
@@ -1019,9 +1397,89 @@ async function recoveryDebugLog(line: string): Promise<void> {
  * (highest habit+check-in count), sanitizing it and re-saving as primary.
  * Returns true if data was recovered. No-op in the browser or when none exists.
  */
+/**
+ * Boot storage diagnostics, persisted to recovery-debug.log (the only
+ * durable channel — console output is lost). Answers definitively whether
+ * localStorage writes are failing (quota) and what each layer holds.
+ */
+async function logStorageDiagnostics(): Promise<void> {
+  try {
+    const kb = (n: number): string => `${Math.round(n / 1024)}kb`;
+    const sizes: Record<string, number> = {};
+    let upgradeKeys = 0;
+    let totalKeys = 0;
+    let totalBytes = 0;
+    const biggest: { k: string; n: number }[] = [];
+    try {
+      totalKeys = localStorage.length;
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k) continue;
+        let n = 0;
+        try { n = (localStorage.getItem(k) ?? '').length; } catch { /* ignore */ }
+        totalBytes += n;
+        if (k.startsWith(UPGRADE_BACKUP_PREFIX)) upgradeKeys++;
+        if (k === STORAGE_KEY || k === BACKUP_KEY || k === RAW_JSON_KEY) {
+          sizes[k] = n;
+        }
+        biggest.push({ k: k.slice(0, 48), n });
+      }
+    } catch { /* unreadable storage */ }
+    biggest.sort((a, b) => b.n - a.n);
+    const topKeys = biggest.slice(0, 8).map((x) => `${x.k}=${Math.round(x.n / 1024)}kb`).join(' ');
+    // Graduated quota probe: 1MB then 5MB. Removed immediately after.
+    let probe = 'unavailable';
+    try {
+      const blob = 'x'.repeat(1024 * 1024);
+      localStorage.setItem('__lifetrack_quota_probe__', blob);
+      probe = '1mb-ok';
+      localStorage.removeItem('__lifetrack_quota_probe__');
+      const blob5 = 'x'.repeat(5 * 1024 * 1024);
+      localStorage.setItem('__lifetrack_quota_probe__', blob5);
+      probe = '5mb-ok';
+      localStorage.removeItem('__lifetrack_quota_probe__');
+    } catch {
+      probe = probe === 'unavailable' ? 'unavailable' : 'QUOTA_FAIL';
+      try { localStorage.removeItem('__lifetrack_quota_probe__'); } catch { /* ignore */ }
+    }
+    const memEv = (data.emotionalEvents ?? []).length;
+    const memCh = (data.emotionalChecks ?? []).length;
+    let memBytes = 0;
+    try { memBytes = JSON.stringify(data).length; } catch { /* ignore */ }
+    // Parsed envelope census: what did localStorage ACTUALLY persist?
+    let envCensus = 'env=unreadable';
+    try {
+      const rawEnv = localStorage.getItem(STORAGE_KEY);
+      if (rawEnv) {
+        const parsed = JSON.parse(rawEnv);
+        const d = parsed && typeof parsed === 'object' && 'd' in parsed
+          ? (parsed as Record<string, unknown>).d as Record<string, unknown>
+          : (parsed as Record<string, unknown>);
+        const len = (k: string): number => (Array.isArray(d[k]) ? (d[k] as unknown[]).length : -1);
+        const bytes = (k: string): string => {
+          try { return kb(JSON.stringify(d[k] ?? null).length); } catch { return '?'; }
+        };
+        envCensus =
+          `envHabits=${len('habits')} envCheckins=${len('checkIns')} envEvents=${len('emotionalEvents')} ` +
+          `envEmoChecks=${len('emotionalChecks')} envProtocols=${bytes('protocols')} envSources=${bytes('ingestedSources')}`;
+      } else {
+        envCensus = 'env=missing';
+      }
+    } catch { /* ignore */ }
+    const err = lastStorageError ? `lastErr=${lastStorageError.message.slice(0, 60)}` : 'lastErr=none';
+    await recoveryDebugLog(
+      `storage: primary=${kb(sizes[STORAGE_KEY] ?? 0)} backup=${kb(sizes[BACKUP_KEY] ?? 0)} ` +
+      `raw=${kb(sizes[RAW_JSON_KEY] ?? 0)} upgrades=${upgradeKeys} quotaProbe=${probe} ` +
+      `totalKeys=${totalKeys} totalBytes=${kb(totalBytes)} top=[${topKeys}] ` +
+      `memBytes=${kb(memBytes)} memEvents=${memEv} memChecks=${memCh} ${envCensus} ${err}`,
+    );
+  } catch { /* diagnostics must never break boot */ }
+}
+
 export async function attemptFileRecovery(): Promise<boolean> {
   if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return false;
   await recoveryDebugLog('attemptFileRecovery: start');
+  await logStorageDiagnostics();
   try {
     const [{ appDataDir, documentDir, desktopDir, join }, { readTextFile, exists, readDir }] = await Promise.all([
       import('@tauri-apps/api/path'),
@@ -1036,7 +1494,9 @@ export async function attemptFileRecovery(): Promise<boolean> {
     };
     await one(await documentDir().catch(() => undefined), 'LifeTrack-Backups', 'lifetrack-backup-');
     await one(await desktopDir().catch(() => undefined), 'LifeTrack-Backups', 'lifetrack-backup-');
-    await one(await appDataDir().catch(() => undefined), 'LifeTrack-Backups', 'lifetrack-backup-');
+    // NOTE: %APPDATA%/LifeTrack-Backups was removed: nothing ever writes
+    // timestamped backups there (Rust → %APPDATA%/backups, TS → persistent
+    // files), it only produced a "dir missing" log line every boot.
     await one(await appDataDir().catch(() => undefined), 'backups', 'lifetrack-backup-');
     await one(await appDataDir().catch(() => undefined), 'LifeTrack', 'lifetrack-persistent.');
     await one(await documentDir().catch(() => undefined), 'LifeTrack-Backups', 'lifetrack-persistent.');
@@ -1044,15 +1504,35 @@ export async function attemptFileRecovery(): Promise<boolean> {
 
     let best: AppData = null as unknown as AppData;
     let bestWeight = -1;
+    // Richest backup in emotional data (for one-time backfill repair).
+    let bestEmotional: AppData = null as unknown as AppData;
+    let bestEmotionalCount = 0;
+    // Every per-zone `cause` ever seen, keyed by normalizedHabit::dimension.
+    // Past import-restores stripped causes (Gym/selfesteem incident) — the
+    // gap-fill below resurrects them from any scanned backup that still has
+    // them. First cause seen wins (they are user-written and stable).
+    const causesByHabitDim = new Map<string, string>();
 
     const consider = (data: unknown): void => {
       try {
         const sanitized = sanitizeData(data);
+        for (const h of sanitized.habits) {
+          const key = normalizeHabitName(h.name);
+          for (const l of h.chaosLinks ?? []) {
+            if (!l.cause) continue;
+            const k = `${key}::${l.dimension}`;
+            if (!causesByHabitDim.has(k)) causesByHabitDim.set(k, l.cause);
+          }
+        }
         // Weight = amount of real user data; biases toward richer backups.
         const weight = sanitized.habits.length * 10 + sanitized.checkIns.length
           + sanitized.notes.length + sanitized.urges.length + sanitized.personas.length
-          + sanitized.levers.length + sanitized.journalEntries.length + sanitized.challenges.length;
+          + sanitized.levers.length + sanitized.journalEntries.length + sanitized.challenges.length
+          + (sanitized.emotionalEvents ?? []).length * 5 + (sanitized.emotionalChecks ?? []).length
+          + (sanitized.routines ?? []).length * 2;
         if (weight > bestWeight) { best = sanitized; bestWeight = weight; }
+        const emoCount = (sanitized.emotionalEvents ?? []).length + (sanitized.emotionalChecks ?? []).length;
+        if (emoCount > bestEmotionalCount) { bestEmotional = sanitized; bestEmotionalCount = emoCount; }
       } catch { /* skip unparseable */ }
     };
 
@@ -1099,9 +1579,69 @@ export async function attemptFileRecovery(): Promise<boolean> {
     }
 
     const current = readEnvelope(STORAGE_KEY);
-    const currentSize = current ? current.habits.length + current.checkIns.length : 0;
-    const bestSize = best.habits.length + best.checkIns.length;
+    const sizeOf = (d: AppData): number => d.habits.length + d.checkIns.length
+      + (d.emotionalEvents ?? []).length + (d.emotionalChecks ?? []).length + (d.routines ?? []).length;
+    const currentSize = current ? sizeOf(current) : 0;
+    const bestSize = sizeOf(best);
     await recoveryDebugLog(`attemptFileRecovery: best=${bestSize} (weight ${bestWeight}), current=${currentSize}`);
+    // Gap-fill missing chaos `cause` notes on the LIVE store from any scanned
+    // backup (repairs past import-restore stripping). Only fills blanks —
+    // never overwrites — and saves only when something actually healed.
+    // Placed FIRST (before the emotional backfill's early return) so it runs
+    // on every boot with a usable current store, restore or not.
+    try {
+      let healedCauses = 0;
+      for (const h of data.habits) {
+        if (h.archived || !h.chaosLinks) continue;
+        const key = normalizeHabitName(h.name);
+        for (const l of h.chaosLinks) {
+          if (l.cause) continue;
+          const rescued = causesByHabitDim.get(`${key}::${l.dimension}`);
+          if (rescued) {
+            l.cause = rescued;
+            healedCauses++;
+          }
+        }
+      }
+      if (healedCauses > 0) {
+        const healed = exportAllData();
+        writeEnvelope(STORAGE_KEY, healed);
+        writeEnvelope(BACKUP_KEY, healed);
+        try { localStorage.setItem(RAW_JSON_KEY, JSON.stringify(healed)); } catch { /* best-effort */ }
+        scheduleFileBackup(healed);
+        notify();
+        await recoveryDebugLog(`attemptFileRecovery: HEALED ${healedCauses} chaos cause(s) from scanned backups`);
+      }
+    } catch { /* best-effort: a failed heal must never block boot */ }
+    // One-time repair: if the live state has no emotional data at all but a
+    // scanned backup does (e.g. after the v0.6.2 sanitize-drop incident),
+    // Continuous repair: union any emotional entries present in file backups
+    // but missing locally (by id). Idempotent and cheap — runs every boot.
+    // The old zero-gate (only when current had NO events) left partial
+    // divergence to rot; the flag is still set for backward compatibility.
+    // Merges into the LIVE `data` (never `data = current`): replacing the
+    // live store would discard fresher in-memory state, including repairs
+    // applied earlier in this same boot (e.g. healed chaos causes).
+    if (bestEmotionalCount > 0 && (bestEmotional.emotionalEvents ?? []).length + (bestEmotional.emotionalChecks ?? []).length > 0) {
+      const knownEventIds = new Set((data.emotionalEvents ?? []).map((e) => e.id));
+      const knownCheckIds = new Set((data.emotionalChecks ?? []).map((c) => c.id));
+      const missingEvents = (bestEmotional.emotionalEvents ?? []).filter((e) => !knownEventIds.has(e.id));
+      const missingChecks = (bestEmotional.emotionalChecks ?? []).filter((c) => !knownCheckIds.has(c.id));
+      if (missingEvents.length > 0 || missingChecks.length > 0) {
+        data.emotionalEvents = [...(data.emotionalEvents ?? []), ...missingEvents];
+        data.emotionalChecks = [...(data.emotionalChecks ?? []), ...missingChecks];
+        data.preferences = { ...getPreferences(), emotionalBackfillDone: true };
+        const snap = exportAllData();
+        writeEnvelope(STORAGE_KEY, snap);
+        writeEnvelope(BACKUP_KEY, snap);
+        try { localStorage.setItem(RAW_JSON_KEY, JSON.stringify(snap)); } catch { /* best-effort */ }
+        backfillHabitRecords();
+        scheduleFileBackup(snap);
+        notify();
+        await recoveryDebugLog(`attemptFileRecovery: BACKFILLED ${missingEvents.length} emotional events, ${missingChecks.length} checks`);
+        return true;
+      }
+    }
     if (currentSize >= bestSize) return false; // current data is at least as complete
 
     console.info(`[LifeTrack] Filesystem recovery: restoring ${best.habits.length} habits, ${best.checkIns.length} check-ins, ${best.notes.length} notes.`);
@@ -1159,6 +1699,9 @@ function freshData(): AppData {
     patternTracks: [],
     reflections: [],
     psychoHistory: [],
+    routines: [],
+    emotionalEvents: [],
+    emotionalChecks: [],
     preferences: { darkMode: false, theme: '' },
   };
 }
@@ -1218,9 +1761,15 @@ export function restoreUpgradeBackup(backupKey: string): boolean {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || !('d' in parsed)) return false;
     const envelope = parsed as StorageEnvelope;
-    const data = sanitizeData(envelope.d);
-    writeEnvelope(STORAGE_KEY, data);
-    writeEnvelope(BACKUP_KEY, data);
+    const restored = sanitizeData(envelope.d);
+    // Rollback restores CORE; the knowledge library (bulk) stays at latest —
+    // reattach it so a core rollback never wipes reference data as a side effect.
+    attachBulkData(restored);
+    writeEnvelope(STORAGE_KEY, restored);
+    writeEnvelope(BACKUP_KEY, restored);
+    data = restored;
+    backfillHabitRecords();
+    notify();
     console.info(`[LifeTrack] ✅ Restored from upgrade backup: ${backupKey}`);
     return true;
   } catch {
@@ -1249,10 +1798,14 @@ export function pruneOldBackups(keepCount: number = 7): number {
 function writeEnvelope(key: string, data: AppData): boolean {
   if (!isLocalStorageAvailable()) return false;
   try {
-    const json = JSON.stringify(data);
+    // Core-only: the ~1.5MB knowledge-library bulk lives in BULK_KEY + files.
+    // Writing it inside every envelope choked the ~5MB localStorage quota
+    // until ALL writes failed silently and recent user data stopped persisting.
+    const { core } = stripBulk(data);
+    const json = JSON.stringify(core);
     const envelope: StorageEnvelope = {
       v: 1,
-      d: data,
+      d: core,
       h: fnv1a(json),
     };
     localStorage.setItem(key, JSON.stringify(envelope));
@@ -1468,6 +2021,8 @@ function doSave(d: AppData): void {
         // Backup failed — surface the warning (was previously silent).
         console.warn('Backup write failed; primary is persisted but backup may be stale.');
       }
+      // Bulk library rides separately (best-effort): core must never wait on it.
+      writeBulkData(stripBulk(d).bulk);
       lastSavedAt = Date.now();
       // Emergency raw JSON backup — bypasses envelope entirely.
       // Throttled to 5s: it's a full JSON.stringify of the whole dataset and
@@ -1485,7 +2040,25 @@ function doSave(d: AppData): void {
         lastSavedAt = Date.now();
         try { localStorage.setItem(RAW_JSON_KEY, JSON.stringify(d)); } catch { /* best-effort */ }
       } else {
-        console.error('Critical: both primary and backup storage failed. Data may be lost on reload.');
+        // Both failed — most likely quota: drop the heavy emergency copies
+        // (raw JSON + old upgrade snapshots) and retry once before giving up.
+        // Purging secondary copies to save PRIMARY data is the right trade.
+        try { localStorage.removeItem(RAW_JSON_KEY); } catch { /* ignore */ }
+        try { pruneOldBackups(2); } catch { /* ignore */ }
+        if (writeEnvelope(STORAGE_KEY, d)) {
+          lastSavedAt = Date.now();
+          writeEnvelope(BACKUP_KEY, d);
+          scheduleFileBackup(d);
+          lastStorageError = null;
+          console.info('[LifeTrack] Storage recovered after emergency purge.');
+        } else {
+          noteStorageError('Sauvegarde locale impossible (stockage plein ?). Tes coches sont en mémoire : exporte un JSON maintenant, rien ne sera perdu au prochain démarrage.');
+          console.error('Critical: both primary and backup storage failed. Data may be lost on reload.');
+          // The file layer may still work — keep feeding it, and re-render
+          // so the UI can shout (silent loss is the worst outcome).
+          scheduleFileBackup(d);
+          notify();
+        }
       }
     }
   } finally {
@@ -1508,6 +2081,18 @@ function scheduleSave(d: AppData): void {
     pendingSave = false;
     doSave(d);
   }, SAVE_DEBOUNCE_MS);
+}
+
+// Force an immediate full save now (used by the storage-error "Réessayer"
+// button). Unlike flushSave (which only flushes a pending write), this
+// always writes the live store — then surfaces success or a fresh error.
+export function forceSaveNow(): void {
+  if (saveTimer !== null) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  pendingSave = false;
+  doSave(data);
 }
 
 // Force immediate flush (useful before export, app close, or page unload).
@@ -1564,15 +2149,51 @@ interface UndoEntry {
   date: string;
   previousState: boolean; // was it checked before the toggle?
   previousCount?: number; // what was the count before?
+  previousSubIds?: string[]; // sub-coches done before the toggle
+  previousPartial?: boolean; // doux flag before the toggle
 }
 const undoStack: UndoEntry[] = [];
 const redoStack: UndoEntry[] = [];
 const MAX_UNDO = 50;
 
+function snapshotSubs(c: CheckIn | undefined): Pick<UndoEntry, 'previousSubIds' | 'previousPartial'> {
+  return {
+    previousSubIds: c?.subIds ? [...c.subIds] : undefined,
+    previousPartial: c?.partial,
+  };
+}
+
 export function pushUndo(habitId: string, date: string, previousState: boolean, previousCount?: number): void {
-  undoStack.push({ habitId, date, previousState, previousCount });
+  const existing = getCheckIn(habitId, date);
+  undoStack.push({ habitId, date, previousState, previousCount, ...snapshotSubs(existing) });
   if (undoStack.length > MAX_UNDO) undoStack.shift();
   redoStack.length = 0; // clear redo on new action
+}
+
+function applyUndoEntry(entry: UndoEntry): void {
+  const existing = getCheckIn(entry.habitId, entry.date);
+  if (existing) {
+    existing.completed = entry.previousState;
+    existing.count = entry.previousCount ?? (entry.previousState ? 1 : 0);
+    existing.subIds = entry.previousSubIds ? [...entry.previousSubIds] : undefined;
+    existing.partial = entry.previousPartial;
+  } else if (entry.previousState) {
+    data.checkIns.push({
+      habitId: entry.habitId, date: entry.date, completed: true,
+      count: entry.previousCount ?? 1,
+      ...(entry.previousSubIds ? { subIds: [...entry.previousSubIds] } : {}),
+      ...(entry.previousPartial ? { partial: true } : {}),
+    });
+  }
+}
+
+function currentEntry(habitId: string, date: string, previousState: boolean, previousCount?: number): UndoEntry {
+  const existing = getCheckIn(habitId, date);
+  return {
+    habitId, date, previousState,
+    previousCount: previousCount ?? (existing ? (existing.count ?? (existing.completed ? 1 : 0)) : 0),
+    ...snapshotSubs(existing),
+  };
 }
 
 export function undoLastToggle(): UndoEntry | null {
@@ -1582,20 +2203,15 @@ export function undoLastToggle(): UndoEntry | null {
   const currentCompleted = existing ? existing.completed : false;
   const currentCount = existing ? (existing.count ?? (existing.completed ? 1 : 0)) : 0;
 
-  redoStack.push({ habitId: entry.habitId, date: entry.date, previousState: currentCompleted, previousCount: currentCount });
+  redoStack.push(currentEntry(entry.habitId, entry.date, currentCompleted, currentCount));
 
   // Guard: if the habit was deleted in the meantime, the undo is a no-op.
   if (!data.habits.some((h) => h.id === entry.habitId)) {
     notify();
     return entry;
   }
-  // Reverse the toggle
-  if (existing) {
-    existing.completed = entry.previousState;
-    existing.count = entry.previousCount ?? (entry.previousState ? 1 : 0);
-  } else if (entry.previousState) {
-    data.checkIns.push({ habitId: entry.habitId, date: entry.date, completed: true, count: entry.previousCount ?? 1 });
-  }
+  // Reverse the toggle (completed + count + sub-coches together)
+  applyUndoEntry(entry);
   notify();
   return entry;
 }
@@ -1607,23 +2223,34 @@ export function redoLastUndo(): UndoEntry | null {
   const currentCompleted = existing ? existing.completed : false;
   const currentCount = existing ? (existing.count ?? (existing.completed ? 1 : 0)) : 0;
 
-  undoStack.push({ habitId: entry.habitId, date: entry.date, previousState: currentCompleted, previousCount: currentCount });
+  undoStack.push(currentEntry(entry.habitId, entry.date, currentCompleted, currentCount));
 
   if (!data.habits.some((h) => h.id === entry.habitId)) {
     notify();
     return entry;
   }
-  if (existing) {
-    existing.completed = entry.previousState;
-    existing.count = entry.previousCount ?? (entry.previousState ? 1 : 0);
-  } else if (entry.previousState) {
-    data.checkIns.push({ habitId: entry.habitId, date: entry.date, completed: true, count: entry.previousCount ?? 1 });
-  }
+  applyUndoEntry(entry);
   notify();
   return entry;
 }
 
 // --- Storage health ---
+// --- Storage failure surfacing ---
+// A failed save used to be a console line nobody reads — while the user kept
+// checking habits into memory that would never persist (Emotional checks,
+// Sept 8 incident: on disk via the file layer, gone from localStorage).
+// The last failure is now queryable so the UI can shout before data is lost.
+let lastStorageError: { at: number; message: string } | null = null;
+export function getLastStorageError(): { at: number; message: string } | null {
+  return lastStorageError;
+}
+export function clearStorageError(): void {
+  lastStorageError = null;
+}
+function noteStorageError(message: string): void {
+  lastStorageError = { at: Date.now(), message };
+}
+
 export type StorageStatus = 'ok' | 'degraded' | 'unavailable';
 
 export function getStorageStatus(): StorageStatus {
@@ -1747,6 +2374,7 @@ export function restoreFromBackupIfNewer(): boolean {
   console.warn(`Restoring from backup: ${backup.habits.length} habits, ${backup.checkIns.length} check-ins, ${backup.skills?.length || 0} skills`);
   deduplicateDataInPlace(backup);
   quarantineJunkInto(backup);
+  attachBulkData(backup);
   writeEnvelope(STORAGE_KEY, backup);
   writeEnvelope(BACKUP_KEY, backup);
   try { localStorage.setItem(RAW_JSON_KEY, JSON.stringify(backup)); } catch { /* ignore */ }
@@ -1841,7 +2469,7 @@ export function getHabits(): Habit[] {
 // --- Habits ---
 export function addHabit(
   name: string,
-  chaosOpts?: { chaosLinks?: ChaosLink[]; chaosDimension?: string; chaosImpact?: number; chaosThresholdDays?: number },
+  chaosOpts?: { chaosLinks?: ChaosLink[]; chaosDimension?: string; chaosImpact?: number; chaosThresholdDays?: number; chaosPerWeek?: number },
 ): Habit {
   const maxOrder = data.habits.reduce((max, h) => Math.max(max, h.order), -1);
   const links = chaosOpts?.chaosLinks?.filter((l) => l.dimension && l.impact > 0) ?? [];
@@ -1860,6 +2488,7 @@ export function addHabit(
         ? { chaosDimension: chaosOpts.chaosDimension, ...(chaosOpts.chaosImpact !== undefined ? { chaosImpact: chaosOpts.chaosImpact } : {}) }
         : {}),
     ...(chaosOpts?.chaosThresholdDays !== undefined ? { chaosThresholdDays: chaosOpts.chaosThresholdDays } : {}),
+    ...(chaosOpts?.chaosPerWeek !== undefined ? { chaosPerWeek: Math.max(1, Math.min(7, Math.round(chaosOpts.chaosPerWeek))) } : {}),
   };
   // assign pastel color
   const usedColors = data.habits.map((h) => h.color).filter(Boolean);
@@ -1885,6 +2514,12 @@ export function updateHabit(id: string, updates: Partial<Habit>): void {
       const v = cleaned.chaosThresholdDays;
       cleaned.chaosThresholdDays = (typeof v === 'number' && Number.isFinite(v))
         ? Math.max(1, Math.min(90, Math.floor(v)))
+        : undefined;
+    }
+    if ('chaosPerWeek' in cleaned) {
+      const v = cleaned.chaosPerWeek;
+      cleaned.chaosPerWeek = (typeof v === 'number' && Number.isFinite(v))
+        ? Math.max(1, Math.min(7, Math.round(v)))
         : undefined;
     }
     // If dimension is empty string or null, treat as unlinked
@@ -1928,9 +2563,157 @@ export function updateHabit(id: string, updates: Partial<Habit>): void {
         delete cleaned.why;
       }
     }
+    // Validate implementation intentions: trim, drop empties/dupes, cap at 3
+    if ('ifThen' in cleaned) {
+      if (Array.isArray(cleaned.ifThen)) {
+        const seen = new Set<string>();
+        const clean: IfThenPlan[] = [];
+        for (const p of cleaned.ifThen) {
+          if (!p || typeof p !== 'object') continue;
+          const cue = typeof p.cue === 'string' ? p.cue.trim().slice(0, MAX_IF_THEN_TEXT) : '';
+          const action = typeof p.action === 'string' ? p.action.trim().slice(0, MAX_IF_THEN_TEXT) : '';
+          if (!cue || !action) continue;
+          const key = `${cue.toLocaleLowerCase()}→${action.toLocaleLowerCase()}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          clean.push({ cue, action });
+          if (clean.length >= MAX_IF_THEN) break;
+        }
+        cleaned.ifThen = clean.length > 0 ? clean : undefined;
+      } else {
+        delete cleaned.ifThen;
+      }
+    }
     data.habits[idx] = { ...data.habits[idx], ...cleaned };
     notify();
   }
+}
+
+// --- Sub-habits ("sous-coches") ---
+// Embedded facets of a parent habit (e.g. Work → "working while depressed").
+// Checking ≥1 sub validates the day as PARTIAL ("doux", streak survives);
+// checking ALL subs — or the parent directly — validates it as FULL.
+
+export function addSubHabit(habitId: string, label: string): SubHabit | null {
+  const habit = data.habits.find((h) => h.id === habitId);
+  if (!habit) return null;
+  const clean = label.trim().slice(0, MAX_SUB_HABIT_LABEL);
+  if (!clean) return null;
+  const subs = habit.subHabits ?? [];
+  if (subs.length >= MAX_SUB_HABITS) return null;
+  if (subs.some((s) => s.label.toLocaleLowerCase() === clean.toLocaleLowerCase())) return null;
+  const sub: SubHabit = {
+    id: crypto.randomUUID(),
+    label: clean,
+    order: subs.reduce((m, s) => Math.max(m, s.order), -1) + 1,
+  };
+  habit.subHabits = [...subs, sub];
+  notify();
+  return sub;
+}
+
+export function renameSubHabit(habitId: string, subId: string, label: string): boolean {
+  const habit = data.habits.find((h) => h.id === habitId);
+  if (!habit?.subHabits) return false;
+  const clean = label.trim().slice(0, MAX_SUB_HABIT_LABEL);
+  if (!clean) return false;
+  const idx = habit.subHabits.findIndex((s) => s.id === subId);
+  if (idx === -1) return false;
+  habit.subHabits[idx] = { ...habit.subHabits[idx], label: clean };
+  notify();
+  return true;
+}
+
+export function deleteSubHabit(habitId: string, subId: string): boolean {
+  const habit = data.habits.find((h) => h.id === habitId);
+  if (!habit?.subHabits) return false;
+  if (!habit.subHabits.some((s) => s.id === subId)) return false;
+  const remaining = habit.subHabits.filter((s) => s.id !== subId);
+  habit.subHabits = remaining.length > 0 ? remaining : undefined;
+  // Purge the deleted sub from every check-in, then recompute partial flags.
+  for (const c of data.checkIns) {
+    if (c.habitId !== habitId || !c.subIds?.includes(subId)) continue;
+    const kept = c.subIds.filter((id) => id !== subId);
+    c.subIds = kept.length > 0 ? kept : undefined;
+    if (!c.completed || !c.subIds) {
+      if (!c.completed) { c.subIds = undefined; c.partial = undefined; }
+      else c.partial = undefined; // direct full check, no subs left
+    } else {
+      const total = remaining.length;
+      c.partial = (c.subIds.length < total) || undefined;
+    }
+  }
+  notify();
+  return true;
+}
+
+/**
+ * Toggle one sub-habit for a day. Returns the resulting CheckIn, or null
+ * when the habit/sub doesn't exist.
+ *
+ * Semantics: ≥1 sub done → completed=true; partial=true unless ALL subs
+ * are done (then the day counts as FULL). Unchecking the last sub clears
+ * the day (completed=false). A direct parent check always wins as FULL.
+ */
+export function toggleSubCheck(habitId: string, subId: string, date: string): CheckIn | null {
+  const habit = data.habits.find((h) => h.id === habitId);
+  if (!habit) return null;
+  const subs = habit.subHabits ?? [];
+  if (!subs.some((s) => s.id === subId)) return null;
+  const existing = getCheckIn(habitId, date);
+  if (existing) {
+    const current = existing.count ?? (existing.completed ? 1 : 0);
+    pushUndo(habitId, date, existing.completed, current);
+    const set = new Set(existing.subIds ?? []);
+    if (set.has(subId)) set.delete(subId);
+    else set.add(subId);
+    const done = [...set].filter((id) => subs.some((s) => s.id === id));
+    if (done.length === 0) {
+      existing.subIds = undefined;
+      existing.partial = undefined;
+      existing.completed = false;
+      existing.count = 0;
+    } else {
+      existing.subIds = done;
+      existing.completed = true;
+      if (!existing.count) existing.count = 1;
+      if (!existing.checkedAt) existing.checkedAt = new Date().toISOString();
+      existing.partial = (done.length < subs.length) || undefined;
+    }
+    notify();
+    return existing;
+  }
+  pushUndo(habitId, date, false, 0);
+  const checkIn: CheckIn = {
+    habitId, date, completed: true, count: 1,
+    checkedAt: new Date().toISOString(),
+    subIds: [subId],
+    ...(subs.length > 1 ? { partial: true } : {}),
+  };
+  data.checkIns.push(checkIn);
+  notify();
+  return checkIn;
+}
+
+/** Full CheckIn records for one habit + month (drives partial + sub grids). */
+export function getMonthCheckInRecords(habitId: string, year: number, month: number): Map<number, CheckIn> {
+  const out = new Map<number, CheckIn>();
+  const prefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
+  for (const c of data.checkIns) {
+    if (c.habitId !== habitId || !c.date.startsWith(prefix)) continue;
+    const day = parseInt(c.date.slice(8, 10), 10);
+    if (Number.isFinite(day)) out.set(day, c);
+  }
+  return out;
+}
+
+/** Distinct "doux" count: partial-validation days for a habit (any window). */
+export function countPartialDays(habitId: string, checkIns: CheckIn[] = data.checkIns): number {
+  let n = 0;
+  for (const c of checkIns) {
+    if (c.habitId === habitId && isPartialCheckIn(c)) n++;
+  }
+  return n;
 }
 
 export function archiveHabit(id: string): void {
@@ -2047,6 +2830,9 @@ export function toggleCheckIn(habitId: string, date: string): CheckIn {
   if (existing) {
     pushUndo(habitId, date, existing.completed);
     existing.completed = !existing.completed;
+    // A direct parent toggle always resolves to FULL or cleared — never doux.
+    existing.subIds = undefined;
+    existing.partial = undefined;
     if (!existing.completed) existing.count = 0;
     else {
       if (!existing.count) existing.count = 1;
@@ -2070,6 +2856,9 @@ export function incrementCheckInCount(habitId: string, date: string): CheckIn {
     pushUndo(habitId, date, existing.completed, current);
     existing.count = current + 1;
     existing.completed = true;
+    // Direct parent action = FULL validation (clears any doux sub-state).
+    existing.subIds = undefined;
+    existing.partial = undefined;
     if (!existing.checkedAt) existing.checkedAt = new Date().toISOString();
     notify();
     return existing;
@@ -2089,6 +2878,8 @@ export function resetCheckInCount(habitId: string, date: string): void {
     pushUndo(habitId, date, existing.completed, current);
     existing.count = 0;
     existing.completed = false;
+    existing.subIds = undefined;
+    existing.partial = undefined;
     notify();
   }
 }
@@ -2102,6 +2893,8 @@ export function decrementCheckInCount(habitId: string, date: string): void {
   if (current <= 1) {
     existing.count = 0;
     existing.completed = false;
+    existing.subIds = undefined;
+    existing.partial = undefined;
   } else {
     existing.count = current - 1;
     existing.completed = true;
@@ -2630,12 +3423,16 @@ interface ImportedHabit {
   chaosDimension?: string;
   chaosImpact?: number;
   chaosThresholdDays?: number;
+  chaosPerWeek?: number;
   focusMonth?: string;
   category?: string;
   multiClick?: boolean;
   stackParent?: string;
   stackWhen?: 'before' | 'after' | 'with';
   why?: string[];
+  subHabits?: SubHabit[];
+  ifThen?: IfThenPlan[];
+  intent?: 'do' | 'avoid';
 }
 
 interface ImportedCheckIn {
@@ -2645,6 +3442,11 @@ interface ImportedCheckIn {
   count?: number;
   note?: string;
   notes?: string[];
+  subIds?: string[];
+  partial?: boolean;
+  checkedAt?: string;
+  projectId?: string;
+  taskId?: string;
 }
 
 interface ImportedNote {
@@ -2669,6 +3471,10 @@ export interface ImportMergeResult {
   mantrasRestored: number;
   chaosDimensionsRestored: number;
   leversImported: number;
+  routinesRestored: number;
+  emotionsRestored: number;
+  journalRestored: number;
+  miscRestored: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -2695,7 +3501,7 @@ function isValidDateKey(date: string): boolean {
   return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
 }
 
-function readArray(raw: unknown, key: 'habits' | 'checkIns' | 'notes' | 'skills'): unknown[] {
+function readArray(raw: unknown, key: 'habits' | 'checkIns' | 'notes' | 'skills' | 'routines'): unknown[] {
   if (!isRecord(raw)) return [];
   const value = raw[key];
   return Array.isArray(value) ? value : [];
@@ -2705,16 +3511,22 @@ function parseImportedHabit(raw: unknown): ImportedHabit | null {
   if (!isRecord(raw) || typeof raw.id !== 'string' || typeof raw.name !== 'string') return null;
   const name = raw.name.trim();
   if (!name) return null;
-  // Clamp chaos fields on import to prevent poison data
+  // Clamp chaos fields on import to prevent poison data. The per-zone `cause`
+  // ("why this habit destabilises this dimension") MUST survive the import —
+  // dropping it on reinstall deletes user meaning (Gym/selfesteem incident).
   const links = Array.isArray(raw.chaosLinks)
     ? (raw.chaosLinks as unknown[])
         .filter((l): l is Record<string, unknown> => !!l && typeof l === 'object')
-        .map((l) => ({
-          dimension: typeof l.dimension === 'string' ? l.dimension : '',
-          impact: typeof l.impact === 'number' && Number.isFinite(l.impact)
-            ? Math.max(0, Math.min(100, Math.round(l.impact)))
-            : 0,
-        }))
+        .map((l) => {
+          const cause = typeof l.cause === 'string' ? l.cause.trim() : '';
+          return {
+            dimension: typeof l.dimension === 'string' ? l.dimension : '',
+            impact: typeof l.impact === 'number' && Number.isFinite(l.impact)
+              ? Math.max(0, Math.min(100, Math.round(l.impact)))
+              : 0,
+            ...(cause ? { cause } : {}),
+          };
+        })
         .filter((l) => l.dimension.length > 0 && l.impact > 0)
     : [];
   const dim = typeof raw.chaosDimension === 'string' && raw.chaosDimension.length > 0
@@ -2723,6 +3535,8 @@ function parseImportedHabit(raw: unknown): ImportedHabit | null {
     ? Math.max(0, Math.min(100, raw.chaosImpact)) : undefined;
   const threshold = typeof raw.chaosThresholdDays === 'number' && Number.isFinite(raw.chaosThresholdDays)
     ? Math.max(1, Math.min(90, Math.floor(raw.chaosThresholdDays))) : undefined;
+  const perWeek = typeof raw.chaosPerWeek === 'number' && Number.isFinite(raw.chaosPerWeek)
+    ? Math.max(1, Math.min(7, Math.round(raw.chaosPerWeek))) : undefined;
   return {
     id: raw.id,
     name,
@@ -2732,12 +3546,16 @@ function parseImportedHabit(raw: unknown): ImportedHabit | null {
     chaosDimension: links.length > 0 ? undefined : dim,
     chaosImpact: links.length > 0 ? undefined : impact,
     chaosThresholdDays: threshold,
+    chaosPerWeek: perWeek,
     focusMonth: typeof raw.focusMonth === 'string' && /^\d{4}-\d{2}$/.test(raw.focusMonth) ? raw.focusMonth : undefined,
     category: typeof raw.category === 'string' && raw.category.length > 0 ? raw.category : undefined,
     multiClick: typeof raw.multiClick === 'boolean' ? raw.multiClick : undefined,
     stackParent: typeof raw.stackParent === 'string' ? raw.stackParent : undefined,
     stackWhen: (raw.stackWhen === 'before' || raw.stackWhen === 'after' || raw.stackWhen === 'with') ? raw.stackWhen : undefined,
     why: Array.isArray(raw.why) ? (raw.why as unknown[]).filter((w): w is string => typeof w === 'string' && w.trim().length > 0).slice(0, 5) : undefined,
+    subHabits: cleanSubHabitList(raw.subHabits),
+    ifThen: cleanIfThenList(raw.ifThen),
+    intent: raw.intent === 'do' || raw.intent === 'avoid' ? raw.intent : undefined,
   };
 }
 
@@ -2745,6 +3563,9 @@ function parseImportedCheckIn(raw: unknown): ImportedCheckIn | null {
   if (!isRecord(raw)) return null;
   if (typeof raw.habitId !== 'string' || typeof raw.date !== 'string') return null;
   if (!isValidDateKey(raw.date)) return null;
+  const checkedAt = typeof raw.checkedAt === 'string' && raw.checkedAt.length > 0 ? raw.checkedAt : undefined;
+  const projectId = typeof raw.projectId === 'string' && raw.projectId.length > 0 ? raw.projectId : undefined;
+  const taskId = typeof raw.taskId === 'string' && raw.taskId.length > 0 ? raw.taskId : undefined;
   return {
     habitId: raw.habitId,
     date: raw.date,
@@ -2754,6 +3575,13 @@ function parseImportedCheckIn(raw: unknown): ImportedCheckIn | null {
     notes: Array.isArray(raw.notes)
       ? (raw.notes as unknown[]).filter((n: unknown): n is string => typeof n === 'string' && n.trim().length > 0).map((n: string) => n.trim())
       : (typeof raw.note === 'string' && raw.note.trim() ? [raw.note.trim()] : undefined),
+    subIds: Array.isArray(raw.subIds)
+      ? (raw.subIds as unknown[]).filter((s: unknown): s is string => typeof s === 'string' && s.length > 0)
+      : undefined,
+    partial: raw.partial === true ? true : undefined,
+    checkedAt,
+    projectId,
+    taskId,
   };
 }
 
@@ -2789,12 +3617,16 @@ function createImportedHabit(source: ImportedHabit): Habit {
     ...(source.chaosDimension ? { chaosDimension: source.chaosDimension } : {}),
     ...(source.chaosImpact !== undefined ? { chaosImpact: source.chaosImpact } : {}),
     ...(source.chaosThresholdDays !== undefined ? { chaosThresholdDays: source.chaosThresholdDays } : {}),
+    ...(source.chaosPerWeek !== undefined ? { chaosPerWeek: source.chaosPerWeek } : {}),
     ...(source.focusMonth ? { focusMonth: source.focusMonth } : {}),
     ...(source.category ? { category: source.category } : {}),
     ...(source.multiClick !== undefined ? { multiClick: source.multiClick } : {}),
     ...(source.stackParent ? { stackParent: source.stackParent } : {}),
     ...(source.stackWhen ? { stackWhen: source.stackWhen } : {}),
     ...(source.why && source.why.length > 0 ? { why: source.why } : {}),
+    ...(source.subHabits && source.subHabits.length > 0 ? { subHabits: source.subHabits } : {}),
+    ...(source.ifThen && source.ifThen.length > 0 ? { ifThen: source.ifThen } : {}),
+    ...(source.intent ? { intent: source.intent } : {}),
   };
 }
 
@@ -2824,6 +3656,10 @@ function applyImportedHabitMetadata(target: Habit, source: ImportedHabit): boole
     target.chaosThresholdDays = source.chaosThresholdDays;
     changed = true;
   }
+  if (target.chaosPerWeek === undefined && source.chaosPerWeek !== undefined) {
+    target.chaosPerWeek = source.chaosPerWeek;
+    changed = true;
+  }
   // v0.3.2: preserve user-facing metadata that was previously lost on import
   if (!target.focusMonth && source.focusMonth) {
     target.focusMonth = source.focusMonth;
@@ -2849,6 +3685,31 @@ function applyImportedHabitMetadata(target: Habit, source: ImportedHabit): boole
     target.why = source.why;
     changed = true;
   }
+  // Gap-fill per-zone causes: a matched habit keeps its own links, but a
+  // missing `cause` is restored from the import instead of staying blank.
+  // (Reinstall-restore used to strip every cause note — never again.)
+  if (source.chaosLinks && source.chaosLinks.length > 0 && target.chaosLinks && target.chaosLinks.length > 0) {
+    for (const s of source.chaosLinks) {
+      if (!s.cause) continue;
+      const t = target.chaosLinks.find((l) => l.dimension === s.dimension);
+      if (t && !t.cause) {
+        t.cause = s.cause;
+        changed = true;
+      }
+    }
+  }
+  if ((!target.subHabits || target.subHabits.length === 0) && source.subHabits && source.subHabits.length > 0) {
+    target.subHabits = source.subHabits;
+    changed = true;
+  }
+  if ((!target.ifThen || target.ifThen.length === 0) && source.ifThen && source.ifThen.length > 0) {
+    target.ifThen = source.ifThen;
+    changed = true;
+  }
+  if (!target.intent && source.intent) {
+    target.intent = source.intent;
+    changed = true;
+  }
   return changed;
 }
 
@@ -2867,6 +3728,10 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
     mantrasRestored: 0,
     chaosDimensionsRestored: 0,
     leversImported: 0,
+    routinesRestored: 0,
+    emotionsRestored: 0,
+    journalRestored: 0,
+    miscRestored: 0,
   };
   const idMap = new Map<string, string>();
   const habitsByName = new Map(data.habits.map((habit) => [normalizeHabitName(habit.name), habit]));
@@ -2915,6 +3780,16 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
     }
 
     const existing = getCheckIn(habitId, imported.date);
+    // Sub-state of the TARGET habit (limits which imported subIds are valid).
+    const targetHabit = data.habits.find((h) => h.id === habitId);
+    const totalSubs = targetHabit?.subHabits?.length ?? 0;
+    const adoptSubState = (): { subIds?: string[]; partial?: boolean } | null => {
+      if (!imported.subIds || imported.subIds.length === 0) return null;
+      const known = new Set((targetHabit?.subHabits ?? []).map((s) => s.id));
+      const filtered = imported.subIds.filter((id) => known.size === 0 || known.has(id));
+      if (filtered.length === 0) return null;
+      return normalizeSubState(filtered, totalSubs, imported.completed);
+    };
     if (!existing) {
       data.checkIns.push({
         habitId,
@@ -2922,6 +3797,10 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
         completed: imported.completed ?? false,
         count: imported.count,
         notes: imported.notes,
+        ...adoptSubState(),
+        ...(imported.checkedAt ? { checkedAt: imported.checkedAt } : {}),
+        ...(imported.projectId ? { projectId: imported.projectId } : {}),
+        ...(imported.taskId ? { taskId: imported.taskId } : {}),
       });
       result.checkInsRestored++;
     } else {
@@ -2941,6 +3820,27 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
         }
         restored = true;
       }
+      // Gap-fill doux state + provenance: never overwrite a fuller record.
+      if (existing.subIds === undefined) {
+        const adopted = adoptSubState();
+        if (adopted?.subIds) {
+          existing.subIds = adopted.subIds;
+          existing.partial = adopted.partial;
+          restored = true;
+        }
+      }
+      if (!existing.checkedAt && imported.checkedAt) {
+        existing.checkedAt = imported.checkedAt;
+        restored = true;
+      }
+      if (!existing.projectId && imported.projectId) {
+        existing.projectId = imported.projectId;
+        restored = true;
+      }
+      if (!existing.taskId && imported.taskId) {
+        existing.taskId = imported.taskId;
+        restored = true;
+      }
       if (restored) result.checkInsRestored++;
     }
   }
@@ -2956,6 +3856,58 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
       ...(imported.achievementCategory ? { achievementCategory: imported.achievementCategory } : {}),
     });
     result.notesCreated++;
+  }
+
+  // Routines (incl. depression protocol + step progress): match by id, create
+  // when missing, otherwise gap-fill steps (by step id) and union done ids.
+  // Routines used to vanish on reinstall-restore — never again.
+  for (const rawRoutine of readArray(raw, 'routines')) {
+    if (!isRecord(rawRoutine)) continue;
+    const r = rawRoutine as Record<string, unknown>;
+    if (typeof r.id !== 'string' || !r.id) continue;
+    if (typeof r.triggerId !== 'string' || !r.triggerId) continue;
+    if (typeof r.name !== 'string' || !r.name) continue;
+    if (!Array.isArray(r.steps)) continue;
+    const target = (data.routines ?? []).find((x) => x.id === r.id);
+    if (!target) {
+      const cleaned = sanitizeRoutines([rawRoutine]);
+      if (cleaned.length > 0) {
+        data.routines = [...(data.routines ?? []), ...cleaned];
+        result.routinesRestored++;
+      }
+      continue;
+    }
+    // Gap-fill steps missing locally (matched by step id).
+    const localIds = new Set(target.steps.map((s) => s.id));
+    const cleaned = sanitizeRoutines([{ ...r, steps: r.steps }]);
+    const incoming = cleaned.length > 0 ? cleaned[0].steps : [];
+    let touched = false;
+    for (const s of incoming) {
+      if (!localIds.has(s.id)) {
+        target.steps.push(s);
+        touched = true;
+      }
+    }
+    if (touched) target.steps.sort((a, b) => a.order - b.order);
+    // Union done-step ids (both sides may have advanced independently).
+    const pr = r.progress && typeof r.progress === 'object' && !Array.isArray(r.progress)
+      ? (r.progress as Record<string, unknown>) : null;
+    const incomingDone = Array.isArray(pr?.doneStepIds)
+      ? (pr!.doneStepIds as unknown[]).filter((id): id is string => typeof id === 'string') : [];
+    if (incomingDone.length > 0) {
+      const known = new Set(target.steps.map((s) => s.id));
+      const union = new Set([...(target.progress?.doneStepIds ?? []), ...incomingDone.filter((id) => known.has(id))]);
+      const before = target.progress?.doneStepIds.length ?? 0;
+      if (union.size > before) {
+        target.progress = { doneStepIds: [...union], updatedAt: new Date().toISOString() };
+        touched = true;
+      }
+    }
+    if (!target.kind && typeof r.kind === 'string' && r.kind) {
+      target.kind = r.kind.slice(0, 40);
+      touched = true;
+    }
+    if (touched) result.routinesRestored++;
   }
 
   let skillsMerged = 0;
@@ -3291,6 +4243,186 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
     });
   }
 
+  // --- Reinstall gap fix: import emotional events + checks + journal entries.
+  // mergeImportedData historically skipped these types entirely, so every
+  // reinstall wiped them from the live store (only the file-backfill rescued
+  // emotions, and nothing rescued the journal). Append-if-missing by id.
+  let emotionsRestored = 0;
+  if (!data.emotionalEvents) data.emotionalEvents = [];
+  if (!data.emotionalChecks) data.emotionalChecks = [];
+  for (const ev of sanitizeEmotionalEvents((raw as Record<string, unknown>).emotionalEvents)) {
+    if (data.emotionalEvents.some((x) => x.id === ev.id)) continue;
+    data.emotionalEvents.push(ev);
+    emotionsRestored++;
+  }
+  for (const c of sanitizeEmotionalChecks((raw as Record<string, unknown>).emotionalChecks)) {
+    if (data.emotionalChecks.some((x) => x.id === c.id)) continue;
+    data.emotionalChecks.push(c);
+    emotionsRestored++;
+  }
+  result.emotionsRestored = emotionsRestored;
+  let journalRestored = 0;
+  if (!data.journalEntries) data.journalEntries = [];
+  {
+    const rawJournal = (raw as Record<string, unknown>).journalEntries;
+    if (Array.isArray(rawJournal)) {
+      for (const x of rawJournal) {
+        if (!x || typeof x !== 'object') continue;
+        const j = x as Record<string, unknown>;
+        if (typeof j.id !== 'string' || !j.id) continue;
+        if (typeof j.content !== 'string') continue;
+        if (typeof j.personality !== 'string') continue;
+        if (data.journalEntries.some((e) => e.id === j.id)) continue;
+        const strArr = (v: unknown): string[] | undefined =>
+          Array.isArray(v) ? (v as unknown[]).filter((h): h is string => typeof h === 'string') : undefined;
+        data.journalEntries.push({
+          id: j.id,
+          content: j.content,
+          personality: j.personality as JournalEntry['personality'],
+          response: typeof j.response === 'string' ? j.response : '',
+          createdAt: typeof j.createdAt === 'string' ? j.createdAt : new Date().toISOString(),
+          habitIds: strArr(j.habitIds),
+          projectIds: strArr(j.projectIds),
+          protocolIds: strArr(j.protocolIds),
+          threadId: typeof j.threadId === 'string' ? j.threadId : undefined,
+          local: j.local === true ? true : undefined,
+        });
+        journalRestored++;
+      }
+    }
+  }
+  result.journalRestored = journalRestored;
+
+  // --- Complete the merge: every remaining collection type, append-if-missing.
+  // Historically mergeImportedData only covered habits + a few satellites, so
+  // each reinstall silently dropped projects, missions, reflections, depressions,
+  // feeds, the knowledge library, etc. from the live store. This block closes
+  // the gap generically: validated entries, matched by stable id (or natural
+  // key), never overwritten, never dropped when valid.
+  let miscRestored = 0;
+  {
+    const R = raw as Record<string, unknown>;
+    const arrOf = (k: string): unknown[] => (Array.isArray(R[k]) ? (R[k] as unknown[]) : []);
+    // depressions: same 0-100 date-map shape as energies.
+    if (!data.depressions) data.depressions = {};
+    for (const [date, v] of Object.entries(R.depressions && typeof R.depressions === 'object' && !Array.isArray(R.depressions) ? (R.depressions as Record<string, unknown>) : {})) {
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 100) continue;
+      if (!isValidDateKey(date) || data.depressions[date] !== undefined) continue;
+      data.depressions[date] = Math.round(v);
+      miscRestored++;
+    }
+    // projects / protocols / ingestedSources / feeds / obsidianNotes / missions /
+    // journalThreads: sanitized, append-if-missing by id.
+    const idLists: [string, (x: unknown) => { id: string }[]][] = [
+      ['projects', (x) => sanitizeProjects([x]) as { id: string }[]],
+      ['protocols', (x) => sanitizeProtocols([x]) as { id: string }[]],
+      ['ingestedSources', (x) => (Array.isArray([x]) ? [x] : []).filter((e: unknown) => e && typeof e === 'object' && 'id' in (e as object) && 'rawText' in (e as object)) as { id: string }[]],
+      ['feeds', (x) => sanitizeFeeds([x]) as { id: string }[]],
+      ['obsidianNotes', (x) => sanitizeObsidianNotes([x]) as { id: string }[]],
+      ['missions', (x) => sanitizeMissions([x]) as { id: string }[]],
+      ['journalThreads', (x) => (Array.isArray([x]) ? [x] : []).filter((t: unknown) => t && typeof t === 'object' && 'id' in (t as object) && 'question' in (t as object)) as { id: string }[]],
+    ];
+    for (const [key, cleanOne] of idLists) {
+      const cur = (data as unknown as Record<string, { id: string }[] | undefined>)[key] ?? [];
+      const have = new Set(cur.map((e) => e.id));
+      let wrote = false;
+      for (const x of arrOf(key)) {
+        let cleaned: { id: string }[];
+        try { cleaned = cleanOne(x); } catch { continue; }
+        for (const e of cleaned) {
+          if (!e.id || have.has(e.id)) continue;
+          // Remap habit references through idMap where the shape carries them.
+          const rec = e as unknown as Record<string, unknown>;
+          if (Array.isArray(rec.habitIds)) {
+            rec.habitIds = (rec.habitIds as unknown[])
+              .map((hid) => (typeof hid === 'string' ? (idMap.get(hid) ?? hid) : hid))
+              .filter((hid): hid is string => typeof hid === 'string');
+          }
+          cur.push(e);
+          have.add(e.id);
+          miscRestored++;
+          wrote = true;
+        }
+      }
+      if (wrote) (data as unknown as Record<string, unknown>)[key] = cur;
+    }
+    // patternTracks: natural key = patternId (keep the furthest progress).
+    if (!data.patternTracks) data.patternTracks = [];
+    for (const x of arrOf('patternTracks')) {
+      if (!x || typeof x !== 'object' || !('patternId' in (x as object))) continue;
+      const p = x as Record<string, unknown>;
+      if (typeof p.patternId !== 'string' || !p.patternId) continue;
+      const ex = data.patternTracks.find((e) => e.patternId === p.patternId);
+      const step = typeof p.step === 'number' && Number.isFinite(p.step) ? Math.max(0, Math.floor(p.step)) : 0;
+      if (!ex) {
+        data.patternTracks.push({
+          patternId: p.patternId, step,
+          seenCount: typeof p.seenCount === 'number' && Number.isFinite(p.seenCount) ? Math.max(0, Math.floor(p.seenCount)) : 0,
+          lastSeen: typeof p.lastSeen === 'string' ? p.lastSeen : '',
+          createdAt: typeof p.createdAt === 'string' ? p.createdAt : new Date().toISOString(),
+        });
+        miscRestored++;
+      } else if (step > ex.step) {
+        ex.step = step;
+        if (typeof p.lastSeen === 'string' && p.lastSeen > ex.lastSeen) ex.lastSeen = p.lastSeen;
+        if (typeof p.seenCount === 'number' && Number.isFinite(p.seenCount)) ex.seenCount = Math.max(ex.seenCount, Math.floor(p.seenCount));
+        miscRestored++;
+      }
+    }
+    // reflections: dedupe by id, fallback to dedupeKey.
+    if (!data.reflections) data.reflections = [];
+    for (const x of arrOf('reflections')) {
+      if (!x || typeof x !== 'object') continue;
+      const r = x as Record<string, unknown>;
+      if (typeof r.kind !== 'string' || typeof r.question !== 'string' || typeof r.dedupeKey !== 'string') continue;
+      if (typeof r.id === 'string' && r.id && data.reflections.some((e) => e.id === r.id)) continue;
+      if (data.reflections.some((e) => e.dedupeKey === r.dedupeKey)) continue;
+      data.reflections.push({
+        id: typeof r.id === 'string' && r.id ? r.id : crypto.randomUUID(),
+        kind: r.kind as ReflectionEntry['kind'],
+        title: typeof r.title === 'string' ? r.title : '',
+        question: r.question,
+        context: typeof r.context === 'string' ? r.context : '',
+        habitIds: Array.isArray(r.habitIds) ? (r.habitIds as unknown[]).filter((h): h is string => typeof h === 'string') : [],
+        dedupeKey: r.dedupeKey,
+        createdAt: typeof r.createdAt === 'string' ? r.createdAt : new Date().toISOString(),
+        status: r.status === 'answered' ? 'answered' : 'open',
+        answer: typeof r.answer === 'string' ? r.answer : undefined,
+        snoozedUntil: typeof r.snoozedUntil === 'string' ? r.snoozedUntil : undefined,
+        timesAsked: typeof r.timesAsked === 'number' && Number.isFinite(r.timesAsked) ? Math.max(0, Math.floor(r.timesAsked)) : undefined,
+        lastAskedAt: typeof r.lastAskedAt === 'string' ? r.lastAskedAt : undefined,
+      });
+      miscRestored++;
+    }
+    // psychoHistory: append entries not already present (role+content+createdAt).
+    if (!data.psychoHistory) data.psychoHistory = [];
+    for (const x of arrOf('psychoHistory')) {
+      if (!x || typeof x !== 'object') continue;
+      const m = x as Record<string, unknown>;
+      if (typeof m.content !== 'string' || (m.role !== 'user' && m.role !== 'assistant')) continue;
+      const createdAt = typeof m.createdAt === 'string' ? m.createdAt : '';
+      if (data.psychoHistory.some((e) => e.role === m.role && e.content === m.content && (e.createdAt ?? '') === createdAt)) continue;
+      data.psychoHistory.push({
+        role: m.role, content: m.content,
+        frame: typeof m.frame === 'string' ? m.frame : 'general',
+        patternId: typeof m.patternId === 'string' ? m.patternId : undefined,
+        createdAt: createdAt || new Date().toISOString(),
+      });
+      miscRestored++;
+    }
+    // dismissedRecs: plain string union.
+    {
+      const have = new Set(data.dismissedRecs ?? []);
+      for (const x of arrOf('dismissedRecs')) {
+        if (typeof x !== 'string' || !x || have.has(x)) continue;
+        have.add(x);
+        miscRestored++;
+      }
+      data.dismissedRecs = [...have];
+    }
+  }
+  result.miscRestored = miscRestored;
+
   // --- v0.5.0: Import levers (no habit references → no id remapping) ---
   if (!data.levers) data.levers = [];
   const rawLevers = Array.isArray((raw as Record<string, unknown>).levers)
@@ -3333,7 +4465,8 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
 
   const totalRestored = result.habitsCreated + result.checkInsRestored + result.notesCreated
     + skillsMerged + capacitiesImported + ratingsImported
-    + moodsRestored + energiesRestored + concentrationsRestored + experimentsRestored + urgesRestored + mantrasRestored + chaosDimensionsRestored;
+    + moodsRestored + energiesRestored + concentrationsRestored + experimentsRestored + urgesRestored + mantrasRestored + chaosDimensionsRestored
+    + emotionsRestored + journalRestored + result.routinesRestored + result.miscRestored;
   if (metadataChanged || totalRestored > 0) {
     notify();
   }
@@ -3411,8 +4544,10 @@ export function addMantra(text: string, domain: string): Mantra {
     createdAt: new Date().toISOString(),
     isDefault: false,
   };
-  if (!data.mantras) data.mantras = [];
-  data.mantras.push(mantra);
+  // Immutable append (new array reference): subscribers comparing by
+  // reference (React state) must re-render, otherwise the new mantra is
+  // saved but never SHOWN — the "mantras don't save" incident.
+  data.mantras = [...(data.mantras ?? []), mantra];
   notify();
   return mantra;
 }
@@ -3689,19 +4824,38 @@ export function deleteEmotionalEvent(id: string): void {
   data.emotionalChecks = (data.emotionalChecks ?? []).filter((c) => c.eventId !== id);
   scheduleSave(data);
 }
-export function upsertEmotionalCheck(eventId: string, date: string, intensity: number, note?: string): import('./types').EmotionalCheck {
+export function upsertEmotionalCheck(eventId: string, date: string, intensity: number, note?: string, intensities?: Record<string, number>, noteEmotions?: string[]): import('./types').EmotionalCheck {
+  const cleanIntensities = intensities !== undefined ? sanitizeIntensityMap(intensities) : undefined;
+  const cleanNoteEmotions = noteEmotions !== undefined ? cleanEmotionTags(noteEmotions) : undefined;
   const all = data.emotionalChecks ?? [];
   const existing = all.find((c) => c.eventId === eventId && c.date === date);
   if (existing) {
     existing.intensity = intensity;
     if (note !== undefined) existing.note = note;
-    scheduleSave(data);
+    if (cleanIntensities !== undefined) existing.intensities = cleanIntensities;
+    if (noteEmotions !== undefined) existing.noteEmotions = cleanNoteEmotions;
+    if (!existing.createdAt) existing.createdAt = new Date().toISOString();
+    // notify (not just scheduleSave): the detail view must re-render
+    // immediately so the user SEES the check — otherwise it looks lost.
+    notify();
     return existing;
   }
-  const c: import('./types').EmotionalCheck = { id: crypto.randomUUID(), eventId, date, intensity, note };
+  const c: import('./types').EmotionalCheck = { id: crypto.randomUUID(), eventId, date, intensity, note, intensities: cleanIntensities, noteEmotions: cleanNoteEmotions, createdAt: new Date().toISOString() };
   data.emotionalChecks = [...all, c];
-  scheduleSave(data);
+  notify();
   return c;
+}
+
+/** Keep only finite 1-10 values; returns undefined when nothing valid remains. */
+function sanitizeIntensityMap(raw: unknown): Record<string, number> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof k === 'string' && k.length > 0 && k.length <= 40 && typeof v === 'number' && Number.isFinite(v)) {
+      out[k] = Math.min(10, Math.max(1, Math.round(v)));
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 export function deleteEmotionalCheck(id: string): void {
   data.emotionalChecks = (data.emotionalChecks ?? []).filter((c) => c.id !== id);
@@ -3737,6 +4891,153 @@ export function getRoutinesForTrigger(triggerId: string): import('./types').Rout
   return (data.routines ?? []).filter((r) => r.triggerId === triggerId);
 }
 
+export interface RoutineProgress {
+  done: number;
+  total: number;
+  /** 0..1 (1 when total is 0 — nothing to do). */
+  pct: number;
+  /** First undone step in order (null when all done) — "reprendre ici". */
+  next: import('./types').RoutineStep | null;
+}
+
+/** Progress snapshot of a routine (pure, works on any routine object). */
+export function routineProgress(routine: Pick<import('./types').Routine, 'steps' | 'progress'>): RoutineProgress {
+  const steps = [...(routine.steps ?? [])].sort((a, b) => a.order - b.order);
+  const doneSet = new Set(routine.progress?.doneStepIds ?? []);
+  const done = steps.filter((s) => doneSet.has(s.id)).length;
+  return {
+    done,
+    total: steps.length,
+    pct: steps.length === 0 ? 1 : done / steps.length,
+    next: steps.find((s) => !doneSet.has(s.id)) ?? null,
+  };
+}
+
+/**
+ * Toggle one routine step done/undone. Persists + notifies (the UI must
+ * re-render immediately — same lesson as upsertEmotionalCheck: no silent state).
+ */
+export function toggleRoutineStep(routineId: string, stepId: string): import('./types').Routine | null {
+  const routine = (data.routines ?? []).find((r) => r.id === routineId);
+  if (!routine || !routine.steps.some((s) => s.id === stepId)) return null;
+  const done = new Set(routine.progress?.doneStepIds ?? []);
+  if (done.has(stepId)) done.delete(stepId);
+  else done.add(stepId);
+  // Keep only ids of steps that still exist (rename-safe, delete-safe).
+  const known = new Set(routine.steps.map((s) => s.id));
+  routine.progress = { doneStepIds: [...done].filter((id) => known.has(id)), updatedAt: new Date().toISOString() };
+  notify();
+  return routine;
+}
+
+/** Reset a routine's progress (start the day over). */
+export function resetRoutineProgress(routineId: string): boolean {
+  const routine = (data.routines ?? []).find((r) => r.id === routineId);
+  if (!routine) return false;
+  routine.progress = undefined;
+  notify();
+  return true;
+}
+
+/** Rename one routine step (phases are user-editable). */
+export function updateRoutineStep(routineId: string, stepId: string, label: string): boolean {
+  const routine = (data.routines ?? []).find((r) => r.id === routineId);
+  const clean = label.trim().slice(0, 120);
+  if (!routine || !clean) return false;
+  const step = routine.steps.find((s) => s.id === stepId);
+  if (!step) return false;
+  step.label = clean;
+  notify();
+  return true;
+}
+
+/** Delete one routine step (progress ids are purged with it). */
+export function deleteRoutineStep(routineId: string, stepId: string): boolean {
+  const routine = (data.routines ?? []).find((r) => r.id === routineId);
+  if (!routine || !routine.steps.some((s) => s.id === stepId)) return false;
+  routine.steps = routine.steps.filter((s) => s.id !== stepId);
+  if (routine.progress) {
+    const kept = routine.progress.doneStepIds.filter((id) => id !== stepId);
+    routine.progress = { doneStepIds: kept, updatedAt: new Date().toISOString() };
+  }
+  notify();
+  return true;
+}
+
+/** The depression-day protocol routine, if the user kept it. */
+export function getDepressionProtocol(): import('./types').Routine | undefined {
+  return (data.routines ?? []).find((r) => r.kind === 'depression-day');
+}
+
+// --- One-shot wellbeing seeds (user-approved) ---
+const OUTING_GUARD_LABEL = 'Sortie sociale impromptue (heures non libres / non programmée)';
+const OUTING_GUARD_WEIGHT = 25;
+const OUTING_GUARD_DIMENSION = 'structural';
+const DEPRESSION_PROTOCOL_NAME = 'Protocole jour dépression';
+const DEPRESSION_PROTOCOL_PHASES = [
+  'Ancrage — lumière du jour, douche, lit fait (remettre le corps dans la journée)',
+  'Corps — marche 20 à 30 minutes dehors, sans téléphone',
+  'Nourrir — un vrai repas assis, pas debout ni sucré seul',
+  'Lien — un contact humain (message, appel, voisin), même bref',
+  'Minuscule — une seule micro-tâche de 10 minutes, puis stop',
+  'Apaiser — soirée douce, écrans coupés 1h avant le coucher',
+];
+
+/**
+ * One-shot seeds approved by the user: the unplanned-outing guard principle
+ * (Structural +25%) and the depression-day protocol routine (6 editable
+ * phases). Idempotent via preference flags — a user deletion is respected
+ * and never re-seeded.
+ */
+export function seedWellbeingDefaults(): { outingGuard: boolean; protocol: boolean } {
+  // Ensure default dimensions exist first (self-healing getter).
+  getChaosDimensions();
+  const prefs = getPreferences();
+  let outingGuard = false;
+  let protocol = false;
+  if (!prefs.outingGuardSeeded) {
+    const dim = data.chaosDimensions.find((d) => d.id === OUTING_GUARD_DIMENSION);
+    const already = dim?.triggers.some(
+      (t) => t.label.trim().toLocaleLowerCase() === OUTING_GUARD_LABEL.toLocaleLowerCase(),
+    );
+    if (dim && !already) {
+      dim.triggers.push({ id: crypto.randomUUID(), label: OUTING_GUARD_LABEL, weight: OUTING_GUARD_WEIGHT, active: false });
+      outingGuard = true;
+    }
+    updatePreferences({ outingGuardSeeded: true });
+  }
+  if (!prefs.depressionProtocolSeeded) {
+    const already = (data.routines ?? []).some((r) => r.kind === 'depression-day');
+    if (!already) {
+      let anchor = data.chaosDimensions
+        .find((d) => d.id === 'emotional')
+        ?.triggers.find((t) => t.label === '🌧️ Protocole dépression');
+      if (!anchor) {
+        const emo = data.chaosDimensions.find((d) => d.id === 'emotional');
+        if (emo) {
+          anchor = { id: crypto.randomUUID(), label: '🌧️ Protocole dépression', weight: 0, active: false };
+          emo.triggers.push(anchor);
+        }
+      }
+      if (anchor) {
+        const now = new Date().toISOString();
+        data.routines = [...(data.routines ?? []), {
+          id: crypto.randomUUID(),
+          triggerId: anchor.id,
+          name: DEPRESSION_PROTOCOL_NAME,
+          kind: 'depression-day',
+          steps: DEPRESSION_PROTOCOL_PHASES.map((label, i) => ({ id: crypto.randomUUID(), label, order: i })),
+          createdAt: now,
+        }];
+        protocol = true;
+      }
+    }
+    updatePreferences({ depressionProtocolSeeded: true });
+  }
+  if (outingGuard || protocol) notify();
+  return { outingGuard, protocol };
+}
+
 export function addChaosTrigger(dimensionId: string, label: string, weight: number): import('./types').ChaosTrigger | null {
   const dim = data.chaosDimensions.find((d) => d.id === dimensionId);
   if (!dim) return null;
@@ -3766,6 +5067,11 @@ const DEFAULT_CHAOS: ChaosDimension[] = [
   { id: 'emotional', name: 'Emotional', triggers: [] },
   { id: 'energy', name: 'Energy', triggers: [] },
   { id: 'startup', name: 'Startup', triggers: [] },
+  // Self-esteem: habits that protect how you see yourself (shame resilience,
+  // humiliation recovery, self-compassion). A missing self-care habit heats
+  // this dimension — distinct from Emotional (passing states) : this is the
+  // slow background evaluation of self-worth (Rosenberg; Neff).
+  { id: 'selfesteem', name: 'Estime de soi', triggers: [] },
 ];
 
 export function getDefaultChaosDimensions(): ChaosDimension[] {
@@ -3959,7 +5265,7 @@ function trackingStart(habit: Habit): Date | null {
 // Count consecutive missed days for a habit, starting from YESTERDAY and walking
 // backward. Today is excluded (still in progress). Days before the habit's
 // tracking start are not counted, and the window is capped at 90 days.
-function computeMissedStreak(habit: Habit, today: Date): number {
+export function computeMissedStreak(habit: Habit, today: Date): number {
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
 
@@ -3987,6 +5293,62 @@ function computeMissedStreak(habit: Habit, today: Date): number {
   return missedStreak;
 }
 
+/** Expected chaos sessions per week (1-7). Undefined/7 = daily (legacy behavior). */
+export function chaosPerWeekOf(habit: Pick<Habit, 'chaosPerWeek'>): number {
+  const v = habit.chaosPerWeek;
+  return typeof v === 'number' && Number.isFinite(v) ? Math.min(7, Math.max(1, Math.round(v))) : 7;
+}
+
+export interface MissedSessions {
+  /** Expected sessions in the trailing window. */
+  expected: number;
+  /** Distinct completed days in the window (one day = one session at most). */
+  done: number;
+  /** Missed = max(0, expected − done). May be fractional for non-daily habits. */
+  missed: number;
+  /** Trailing window length in days, anchored yesterday (today isn't over). */
+  windowDays: number;
+  /** Sessions per week of the habit. */
+  perWeek: number;
+}
+
+/**
+ * Occurrence-based miss counting — the cry-wolf guard for non-daily habits.
+ * A 3×/week habit must NOT heat chaos after 2 calendar days off.
+ *
+ * Window = ceil(threshold × 7 / perWeek) trailing days ending yesterday;
+ * expected = perWeek × countedDays / 7 (prorated when the habit is newer
+ * than the window — no penalty before the tool existed); missed = expected − done.
+ *
+ * For daily habits (perWeek 7): window = threshold, expected = threshold
+ * (integer), missed ⟺ the last `threshold` days are ALL missed — IDENTICAL
+ * to the consecutive-day streak. One code path, zero behavior change daily.
+ */
+export function computeMissedSessions(habit: Habit, thresholdDays: number, today: Date): MissedSessions {
+  const perWeek = chaosPerWeekOf(habit);
+  const fullWindow = Math.max(1, Math.ceil((thresholdDays * 7) / perWeek));
+  const startBoundary = trackingStart(habit);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const keyOf = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  let countedDays = 0;
+  const doneDates = new Set<string>();
+  for (let i = 1; i <= fullWindow; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    if (startBoundary) {
+      const dStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      if (dStart < startBoundary) break;
+    }
+    countedDays++;
+    const key = keyOf(d);
+    const ci = data.checkIns.find((c) => c.habitId === habit.id && c.date === key);
+    if (ci && ci.completed) doneDates.add(key);
+  }
+  const expected = (perWeek * countedDays) / 7;
+  const missed = Math.max(0, expected - doneDates.size);
+  return { expected, done: doneDates.size, missed, windowDays: countedDays, perWeek };
+}
+
 export function computeAutoChaos(asOf?: Date): Map<string, { trigger: ChaosTrigger; habitName: string }[]> {
   const autoTriggerMap = new Map<string, { trigger: ChaosTrigger; habitName: string }[]>();
   const today = asOf ?? new Date();
@@ -3995,11 +5357,14 @@ export function computeAutoChaos(asOf?: Date): Map<string, { trigger: ChaosTrigg
     if (habit.archived) continue;
     if (!habit.chaosDimension || !habit.chaosImpact || !habit.chaosThresholdDays) continue;
 
-    const missedStreak = computeMissedStreak(habit, today);
+    const streak = computeMissedStreak(habit, today);
+    const sess = computeMissedSessions(habit, habit.chaosThresholdDays, today);
 
-    if (missedStreak >= habit.chaosThresholdDays) {
+    if (sess.missed >= habit.chaosThresholdDays) {
       const triggerId = `auto_${habit.id}`;
-      const label = `"${habit.name}" missed ${missedStreak}d (threshold ${habit.chaosThresholdDays}d)`;
+      const label = sess.perWeek < 7
+        ? `"${habit.name}" missed ${Math.round(sess.missed * 10) / 10} sessions (threshold ${habit.chaosThresholdDays})`
+        : `"${habit.name}" missed ${streak}d (threshold ${habit.chaosThresholdDays}d)`;
       const trigger: ChaosTrigger = {
         id: triggerId,
         label,
@@ -4045,13 +5410,18 @@ export interface ChaosHabitStatus {
   habitId: string;
   habitName: string;
   impact: number;        // chaos Impact %
-  thresholdDays: number; // consecutive missed days needed to trigger
-  missedStreak: number;  // current consecutive missed days (from yesterday)
+  thresholdDays: number; // missed sessions needed to trigger (days when daily)
+  missedStreak: number;  // missed sessions (consecutive missed days when daily)
   triggered: boolean;    // missedStreak >= thresholdDays
+  /** Expected sessions per week (7 = daily). Drives "séances" vs "jours" labels. */
+  perWeek: number;
   /** 0..1 how close the habit is to triggering (missedStreak/thresholdDays). */
   progress: number;
   /** Optional user note explaining WHY this habit destabilises this dimension. */
   cause?: string;
+  /** The habit's intentions ("why I do this") — surfaced in Chaos so the
+   * reason is visible exactly where the pressure is felt. */
+  why?: string[];
 }
 
 export interface ChaosDimensionReport {
@@ -4078,8 +5448,14 @@ export function computeChaosReport(asOf?: Date): ChaosReport {
     const links = getHabitChaosLinks(habit);
     if (links.length === 0 || !habit.chaosThresholdDays) continue;
 
-    const missedStreak = computeMissedStreak(habit, today);
-    const triggered = missedStreak >= habit.chaosThresholdDays;
+    // Display streak stays calendar-based (unbounded, e.g. "manqué 35j") for
+    // daily habits; for non-daily habits it shows missed SESSIONS (a 35-day
+    // calendar streak is normal life for 1×/week, not chaos). The TRIGGER
+    // always uses the occurrence model (cry-wolf guard).
+    const streak = computeMissedStreak(habit, today);
+    const sess = computeMissedSessions(habit, habit.chaosThresholdDays, today);
+    const missedStreak = sess.perWeek < 7 ? Math.round(sess.missed * 10) / 10 : streak;
+    const triggered = sess.missed >= habit.chaosThresholdDays;
     for (const link of links) {
       const status: ChaosHabitStatus = {
         habitId: habit.id,
@@ -4088,8 +5464,10 @@ export function computeChaosReport(asOf?: Date): ChaosReport {
         thresholdDays: habit.chaosThresholdDays,
         missedStreak,
         triggered,
-        progress: habit.chaosThresholdDays > 0 ? Math.min(1, missedStreak / habit.chaosThresholdDays) : 0,
+        perWeek: sess.perWeek,
+        progress: habit.chaosThresholdDays > 0 ? Math.min(1, sess.missed / habit.chaosThresholdDays) : 0,
         cause: link.cause,
+        why: habit.why && habit.why.length > 0 ? [...habit.why] : undefined,
       };
       if (!linkedByDim.has(link.dimension)) linkedByDim.set(link.dimension, []);
       linkedByDim.get(link.dimension)!.push(status);

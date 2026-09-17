@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeMissionProgress, suggestQuota, suggestMissionsFromSky, BODY_DOMAINS } from '../missions';
+import { computeMissionProgress, suggestQuota, suggestMissionsFromSky, BODY_DOMAINS } from '../asto';
 import type { CheckIn, Mission } from '../types';
 
 const BASE: Mission = {
@@ -189,7 +189,9 @@ describe('missions.suggestMissionsFromSky', () => {
     const checkIns: CheckIn[] = [];
     const base = new Date();
     for (let d = 27; d >= 0; d--) {
-      const k = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(base.getDate() - d).padStart(2, '0')}`;
+      const dt = new Date(base);
+      dt.setDate(dt.getDate() - d); // rollover-safe (the old inline math produced day 0 / negatives)
+      const k = dt.toISOString().slice(0, 10);
       if (d % 2 === 0) checkIns.push(cin('h1', k)); // ~14 completions / 28 days ≈ 3.5/week
     }
     const suggestions = suggestMissionsFromSky({

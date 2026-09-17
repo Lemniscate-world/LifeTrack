@@ -21,10 +21,10 @@ beforeEach(() => {
 });
 
 async function addHabitUI(user: ReturnType<typeof userEvent.setup>, name: string) {
-  await user.click(screen.getByText('+ New Habit'));
-  const input = screen.getByPlaceholderText('Habit name...');
+  await user.click(screen.getByText('+ Nouvelle habitude'));
+  const input = screen.getByPlaceholderText("Nom de l'habitude...");
   await user.type(input, name);
-  await user.click(screen.getByText('Add'));
+  await user.click(screen.getByText('Ajouter'));
 }
 
 describe('Habit reordering (UI integration)', () => {

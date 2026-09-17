@@ -587,9 +587,17 @@ export const ASC_ASPECT_PAIRS: [AspectPoint, AspectPoint][] = [
 ];
 
 /**
- * Upcoming whole-sign transit windows (next ingress → exit) for a set of
- * bodies, within a horizon. Moon windows (~2.5 days) are included — the
- * mission engine filters them out, the calendar keeps them.
+ * ALL upcoming whole-sign transit windows for a set of bodies, within a
+ * horizon — the current window first (start may predate `fromDate`), then
+ * every following ingress, including retrograde bounces (a planet can leave a
+ * sign and come back: each visit is its own window).
+ *
+ * v0.6.5 fix: the previous implementation only returned the current + next
+ * sign window per body. Fast bodies (the Moon has ~24 sign visits in 60 days)
+ * had their calendar truncated to 2 entries — the "wrong transits" bug.
+ *
+ * Moon windows (~2.5 days) are included — the asto engine filters them out,
+ * the calendar keeps them.
  */
 export function upcomingTransits(
   bodies: TransitBodyId[],
@@ -597,17 +605,48 @@ export function upcomingTransits(
   fromDate: Date,
 ): TransitScheduleItem[] {
   const items: TransitScheduleItem[] = [];
+  const horizonMs = horizonDays * 86400000;
+  const horizonEnd = fromDate.getTime() + horizonMs;
   for (const bodyId of bodies) {
     const info = getTransitBody(bodyId);
     const horizon = Math.min(horizonDays, info.maxHorizonDays);
+    // Current window (start possibly before fromDate), resolved exactly.
     const signIndex = signIndexOfLongitude(planetLongitude(bodyId, fromDate));
     const first = resolveTransitWindow(bodyId, signIndex, fromDate);
     if (first && first.end.getTime() > fromDate.getTime()) {
       items.push({ bodyId, signIndex, sign: SIGNS[signIndex], window: first });
     }
-    const next = nextTransitWindow(bodyId, (signIndex + 1) % 12, fromDate);
-    if (next && next.start.getTime() - fromDate.getTime() <= horizon * 86400000) {
-      items.push({ bodyId, signIndex: (signIndex + 1) % 12, sign: SIGNS[(signIndex + 1) % 12], window: next });
+
+    // Grid-scan forward from the end of the current window: every sign change
+    // (in either direction — retrograde bounces included) opens a new window.
+    // Sampling is body-aware: step × maxDailyMotion < 30°, so no sign is ever
+    // skipped between two samples.
+    const step = Math.min(sampleStep(info), 0.5);
+    const n = Math.max(2, Math.ceil(horizon / step) + 2);
+    const jdEnd = makeTime(new Date(Math.min(horizonEnd, Number.MAX_SAFE_INTEGER))).ut;
+    let startJd = first && first.end.getTime() > fromDate.getTime()
+      ? makeTime(first.end).ut + 0.02
+      : makeTime(fromDate).ut;
+    if (startJd >= jdEnd) continue;
+    let prevSign = signIndexOfLongitude(planetLongitude(bodyId, dateFromJulian(startJd)));
+    let windowStart = dateFromJulian(startJd);
+    let prevJd = startJd;
+    for (let i = 1; i <= n; i++) {
+      const jd = startJd + i * step;
+      if (jd > jdEnd) break;
+      const s = signIndexOfLongitude(planetLongitude(bodyId, dateFromJulian(jd)));
+      if (s !== prevSign) {
+        const exitJd = bissect(
+          (t) => (signIndexOfLongitude(planetLongitude(bodyId, dateFromJulian(t))) === prevSign ? 1 : -1),
+          prevJd,
+          jd,
+        );
+        const exit = dateFromJulian(exitJd);
+        items.push({ bodyId, signIndex: prevSign, sign: SIGNS[prevSign], window: { start: windowStart, end: exit, revisit: false } });
+        prevSign = s;
+        windowStart = exit;
+      }
+      prevJd = jd;
     }
   }
   return items.sort((a, b) => a.window.start.getTime() - b.window.start.getTime());
@@ -657,6 +696,10 @@ export function upcomingAspects(
     Math.abs(separationDeg(lonAt(pointA, t), lonAt(pointB, t)) - ASPECT_DEFS[kind].angle);
 
   const events: AspectEvent[] = [];
+  /** One exact moment per (pair, kind): slow pairs stay near-exact for weeks
+   *  and the grid would otherwise produce a dozen near-identical "false"
+   *  events — keep the earliest. */
+  const bestByKey = new Map<string, AspectEvent>();
   for (const [bodyA, bodyB] of pairs) {
     if (bodyA === 'asc' || bodyB === 'asc') {
       if (ascendantLon === undefined) continue;
@@ -666,20 +709,28 @@ export function upcomingAspects(
     for (const kind of ASPECT_KINDS) {
       const angle = ASPECT_DEFS[kind].angle;
       const orb = ASPECT_DEFS[kind].orbDeg;
-      for (let i = 1; i < n - 1; i++) {
-        const gPrev = Math.abs(separationDeg(la[i - 1], lb[i - 1]) - angle);
+      for (let i = 0; i < n; i++) {
+        // Local minimum of the gap on the grid (edges included: an aspect
+        // already exact at `fromDate` or at the horizon edge is real).
         const gCur = Math.abs(separationDeg(la[i], lb[i]) - angle);
-        const gNext = Math.abs(separationDeg(la[i + 1], lb[i + 1]) - angle);
-        if (gCur <= gPrev && gCur <= gNext && gCur < orb) {
-          const refined = refineMin((t) => gapAt(bodyA, bodyB, kind, t), grid[i - 1], grid[i + 1]);
-          const exactAt = dateFromJulian(refined);
-          if (exactAt.getTime() >= fromDate.getTime() && gapAt(bodyA, bodyB, kind, refined) < 0.1) {
-            events.push({ bodyA, bodyB, kind, exactAt });
-          }
+        if (gCur >= orb) continue;
+        const gPrev = i > 0 ? Math.abs(separationDeg(la[i - 1], lb[i - 1]) - angle) : Infinity;
+        const gNext = i < n - 1 ? Math.abs(separationDeg(la[i + 1], lb[i + 1]) - angle) : Infinity;
+        if (gCur > gPrev || gCur > gNext) continue;
+        const lo = i > 0 ? grid[i - 1] : grid[i] - step;
+        const hi = i < n - 1 ? grid[i + 1] : grid[i] + step;
+        const refined = refineMin((t) => gapAt(bodyA, bodyB, kind, t), lo, hi);
+        const exactAt = dateFromJulian(refined);
+        if (exactAt.getTime() < fromDate.getTime() || gapAt(bodyA, bodyB, kind, refined) >= 0.1) continue;
+        const key = `${bodyA}|${bodyB}|${kind}`;
+        const existing = bestByKey.get(key);
+        if (!existing || exactAt.getTime() < existing.exactAt.getTime()) {
+          bestByKey.set(key, { bodyA, bodyB, kind, exactAt });
         }
       }
     }
   }
+  events.push(...bestByKey.values());
   return events.sort((a, b) => a.exactAt.getTime() - b.exactAt.getTime());
 }
 

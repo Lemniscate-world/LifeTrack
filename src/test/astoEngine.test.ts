@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resetStore, addHabit, toggleCheckIn, getMissions } from '../store';
-import { runAutoMissions } from '../missionEngine';
+import { runAutoAsto } from '../astoEngine';
 
 beforeEach(() => {
   localStorage.clear();
   resetStore();
 });
 
-describe('missionEngine.runAutoMissions', () => {
+describe('astoEngine.runAutoAsto', () => {
   it('creates nothing with no data (no weak domain)', () => {
-    const created = runAutoMissions();
+    const created = runAutoAsto();
     expect(created).toBe(0);
     expect(getMissions()).toHaveLength(0);
   });
@@ -21,7 +21,7 @@ describe('missionEngine.runAutoMissions', () => {
     const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     toggleCheckIn(h.id, k);
 
-    const first = runAutoMissions();
+    const first = runAutoAsto();
     expect(first).toBeGreaterThanOrEqual(1);
     const missions = getMissions();
     expect(missions.length).toBeGreaterThanOrEqual(1);
@@ -32,7 +32,7 @@ describe('missionEngine.runAutoMissions', () => {
     let created = first;
     let passes = 0;
     while (created > 0 && passes < 6) {
-      created = runAutoMissions();
+      created = runAutoAsto();
       passes++;
     }
     expect(created).toBe(0);
@@ -65,7 +65,7 @@ describe('missionEngine.runAutoMissions', () => {
       preferences: { darkMode: false, theme: '', missionAutoEnabled: false },
     }));
     resetStore();
-    expect(runAutoMissions()).toBe(0);
+    expect(runAutoAsto()).toBe(0);
     expect(getMissions()).toHaveLength(0);
   });
 });

@@ -8,7 +8,7 @@
 import {
   addMission, getMissions, getHabits, getCheckInsForHabit, exportAllData, getPreferences,
 } from './store';
-import { suggestMissionsFromSky } from './missions';
+import { suggestMissionsFromSky } from './asto';
 import { buildPreferenceReport } from './preferences';
 import { ascendantLongitude } from './astrology';
 import type { AppData, Mission, MissionTransitWindow } from './types';
@@ -30,7 +30,7 @@ function natalAscendant(): number | undefined {
  * Run one auto-mission pass. Creates at most `maxAuto` missions (weak-domain
  * transits first). Returns the number created.
  */
-export function runAutoMissions(maxAuto = 2): number {
+export function runAutoAsto(maxAuto = 2): number {
   try {
     if (getPreferences().missionAutoEnabled === false) return 0;
     const d = exportAllData() as unknown as AppData;

@@ -7,6 +7,11 @@ import {
   getRoutinesForTrigger,
   addRoutine,
   deleteRoutine,
+  toggleRoutineStep,
+  resetRoutineProgress,
+  updateRoutineStep,
+  deleteRoutineStep,
+  routineProgress,
 } from '../store';
 
 interface PrincipleTriggersPanelProps {
@@ -76,10 +81,25 @@ export default function PrincipleTriggersPanel({
                   <span className="principles-panel-routines-label">
                     Routines ({routines.length})
                   </span>
-                  {routines.map((routine) => (
+                  {routines.map((routine) => {
+                    const prog = routineProgress(routine);
+                    return (
                     <div key={routine.id} className="principles-panel-routine">
                       <div className="principles-panel-routine-head">
                         <strong>{routine.name}</strong>
+                        <span className="principles-panel-routine-progress" title={`${prog.done}/${prog.total} étapes faites`}>
+                          {prog.done}/{prog.total}
+                        </span>
+                        {prog.done > 0 && (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-ghost principles-panel-routine-delete"
+                            onClick={() => resetRoutineProgress(routine.id)}
+                            title="Tout décocher et recommencer"
+                          >
+                            Recommencer
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="btn btn-sm btn-ghost principles-panel-routine-delete"
@@ -88,21 +108,37 @@ export default function PrincipleTriggersPanel({
                           Supprimer
                         </button>
                       </div>
-                      <ol className="principles-panel-steps">
-                        {[...routine.steps].sort((a, b) => a.order - b.order).map((step, idx) => (
-                          <li key={step.id}>
+                      <ol className="principles-panel-steps principles-panel-steps--checkable">
+                        {[...routine.steps].sort((a, b) => a.order - b.order).map((step, idx) => {
+                          const done = (routine.progress?.doneStepIds ?? []).includes(step.id);
+                          return (
+                          <li key={step.id} className={done ? 'is-done' : ''}>
+                            <input
+                              type="checkbox"
+                              className="principles-panel-step-check"
+                              checked={done}
+                              onChange={() => toggleRoutineStep(routine.id, step.id)}
+                              aria-label={`Étape ${idx + 1} : ${step.label}`}
+                            />
                             <span className="principles-panel-step-num">{idx + 1}</span>
-                            <span>{step.label}</span>
-                            {step.habitId && (
-                              <span className="principles-panel-step-habit">
-                                → {habits.find((h) => h.id === step.habitId)?.name ?? ''}
-                              </span>
-                            )}
+                            <RoutineStepLabel
+                              routineId={routine.id}
+                              stepId={step.id}
+                              label={step.label}
+                              habitName={step.habitId ? (habits.find((h) => h.id === step.habitId)?.name ?? '') : ''}
+                            />
                           </li>
-                        ))}
+                          );
+                        })}
                       </ol>
+                      {prog.next && (
+                        <p className="principles-panel-next" title="Reprendre ici">
+                          ▶ Reprendre : étape {routine.steps.findIndex((s) => s.id === prog.next!.id) + 1} — {prog.next.label}
+                        </p>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
@@ -237,5 +273,69 @@ export default function PrincipleTriggersPanel({
         </button>
       </div>
     </div>
+  );
+}
+
+/** One routine step: label (+ linked habit) with inline rename + delete. */
+function RoutineStepLabel({ routineId, stepId, label, habitName }: {
+  routineId: string;
+  stepId: string;
+  label: string;
+  habitName: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(label);
+  if (editing) {
+    return (
+      <span className="principles-panel-step-rename">
+        <input
+          value={draft}
+          autoFocus
+          maxLength={120}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && draft.trim()) {
+              updateRoutineStep(routineId, stepId, draft.trim());
+              setEditing(false);
+            }
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          aria-label="Renommer l'étape"
+        />
+        <button
+          type="button"
+          className="btn btn-sm btn-primary"
+          onClick={() => {
+            if (!draft.trim()) return;
+            updateRoutineStep(routineId, stepId, draft.trim());
+            setEditing(false);
+          }}
+        >
+          OK
+        </button>
+      </span>
+    );
+  }
+  return (
+    <>
+      <span className="principles-panel-step-label">{label}</span>
+      {habitName && <span className="principles-panel-step-habit">→ {habitName}</span>}
+      <button
+        type="button"
+        className="btn btn-sm btn-ghost principles-panel-step-edit"
+        onClick={() => { setDraft(label); setEditing(true); }}
+        title="Renommer cette étape"
+      >
+        ✎
+      </button>
+      <button
+        type="button"
+        className="btn btn-sm btn-ghost principles-panel-step-edit"
+        onClick={() => deleteRoutineStep(routineId, stepId)}
+        title="Supprimer cette étape"
+      >
+        ×
+      </button>
+    </>
   );
 }

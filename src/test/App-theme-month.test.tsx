@@ -8,9 +8,9 @@ import App from '../App';
 beforeEach(() => { localStorage.clear(); resetStore(); });
 
 async function addUI(user: ReturnType<typeof userEvent.setup>, name: string) {
-  await user.click(screen.getByText('+ New Habit'));
-  await user.type(screen.getByPlaceholderText('Habit name...'), name);
-  await user.click(screen.getByText('Add'));
+  await user.click(screen.getByText('+ Nouvelle habitude'));
+  await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), name);
+  await user.click(screen.getByText('Ajouter'));
 }
 
 describe('Theme cycling', () => {
@@ -65,7 +65,7 @@ describe('Month navigation', () => {
 describe('Empty state', () => {
   it('shows no habits message', () => {
     render(<App />);
-    expect(screen.getByText('No habits yet')).toBeInTheDocument();
+    expect(screen.getByText('Aucune habitude')).toBeInTheDocument();
   });
 
   it('shows Ctrl+N hint', () => {
@@ -77,7 +77,7 @@ describe('Empty state', () => {
     const user = userEvent.setup();
     render(<App />);
     await addUI(user, 'First');
-    expect(screen.queryByText('No habits yet')).toBeNull();
+    expect(screen.queryByText('Aucune habitude')).toBeNull();
   });
 });
 

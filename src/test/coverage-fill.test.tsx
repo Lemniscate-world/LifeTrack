@@ -33,7 +33,7 @@ describe('App.tsx — Insights empty state (lines 1337-1350)', () => {
     await user.click(screen.getByText('Insights'));
 
     // With no habits, recommendations are empty → empty state renders
-    expect(screen.getByText('Not enough data yet')).toBeInTheDocument();
+    expect(screen.getByText('Pas encore assez de données')).toBeInTheDocument();
   });
 });
 
@@ -87,9 +87,9 @@ describe('App.tsx — keyboard shortcuts', () => {
     render(<App />);
 
     // Add a habit first so there's something to save
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'Test');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'Test');
+    await user.click(screen.getByText('Ajouter'));
 
     // Ctrl+S should trigger flushSave
     await user.keyboard('{Control>}s{/Control}');
@@ -249,9 +249,9 @@ describe('App.tsx — Export/Import interactions', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByText('+ New Habit'));
-    await user.type(screen.getByPlaceholderText('Habit name...'), 'SaveTest');
-    await user.click(screen.getByText('Add'));
+    await user.click(screen.getByText('+ Nouvelle habitude'));
+    await user.type(screen.getByPlaceholderText("Nom de l'habitude..."), 'SaveTest');
+    await user.click(screen.getByText('Ajouter'));
 
     // The save indicator shows "Not saved yet" or "Saved Xs ago"
     expect(screen.getByText(/Not saved yet|Saved/)).toBeInTheDocument();

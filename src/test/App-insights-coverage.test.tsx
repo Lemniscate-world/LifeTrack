@@ -17,7 +17,7 @@ describe('InsightsView — with recommendations', () => {
     await user.click(screen.getByText('Insights'));
 
     // Should show recommendation cards, not empty state
-    expect(screen.queryByText('Not enough data yet')).toBeNull();
+    expect(screen.queryByText('Pas encore assez de données')).toBeNull();
     // Insight cards exist
     expect(document.querySelectorAll('.insight-card').length).toBeGreaterThanOrEqual(1);
   });
@@ -40,7 +40,7 @@ describe('InsightsView — with recommendations', () => {
     await user.click(screen.getByText('Insights'));
 
     // NEGLECTED recs have "Track now" button
-    expect(screen.getByText('Track now')).toBeInTheDocument();
+    expect(screen.getByText('Cocher')).toBeInTheDocument();
   });
 
   it('shows kind icons on cards', async () => {
@@ -61,7 +61,7 @@ describe('InsightsView — with recommendations', () => {
     render(<App />);
     await user.click(screen.getByText('Insights'));
 
-    expect(screen.getByText(/Relevance/)).toBeInTheDocument();
+    expect(screen.getByText(/Pertinence/)).toBeInTheDocument();
   });
 
   it('shows habit names in insight meta', async () => {
@@ -104,7 +104,7 @@ describe('InsightsView — action buttons navigate', () => {
     addHabit('Read');
     render(<App />);
     await user.click(screen.getByText('Insights'));
-    await user.click(screen.getByText('Track now'));
+    await user.click(screen.getByText('Cocher'));
 
     // Should be back on grid
     expect(screen.getByText('Grid').className).toContain('active');
@@ -179,15 +179,15 @@ describe('InsightsView — empty state', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByText('Insights'));
-    expect(screen.getByText('Not enough data yet')).toBeInTheDocument();
-    expect(screen.getByText('Go to Grid')).toBeInTheDocument();
+    expect(screen.getByText('Pas encore assez de données')).toBeInTheDocument();
+    expect(screen.getByText('Aller à la grille')).toBeInTheDocument();
   });
 
   it('Go to Grid button navigates to grid', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByText('Insights'));
-    await user.click(screen.getByText('Go to Grid'));
+    await user.click(screen.getByText('Aller à la grille'));
     expect(screen.getByText('Grid').className).toContain('active');
   });
 });

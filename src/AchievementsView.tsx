@@ -30,10 +30,15 @@ import {
   computeMedals,
   bestStreakAllTime,
   compareLastWeeks,
+  comboDays,
+  comboMultiplier,
+  xpTodayWithCombo,
+  resilienceShields,
   personaProgress,
   suggestPersonas,
   type PersonaSuggestion,
 } from './gamification';
+import { weeklyBoss } from './boss';
 import {
   evolutionSummary,
   scoredDays,
@@ -127,10 +132,17 @@ export default function AchievementsView() {
         levers: data.levers,
         personas: data.personas,
         journalCount: data.journalEntries.length,
+        emotionalClosures: (data.emotionalEvents ?? []).filter((e) => e.closureNote).length,
       },
     ),
     [data, xpBreakdown.total, progress.level],
   );
+  // --- Boss, combo, resilience (the fun layer) ---
+  const boss = useMemo(() => weeklyBoss(data.habits, data.checkIns), [data]);
+  const combo = useMemo(() => comboDays(data.habits, data.checkIns), [data]);
+  const comboMult = comboMultiplier(combo);
+  const xpToday = useMemo(() => xpTodayWithCombo(data.habits, data.checkIns), [data]);
+  const shields = useMemo(() => resilienceShields(data.checkIns, 30), [data]);
   const comparison = useMemo(() => compareLastWeeks(data.habits, data.checkIns), [data]);
   const bestStreak = useMemo(() => bestStreakAllTime(data.habits, data.checkIns), [data]);
   const evolution: EvolutionSummary = useMemo(
@@ -291,6 +303,45 @@ export default function AchievementsView() {
           abilities (skills & capacities levelled through habits) live in the <strong>Skills</strong> tab.
         </p>
       </div>
+
+      {/* ============ Boss de la semaine — le combat gamifié ============ */}
+      <details className="ach-fold" open>
+        <summary>
+          ⚔️ Boss de la semaine
+          <span className="ach-count">
+            {boss.slain
+              ? `tué ! +${boss.killStreak > 0 ? ` série ${boss.killStreak + 1}` : ' victoire'}`
+              : `${boss.damage}/${boss.maxHp} dégâts · ${boss.remaining} PV · ${boss.daysLeft}j restants`}
+          </span>
+        </summary>
+        <section className="boss-section">
+          <p className="boss-hint">
+            Chaque coche = 1 dégât. PV calibrés sur tes 4 dernières semaines (médiane) : ni trop facile, ni impossible.
+            {boss.killStreak > 0 ? ` Série de ${boss.killStreak} semaine${boss.killStreak > 1 ? 's' : ''} victorieuse${boss.killStreak > 1 ? 's' : ''} avant celle-ci — défends-la.` : ' Tue-le avant dimanche 23:59.'}
+          </p>
+          <div className="boss-hpbar" role="meter" aria-valuenow={boss.damage} aria-valuemin={0} aria-valuemax={boss.maxHp} aria-label={`Boss : ${boss.damage} dégâts sur ${boss.maxHp} PV`}>
+            <div
+              className={`boss-hpfill ${boss.slain ? 'slain' : ''}`}
+              style={{ width: `${Math.min(100, Math.round((boss.damage / Math.max(1, boss.maxHp)) * 100))}%` }}
+            />
+          </div>
+          <div className="boss-meta">
+            <span>🗡️ {boss.damage} dégâts</span>
+            <span>❤️ {boss.remaining} PV restants</span>
+            <span>⏳ {boss.daysLeft} jour{boss.daysLeft > 1 ? 's' : ''}</span>
+            {combo > 0 && (
+              <span className="boss-combo" title="Jours consécutifs avec au moins une coche — tes XP du jour sont multipliés">
+                🔥 Combo ×{comboMult} ({combo}j) · aujourd'hui {xpToday.base} XP → {xpToday.total} XP
+              </span>
+            )}
+            {shields > 0 && (
+              <span className="boss-shields" title="Jours doux (validations partielles) sur 30 jours — survivre aux mauvais jours, c'est aussi gagner">
+                🛡️ Bouclier Résilience ×{shields}
+              </span>
+            )}
+          </div>
+        </section>
+      </details>
 
       {/* ============ Évolution v2 — EN PREMIER, ouvert, + chiffres clés à droite ============ */}
       {evolution.today && (() => {

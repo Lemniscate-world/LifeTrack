@@ -117,7 +117,7 @@ describe('chaos dimensions reinit', () => {
     const { getChaosDimensions, resetStore } = await import('../store');
     resetStore();
     const dims = getChaosDimensions();
-    expect(dims.length).toBe(8);
+    expect(dims.length).toBe(9);
   });
 
   it('toggleChaosTrigger returns early on nonexistent dimension', async () => {

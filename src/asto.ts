@@ -50,6 +50,9 @@ export interface MissionProgress {
   projectedTotal: number | null;
   /** True when the mission has already reached its quota. */
   quotaReached: boolean;
+  /** Pace check (v0.7.1): 'ahead' = plus rapide que requis, 'on_track' =
+   *  dans le rythme, 'behind' = en retard sur le quota, null = pas de quota. */
+  paceStatus: 'ahead' | 'on_track' | 'behind' | null;
 }
 
 export function windowStart(m: Mission): string {
@@ -116,6 +119,19 @@ export function computeMissionProgress(m: Mission, checkIns: CheckIn[], today: s
   else if (todayI > endI) status = quotaReached ? 'done' : 'failed';
   else status = 'active';
 
+  // Pace check: compare the sessions still needed per week against what a
+  // perfectly even pace would require. Small windows (first days) are
+  // tolerant — a 3-day head start can't fairly be judged.
+  let paceStatus: 'ahead' | 'on_track' | 'behind' | null = null;
+  if (quota && status === 'active' && elapsedDays >= 3 && !quotaReached) {
+    const expectedByNow = quotaPerWeek * (elapsedDays / 7);
+    if (completedCount >= expectedByNow * 1.05) paceStatus = 'ahead';
+    else if (completedCount >= expectedByNow * 0.8) paceStatus = 'on_track';
+    else paceStatus = 'behind';
+  } else if (quota && status === 'active' && quotaReached) {
+    paceStatus = 'ahead';
+  }
+
   return {
     completedDays: doneDays.size,
     completedCount,
@@ -130,6 +146,7 @@ export function computeMissionProgress(m: Mission, checkIns: CheckIn[], today: s
     neededPerWeek,
     projectedTotal,
     quotaReached,
+    paceStatus,
   };
 }
 
@@ -297,6 +314,8 @@ export function suggestMissionsFromSky(input: SkySuggestionInput): AutoMissionSu
     const key = `aspect:${ev.bodyA}:${ev.bodyB}:${ev.kind}`;
     const start = new Date(ev.exactAt.getTime() - ASPECT_WINDOW_PAD_DAYS * 86400000);
     const end = new Date(ev.exactAt.getTime() + ASPECT_WINDOW_PAD_DAYS * 86400000);
+    // Stale window (already fully in the past) → nothing actionable.
+    if (end.getTime() < now.getTime()) continue;
     const startKey = toDateKey(start);
     const endKey = toDateKey(end);
     const overlaps = fixed.some((m) => dayIndex(m.window.startDate) <= dayIndex(endKey) && dayIndex(m.window.endDate) >= dayIndex(startKey));
@@ -323,7 +342,7 @@ export function suggestMissionsFromSky(input: SkySuggestionInput): AutoMissionSu
       quota: habitIds.length > 0 ? suggestQuota(weeklyPace(habitIds, input.checkIns, today), days) : undefined,
       source: 'aspect',
       rationale: `${a.label} ${def.label} ${b.label} — exact le ${toDateKey(ev.exactAt)}`,
-      autoCreate: false, // aspects are 1-click; transits on weak domains auto-create
+      autoCreate: false, // aspects stay 1-click; only weak-domain transits auto-create
     });
   }
 
@@ -362,12 +381,15 @@ export function suggestMissionsFromSky(input: SkySuggestionInput): AutoMissionSu
       quota: habitIds.length > 0 ? suggestQuota(weeklyPace(habitIds, input.checkIns, today), days) : undefined,
       source: 'aspect',
       rationale: `${a.label} ${def.label} ${b.label} — en orb maintenant (exact le ${toDateKey(ev.exactAt)}).`,
-      autoCreate: false, // aspects stay 1-click; transits on weak domains auto-create
+      autoCreate: false, // aspects stay 1-click; only weak-domain transits auto-create
     });
   }
 
+  // Stale transit windows (fully past) are also dropped, then the list is
+  // ranked: auto-create first, tension-aspects last, then by start date.
+  const fresh = suggestions.filter((s) => s.window.endDate >= today);
   const max = input.maxSuggestions ?? 10;
-  const ranked = suggestions.sort((x, y) => {
+  const ranked = fresh.sort((x, y) => {
     if (x.autoCreate !== y.autoCreate) return x.autoCreate ? -1 : 1;
     return x.window.startDate.localeCompare(y.window.startDate);
   });

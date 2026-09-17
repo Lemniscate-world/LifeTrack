@@ -8,6 +8,7 @@ export const DIMENSION_COLORS: Record<string, string> = {
   emotional: '#ec4899',
   energy: '#06b6d4',
   startup: '#6366f1',
+  selfesteem: '#84cc16',
 };
 
 export function getDimensionAccent(dimensionId: string): string {
