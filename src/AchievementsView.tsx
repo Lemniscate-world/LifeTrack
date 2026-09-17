@@ -54,6 +54,7 @@ import {
   phraseOfDay,
 } from './wins';
 import { computeAutoAchievements } from './autoAchievements';
+import { countAdoptedProtocols } from './preferences';
 import type { Note } from './types';
 
 export default function AchievementsView() {
@@ -133,6 +134,9 @@ export default function AchievementsView() {
         personas: data.personas,
         journalCount: data.journalEntries.length,
         emotionalClosures: (data.emotionalEvents ?? []).filter((e) => e.closureNote).length,
+        projects: data.projects ?? [],
+        experiments: data.experiments ?? [],
+        protocolsAdopted: countAdoptedProtocols(data.protocols ?? [], data.habits),
       },
     ),
     [data, xpBreakdown.total, progress.level],

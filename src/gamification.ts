@@ -7,7 +7,7 @@
 // notes, challenges) so a reload, import or rollback can never lose progress
 // and no double-bookkeeping is possible.
 
-import type { Capacity, CapacityRating, Challenge, CheckIn, Habit, Lever, Note, Persona, Skill, UrgeEntry } from './types';
+import type { Capacity, CapacityRating, Challenge, CheckIn, Experiment, Habit, Lever, Note, Persona, Project, Skill, UrgeEntry } from './types';
 import { isPartialCheckIn } from './types';
 import { moodRank } from './correlations';
 import { detectNegativePatterns } from './psychoanalysis';
@@ -188,6 +188,12 @@ export interface MedalContext {
   now?: Date;
   /** Emotional closure phrases written ("qu'est-ce que ça m'a appris ?"). */
   emotionalClosures?: number;
+  /** Projects (deliverable-driven): done count feeds medals. */
+  projects?: Project[];
+  /** N=1 experiments: completed-with-conclusion feeds medals. */
+  experiments?: Experiment[];
+  /** Knowledge protocols adopted as habits (library put into practice). */
+  protocolsAdopted?: number;
 }
 
 // --- Combos & resilience (the fun layer on top of XP) ---
@@ -361,6 +367,17 @@ export function computeMedals(
   const leverCount = (ctx.levers ?? []).length;
   const personaCount = (ctx.personas ?? []).length;
   const journalCount = ctx.journalCount ?? 0;
+  // --- Life-intelligence metrics (v0.6.3): projects, experiments, knowledge ---
+  const projectsDone = (ctx.projects ?? []).filter((p) => p.status === 'done').length;
+  const projectsActive = (ctx.projects ?? []).filter((p) => p.status === 'active').length;
+  const projectTasksDone = (ctx.projects ?? []).reduce(
+    (s, p) => s + p.tasks.filter((t) => t.done).length, 0,
+  );
+  const experimentsConcluded = (ctx.experiments ?? []).filter(
+    (e) => e.status === 'completed' && e.conclusion.trim().length > 0,
+  ).length;
+  const experimentsActive = (ctx.experiments ?? []).filter((e) => e.status === 'active').length;
+  const protocolsAdopted = ctx.protocolsAdopted ?? 0;
 
   // --- Deep metrics (v0.5.2): patterns, surf rate, mood trajectory, lever effect ---
   const patternCount = detectNegativePatterns(checkIns, notes, ctx.urges ?? []).length;
@@ -529,6 +546,20 @@ export function computeMedals(
     { id: 'boss-slay', name: 'Tueur de boss', emoji: '⚔️', description: 'Blesser à mort le boss de la semaine dernière', tier: 0, earned: lastBossSlain, progress: lastBossSlain ? 100 : 50, category: 'Résilience' },
     { id: 'ifthen-3', name: 'Stratège si-alors', emoji: '🧭', description: 'Écrire 3 plans si-alors (ils tirent 2× plus)', tier: 0, earned: ifThenCount >= 3, progress: pct(ifThenCount, 3), category: 'Résilience' },
     { id: 'closure-1', name: 'Faiseur de sens', emoji: '🕊️', description: 'Clore un épisode avec une phrase de sens', tier: 0, earned: closureCount >= 1, progress: pct(closureCount, 1), category: 'Résilience' },
+
+    // ---- Life intelligence (v0.6.3): projects, experiments, knowledge ----
+    { id: 'project-1', name: 'Bâtisseur', emoji: '🏗️', description: 'Conclure 1 projet (statut done)', tier: 0, earned: projectsDone >= 1, progress: pct(projectsDone, 1), category: 'Projets' },
+    { id: 'project-3', name: 'Sériel', emoji: '📚', description: 'Conclure 3 projets', tier: 1, earned: projectsDone >= 3, progress: pct(projectsDone, 3), category: 'Projets' },
+    { id: 'project-5', name: 'Empire building', emoji: '🌆', description: 'Conclure 5 projets', tier: 2, earned: projectsDone >= 5, progress: pct(projectsDone, 5), category: 'Projets' },
+    { id: 'project-tasks-25', name: 'Exécutant', emoji: '✅', description: '25 tâches de projet terminées', tier: 0, earned: projectTasksDone >= 25, progress: pct(projectTasksDone, 25), category: 'Projets' },
+    { id: 'project-ship', name: 'Livreur', emoji: '🚢', description: 'Avoir un projet actif avec échéance — ship it', tier: 0, earned: projectsActive >= 1 && (ctx.projects ?? []).some((p) => p.status === 'active' && !!p.deadline), progress: projectsActive >= 1 ? 60 : 0, category: 'Projets' },
+    { id: 'exp-1', name: 'Chercheur de soi', emoji: '🧪', description: 'Conclure 1 expérience N=1 avec conclusion écrite', tier: 0, earned: experimentsConcluded >= 1, progress: pct(experimentsConcluded, 1), category: 'N=1' },
+    { id: 'exp-3', name: 'Labo personnel', emoji: '🔬', description: 'Conclure 3 expériences N=1', tier: 1, earned: experimentsConcluded >= 3, progress: pct(experimentsConcluded, 3), category: 'N=1' },
+    { id: 'exp-5', name: 'Méthode scientifique', emoji: '⚗️', description: 'Conclure 5 expériences N=1', tier: 2, earned: experimentsConcluded >= 5, progress: pct(experimentsConcluded, 5), category: 'N=1' },
+    { id: 'exp-running', name: 'En expérimentation', emoji: '🫗', description: 'Garder 1 expérience active en cours', tier: 0, earned: experimentsActive >= 1, progress: experimentsActive >= 1 ? 100 : 0, category: 'N=1' },
+    { id: 'knowledge-1', name: 'Passage à l\'acte', emoji: '📖', description: 'Adopter 1 protocole de la bibliothèque en habitude', tier: 0, earned: protocolsAdopted >= 1, progress: pct(protocolsAdopted, 1), category: 'Savoir' },
+    { id: 'knowledge-5', name: 'Étudiant du corps', emoji: '🧬', description: 'Adopter 5 protocoles', tier: 1, earned: protocolsAdopted >= 5, progress: pct(protocolsAdopted, 5), category: 'Savoir' },
+    { id: 'knowledge-10', name: 'Bibliothèque vivante', emoji: '🏛️', description: 'Adopter 10 protocoles', tier: 2, earned: protocolsAdopted >= 10, progress: pct(protocolsAdopted, 10), category: 'Savoir' },
   ];
 
   return defs;

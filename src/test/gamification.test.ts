@@ -362,3 +362,80 @@ describe('combo & resilience (fun layer)', () => {
     expect(byId.get('boss-slay')!.earned).toBe(false); // no history → boss alive
   });
 });
+// --- v0.6.3: life-intelligence medals (projects / experiments / knowledge) ---
+
+import { computeMedals as cm } from '../gamification';
+import { countAdoptedProtocols } from '../preferences';
+import type { Experiment, Project, Protocol } from '../types';
+
+const proj = (id: string, status: Project['status'], tasks: { done: boolean }[] = [], deadline?: string): Project =>
+  ({
+    id,
+    name: `P-${id}`,
+    status,
+    habitIds: [],
+    tasks: tasks.map((t, i) => ({ id: `${id}-t${i}`, title: `t${i}`, done: t.done, createdAt: '2026-01-01' })),
+    createdAt: '2026-01-01',
+    deadline,
+  }) as Project;
+
+const exp = (id: string, status: Experiment['status'], conclusion = ''): Experiment =>
+  ({ id, title: id, hypothesis: '', startDate: '2026-01-01', endDate: '', linkedHabits: [], linkedMetrics: [], status, conclusion, createdAt: '2026-01-01' }) as Experiment;
+
+const proto = (id: string, suggestions: string[]): Protocol =>
+  ({ id, title: id, source: 'test', claim: '', evidenceLevel: 'B', domain: 'sleep', protocol: '', keywords: [], habitSuggestions: suggestions }) as Protocol;
+
+describe('life-intelligence medals (projects / N=1 / savoir)', () => {
+  const base = { urges: [], moods: {}, now: new Date(2026, 0, 15) };
+
+  it('earns project medals only for done projects and counts tasks', () => {
+    const medals = cm([], [], [], [], 0, 1, {
+      ...base,
+      projects: [proj('a', 'done', [{ done: true }, { done: true }]), proj('b', 'active', [{ done: false }])],
+    });
+    const byId = new Map(medals.map((m) => [m.id, m]));
+    expect(byId.get('project-1')?.earned).toBe(true);
+    expect(byId.get('project-3')?.earned).toBe(false);
+    expect(byId.get('project-3')?.progress).toBeCloseTo(33.33, 1);
+    // 2 tasks done total → 25 needed, progress 8
+    expect(byId.get('project-tasks-25')?.earned).toBe(false);
+    // active project without deadline → ship not earned
+    expect(byId.get('project-ship')?.earned).toBe(false);
+  });
+
+  it('earns ship medal for an active project with a deadline', () => {
+    const medals = cm([], [], [], [], 0, 1, {
+      ...base,
+      projects: [proj('a', 'active', [], '2026-12-01')],
+    });
+    expect(medals.find((m) => m.id === 'project-ship')?.earned).toBe(true);
+  });
+
+  it('counts only concluded experiments (completed with written conclusion)', () => {
+    const medals = cm([], [], [], [], 0, 1, {
+      ...base,
+      experiments: [exp('a', 'completed', 'Ça marchait.'), exp('b', 'completed', ''), exp('c', 'active'), exp('d', 'cancelled')],
+    });
+    const byId = new Map(medals.map((m) => [m.id, m]));
+    expect(byId.get('exp-1')?.earned).toBe(true);
+    expect(byId.get('exp-3')?.earned).toBe(false);
+    expect(byId.get('exp-3')?.progress).toBeCloseTo(33.33, 1);
+    expect(byId.get('exp-running')?.earned).toBe(true);
+  });
+
+  it('earns knowledge medals from adopted protocols', () => {
+    const habits = [{ id: 'h1', name: 'Cold Shower', archived: false }];
+    const protocols = [proto('p1', ['cold shower']), proto('p2', ['meditation'])];
+    const medals = cm([], [], [], [], 0, 1, { ...base, protocolsAdopted: countAdoptedProtocols(protocols, habits as Habit[]) });
+    const byId = new Map(medals.map((m) => [m.id, m]));
+    expect(byId.get('knowledge-1')?.earned).toBe(true);
+    expect(byId.get('knowledge-5')?.earned).toBe(false);
+  });
+
+  it('is a no-op when the context has no projects/experiments/protocols', () => {
+    const medals = cm([], [], [], [], 0, 1, base);
+    expect(medals.find((m) => m.id === 'project-1')?.earned).toBe(false);
+    expect(medals.find((m) => m.id === 'exp-1')?.earned).toBe(false);
+    expect(medals.find((m) => m.id === 'knowledge-1')?.earned).toBe(false);
+  });
+});

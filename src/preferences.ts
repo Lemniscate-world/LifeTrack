@@ -32,6 +32,24 @@ export interface PreferenceReport {
   weakDomains: ProtocolDomain[];
 }
 
+/**
+ * How many distinct knowledge protocols the user actually put into practice.
+ * A protocol counts as adopted when one of its habit suggestions matches an
+ * existing (non-archived) habit name — the same signal the ranking engine uses
+ * for `alreadyPursued`, reused here so medals and suggestions agree.
+ * Pure; used by the gamification medal engine (category "Savoir").
+ */
+export function countAdoptedProtocols(
+  protocols: Protocol[],
+  habits: Habit[],
+): number {
+  const names = habits.filter((h) => !h.archived).map((h) => h.name.toLowerCase());
+  if (names.length === 0) return 0;
+  return protocols.filter((p) =>
+    (p.habitSuggestions ?? []).some((s) => names.some((name) => name.includes(s.toLowerCase()))),
+  ).length;
+}
+
 export interface PreferenceInput {
   habits: Habit[];
   checkIns: CheckIn[];
