@@ -4142,6 +4142,10 @@ export function mergeImportedData(raw: unknown): ImportMergeResult {
   // Merge imported dims with defaults so newer dimensions (e.g. 'energy')
   // appear even when the imported backup was written by an older version.
   data.chaosDimensions = mergeChaosDimensions(data.chaosDimensions ?? []);
+  // Les backups anciens contiennent des doublons de label (ids régénérés) : on nettoie.
+  for (const dim of data.chaosDimensions) {
+    dim.triggers = dedupeChaosTriggers(dim.triggers ?? []);
+  }
 
   // --- v0.3.3: Import achievement categories (merge with defaults) ---
   const rawAchievementCats = Array.isArray((raw as Record<string, unknown>).achievementCategories)
@@ -5041,6 +5045,10 @@ export function seedWellbeingDefaults(): { outingGuard: boolean; protocol: boole
 export function addChaosTrigger(dimensionId: string, label: string, weight: number): import('./types').ChaosTrigger | null {
   const dim = data.chaosDimensions.find((d) => d.id === dimensionId);
   if (!dim) return null;
+  // Anti-doublon : un label déjà présent (casse/espaces ignorés) est retourné tel quel.
+  const wanted = normalizeTriggerLabel(label);
+  const existing = dim.triggers.find((t) => normalizeTriggerLabel(t.label) === wanted);
+  if (existing) return existing;
   const trigger: import('./types').ChaosTrigger = {
     id: crypto.randomUUID(),
     label: label.trim(),
@@ -5078,6 +5086,24 @@ export function getDefaultChaosDimensions(): ChaosDimension[] {
   return JSON.parse(JSON.stringify(DEFAULT_CHAOS));
 }
 
+// Normalise un label pour la déduplication (casse/espaces insignifiants).
+export function normalizeTriggerLabel(label: string): string {
+  return label.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+// Supprime les triggers en double (même label normalisé) en gardant le premier.
+// Les doublons naissent des réimports : la migration ci-dessous régénérait un
+// nouvel id aléatoire à chaque fois, invisible à la déduplication par id.
+export function dedupeChaosTriggers<T extends { id: string; label: string }>(triggers: T[]): T[] {
+  const seen = new Set<string>();
+  return triggers.filter((t) => {
+    const key = normalizeTriggerLabel(t.label);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 // Merge stored dimensions with the current defaults. New defaults (e.g.
 // 'emotional', 'startup') are appended for users whose data was saved by an older
 // version that didn't include them. User customisations on existing
@@ -5111,15 +5137,18 @@ export function getChaosDimensions(): ChaosDimension[] {
     }
   }
   // Migration: restore lost Startup principle "No LLM or models with 55+ Intelligence" +75% daily (manual check)
+  // Idempotente : id fixe + garde par label (l'ancien randomUUID recréait un
+  // doublon invisible à chaque passage et à chaque réimport de backup).
+  const STARTUP_NO_LLM_ID = 'startup-no-llm-55';
+  const STARTUP_NO_LLM_LABEL = 'No LLM or models with 55+ Intelligence';
   const startup = data.chaosDimensions.find((d) => d.id === 'startup');
-  if (startup && startup.triggers.length === 0) {
-    startup.triggers.push({
-      id: crypto.randomUUID(),
-      label: 'No LLM or models with 55+ Intelligence',
-      weight: 75,
-      active: false,
-    });
-    scheduleSave(data);
+  if (startup) {
+    startup.triggers = dedupeChaosTriggers(startup.triggers);
+    const wanted = normalizeTriggerLabel(STARTUP_NO_LLM_LABEL);
+    if (!startup.triggers.some((t) => normalizeTriggerLabel(t.label) === wanted)) {
+      startup.triggers.push({ id: STARTUP_NO_LLM_ID, label: STARTUP_NO_LLM_LABEL, weight: 75, active: false });
+      scheduleSave(data);
+    }
   }
   return data.chaosDimensions;
 }
